@@ -69,7 +69,6 @@ void CMonster_Orc::Move_To_Dest(float dt)
     float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
     float fSpeed = m_fSpeed * dt;
 
-    // 도착
     if (fDist <= fSpeed)
     {
         m_tIsoInfo.fWorldX = m_fDestWorldX;
@@ -85,7 +84,6 @@ void CMonster_Orc::Move_To_Dest(float dt)
     // 정규화
     float fNX = fDX / fDist;
     float fNZ = fDZ / fDist;
-
     // 이동
     m_tIsoInfo.fWorldX += fNX * fSpeed;
     m_tIsoInfo.fWorldZ += fNZ * fSpeed;

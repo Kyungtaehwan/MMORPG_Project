@@ -142,6 +142,9 @@
     <ClCompile Include="Other_Player.cpp">
       <Filter>05.Object_Manager\GameObjects\05_00.Player</Filter>
     </ClCompile>
+    <ClCompile Include="PathFinder.cpp">
+      <Filter>08.Map_Manager\PathFinder</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="01.MainApp">
@@ -300,6 +303,9 @@
     <Filter Include="06.UI_Manager\UIs\UI_LoginBox">
       <UniqueIdentifier>{c454f104-48d2-482f-a63f-194f7c063848}</UniqueIdentifier>
     </Filter>
+    <Filter Include="08.Map_Manager\PathFinder">
+      <UniqueIdentifier>{3b9bd937-1c2e-432b-8539-cbe100ee3325}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MainApp.h">
@@ -449,6 +455,9 @@
     </ClInclude>
     <ClInclude Include="Other_Player.h">
       <Filter>05.Object_Manager\GameObjects\05_00.Player</Filter>
+    </ClInclude>
+    <ClInclude Include="PathFinder.h">
+      <Filter>08.Map_Manager\PathFinder</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
