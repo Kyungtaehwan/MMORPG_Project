@@ -150,6 +150,7 @@
     <ClCompile Include="MyPng.cpp" />
     <ClCompile Include="NPC.cpp" />
     <ClCompile Include="Other_Player.cpp" />
+    <ClCompile Include="PathFinder.cpp" />
     <ClCompile Include="Player.cpp" />
     <ClCompile Include="Portal.cpp" />
     <ClCompile Include="Tile.cpp" />
@@ -205,6 +206,7 @@
     <ClInclude Include="MyPng.h" />
     <ClInclude Include="NPC.h" />
     <ClInclude Include="Other_Player.h" />
+    <ClInclude Include="PathFinder.h" />
     <ClInclude Include="Player.h" />
     <ClInclude Include="Portal.h" />
     <ClInclude Include="Protocol.h" />

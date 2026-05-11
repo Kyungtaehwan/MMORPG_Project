@@ -2,6 +2,7 @@
 #include "GameObject.h"
 #include "Inventory.h"
 #include "Equipment.h"
+#include "PathFinder.h"
 
 class CItemData_UseItem;
 
@@ -76,6 +77,9 @@ private:
     CInventory* m_pInventory = nullptr;
     CEquipment* m_pEquipment = nullptr;
 
+private:
+    std::vector<std::pair<float, float>> m_waypoints;
+    int32_t m_nCurWaypoint = 0;
 #ifdef GAME_DEBUG
 private:
     void Debug_Render(ID2D1RenderTarget* pRT);
@@ -83,10 +87,12 @@ private:
     void Debug_DrawClickPoint(ID2D1RenderTarget* pRT);
     void Debug_DrawCollider(ID2D1RenderTarget* pRT);
     void Debug_DrawText(ID2D1RenderTarget* pRT);
+    void Debug_DrawPath(ID2D1RenderTarget* pRT);
 
     int   m_iDebugTileX = 0;
     int   m_iDebugTileZ = 0;
     float m_fDebugLocalX = 0.f;
     float m_fDebugLocalZ = 0.f;
 #endif
+
 };

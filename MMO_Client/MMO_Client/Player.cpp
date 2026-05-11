@@ -389,23 +389,44 @@ void CPlayer::Key_Input(float dt)
 	// ===== 클릭 처리 =====
 	if (pInput->Key_Down(VK_LBUTTON))
 	{
-		if (!bMovable) return;  // 이동 불가면 클릭 무시
+		if (!bMovable) return;
 
-		m_fDestWorldX = fWorldX;
-		m_fDestWorldZ = fWorldZ;
+		// 시작 타일
+		int32_t nStartX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));
+		int32_t nStartZ = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldZ));
+		int32_t nEndX = static_cast<int32_t>(floorf(fWorldX));
+		int32_t nEndZ = static_cast<int32_t>(floorf(fWorldZ));
 
-		m_tClickEffect.fWorldX = fWorldX;
-		m_tClickEffect.fWorldZ = fWorldZ;
-		m_tClickEffect.fScale = 1.f;
-		m_tClickEffect.bActive = true;
-		m_tClickEffect.color = D2D1::ColorF(0.f, 1.f, 0.f, 1.f);
+		// A* 경로 계산
+		IsMovableFunc fnIsMovable = [](int32_t x, int32_t z) -> bool {
+			return CMap_Manager::Get_Instance()->Is_Movable(x, z);
+			};
 
-		m_bMoving = true;
-		CNetwork_Manager::Get_Instance()->SendMoveDest(fWorldX, fWorldZ, static_cast<uint32_t>(GetTickCount64()));
+		m_waypoints = CPathFinder::FindPath(
+			nStartX, nStartZ,
+			nEndX, nEndZ,
+			m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
+			fnIsMovable,
+			EPathMode::CornerBased);
 
-		if (m_eCurState != PLAYER_WALK)
+		// 마지막 웨이포인트를 클릭한 정확한 위치로 교체
+		if (!m_waypoints.empty())
+			m_waypoints.back() = { fWorldX, fWorldZ };
+
+		m_nCurWaypoint = 0;
+
+		if (!m_waypoints.empty())
+		{
+			m_nCurWaypoint = 0;
+			m_bMoving = true;
 			Motion_Change(PLAYER_WALK);
 
+			// 첫 웨이포인트만 전송
+			CNetwork_Manager::Get_Instance()->SendMoveDest(
+				m_waypoints[0].first,
+				m_waypoints[0].second,
+				static_cast<uint32_t>(GetTickCount64()));
+		}
 #ifdef GAME_DEBUG
 		m_iDebugTileX = (int)floorf(m_fDestWorldX);
 		m_iDebugTileZ = (int)floorf(m_fDestWorldZ);
@@ -439,22 +460,85 @@ void CPlayer::Move_To_Dest(float dt)
 {
 
 
-	float fDX = m_fDestWorldX - m_tIsoInfo.fWorldX;
-	float fDZ = m_fDestWorldZ - m_tIsoInfo.fWorldZ;
-	float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+	//float fDX = m_fDestWorldX - m_tIsoInfo.fWorldX;
+	//float fDZ = m_fDestWorldZ - m_tIsoInfo.fWorldZ;
+	//float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
 
+	//float fFrameSpeed = m_fSpeed * dt;
+
+	//if (fDist <= fFrameSpeed)
+	//{
+	//	m_tIsoInfo.fWorldX = m_fDestWorldX;
+	//	m_tIsoInfo.fWorldZ = m_fDestWorldZ;
+	//	m_bMoving = false;
+	//	Motion_Change(PLAYER_IDLE);
+
+	//	CNetwork_Manager::Get_Instance()->SendMovePos(
+	//		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
+	//		static_cast<uint32_t>(GetTickCount64()));
+	//	return;
+	//}
+
+	//float fNX = fDX / fDist;
+	//float fNZ = fDZ / fDist;
+	//m_tIsoInfo.fWorldX += fNX * fFrameSpeed;
+	//m_tIsoInfo.fWorldZ += fNZ * fFrameSpeed;
+
+	//Decide_Direction(fNX, fNZ);
+
+	//int32_t nCurTileX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));
+	//int32_t nCurTileZ = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldZ));
+
+	//if (nCurTileX != m_nLastTileX || nCurTileZ != m_nLastTileZ)
+	//{
+	//	m_nLastTileX = nCurTileX;
+	//	m_nLastTileZ = nCurTileZ;
+
+	//	CNetwork_Manager::Get_Instance()->SendMovePos(
+	//		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
+	//		static_cast<uint32_t>(GetTickCount64()));
+	//}
+	if (m_waypoints.empty() || m_nCurWaypoint >= (int32_t)m_waypoints.size())
+	{
+		m_bMoving = false;
+		Motion_Change(PLAYER_IDLE);
+		return;
+	}
+
+	float fDestX = m_waypoints[m_nCurWaypoint].first;
+	float fDestZ = m_waypoints[m_nCurWaypoint].second;
+
+	float fDX = fDestX - m_tIsoInfo.fWorldX;
+	float fDZ = fDestZ - m_tIsoInfo.fWorldZ;
+	float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
 	float fFrameSpeed = m_fSpeed * dt;
 
 	if (fDist <= fFrameSpeed)
 	{
-		m_tIsoInfo.fWorldX = m_fDestWorldX;
-		m_tIsoInfo.fWorldZ = m_fDestWorldZ;
-		m_bMoving = false;
-		Motion_Change(PLAYER_IDLE);
+		m_tIsoInfo.fWorldX = fDestX;
+		m_tIsoInfo.fWorldZ = fDestZ;
+		m_nCurWaypoint++;
 
-		CNetwork_Manager::Get_Instance()->SendMovePos(
-			m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
-			static_cast<uint32_t>(GetTickCount64()));
+		if (m_nCurWaypoint >= (int32_t)m_waypoints.size())
+		{
+			// 최종 도착
+			m_bMoving = false;
+			m_waypoints.clear();
+			m_nCurWaypoint = 0;
+			Motion_Change(PLAYER_IDLE);
+
+			CNetwork_Manager::Get_Instance()->SendMovePos(
+				m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
+				static_cast<uint32_t>(GetTickCount64()));
+		}
+		else
+		{
+			// 다음 웨이포인트로 → 서버에 전송
+			CNetwork_Manager::Get_Instance()->SendMoveDest(
+				m_waypoints[m_nCurWaypoint].first,
+				m_waypoints[m_nCurWaypoint].second,
+				static_cast<uint32_t>(GetTickCount64()));
+		}
 		return;
 	}
 
@@ -465,6 +549,7 @@ void CPlayer::Move_To_Dest(float dt)
 
 	Decide_Direction(fNX, fNZ);
 
+	// 타일 변경 시 서버 전송
 	int32_t nCurTileX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));
 	int32_t nCurTileZ = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldZ));
 
@@ -478,6 +563,8 @@ void CPlayer::Move_To_Dest(float dt)
 			static_cast<uint32_t>(GetTickCount64()));
 	}
 }
+
+
 void CPlayer::Decide_Direction(float fNX, float fNZ)
 {
 	// 이동 벡터의 각도로 8방향 결정
@@ -581,6 +668,7 @@ void CPlayer::Debug_Render(ID2D1RenderTarget* pRT)
 	Debug_DrawClickPoint(pRT);
 	Debug_DrawCollider(pRT);
 	Debug_DrawText(pRT);
+	Debug_DrawPath(pRT);  // ← 추가
 }
 
 void CPlayer::Debug_DrawClickedTile(ID2D1RenderTarget* pRT)
@@ -717,6 +805,72 @@ void CPlayer::Debug_DrawText(ID2D1RenderTarget* pRT)
 
 	pBrush->Release();
 }
+
+void CPlayer::Debug_DrawPath(ID2D1RenderTarget* pRT)
+{
+#ifdef GAME_DEBUG
+	if (m_waypoints.empty()) return;
+
+	ID2D1SolidColorBrush* pLineBrush = nullptr;
+	ID2D1SolidColorBrush* pDotBrush = nullptr;
+	ID2D1SolidColorBrush* pStartBrush = nullptr;
+
+	pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f, 0.8f), &pLineBrush);  // 초록 선
+	pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 0.f, 1.f), &pDotBrush);   // 노란 점
+	pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f, 1.f), &pStartBrush); // 빨간 현재위치
+
+	// 현재 위치
+	POINT tCur = CCamera::Get_Instance()->IsoWorldToScreen(
+		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
+
+	// 현재 위치 → 첫 웨이포인트
+	if (m_nCurWaypoint < (int32_t)m_waypoints.size())
+	{
+		POINT tFirst = CCamera::Get_Instance()->IsoWorldToScreen(
+			m_waypoints[m_nCurWaypoint].first,
+			m_waypoints[m_nCurWaypoint].second);
+
+		pRT->DrawLine(
+			D2D1::Point2F((float)tCur.x, (float)tCur.y),
+			D2D1::Point2F((float)tFirst.x, (float)tFirst.y),
+			pLineBrush, 2.f);
+	}
+
+	// 웨이포인트 간 선
+	for (int32_t i = m_nCurWaypoint; i < (int32_t)m_waypoints.size() - 1; ++i)
+	{
+		POINT tA = CCamera::Get_Instance()->IsoWorldToScreen(
+			m_waypoints[i].first, m_waypoints[i].second);
+		POINT tB = CCamera::Get_Instance()->IsoWorldToScreen(
+			m_waypoints[i + 1].first, m_waypoints[i + 1].second);
+
+		pRT->DrawLine(
+			D2D1::Point2F((float)tA.x, (float)tA.y),
+			D2D1::Point2F((float)tB.x, (float)tB.y),
+			pLineBrush, 2.f);
+	}
+
+	// 웨이포인트 점
+	for (int32_t i = m_nCurWaypoint; i < (int32_t)m_waypoints.size(); ++i)
+	{
+		POINT tW = CCamera::Get_Instance()->IsoWorldToScreen(
+			m_waypoints[i].first, m_waypoints[i].second);
+
+		// 마지막 웨이포인트는 다른 색
+		ID2D1SolidColorBrush* pBrush =
+			(i == (int32_t)m_waypoints.size() - 1) ? pStartBrush : pDotBrush;
+
+		pRT->FillEllipse(
+			D2D1::Ellipse(D2D1::Point2F((float)tW.x, (float)tW.y), 5.f, 5.f),
+			pBrush);
+	}
+
+	pLineBrush->Release();
+	pDotBrush->Release();
+	pStartBrush->Release();
+#endif
+}
+
 #endif
 
 
