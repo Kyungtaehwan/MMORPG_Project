@@ -3,6 +3,10 @@
 #include <vector>
 #include <unordered_set>
 #include <mutex>
+#include "Monster.h"
+#include "Monster_Manager.h"
+#include "Timer.h"
+#include "PathFinder.h"
 
 enum TILE_TYPE : uint8_t
 {
@@ -24,7 +28,7 @@ inline bool Is_MovableTile(TILE_TYPE eType)
     return eType == TILE_GRASS;
 }
 
-constexpr int32_t VIEW_RANGE = 3;
+constexpr int32_t VIEW_RANGE = 5;
 
 class CZone
 {
@@ -33,11 +37,11 @@ public:
         int32_t nInnerX, int32_t nInnerZ, const int* pBlockMap);
     ~CZone();
 
-    // ---- 입/퇴장 ----
+    // 입/퇴장
     void EnterZone(PlayerRef pPlayer, float fSpawnX, float fSpawnZ);
     void LeaveZone(PlayerRef pPlayer);
 
-    // ---- 이동 처리 ----
+    // 이동 처리
 
     // 마우스 클릭 시 호출 목적지 검증 + 브로드캐스트
     void OnMoveDest(PlayerRef pPlayer,
@@ -47,12 +51,39 @@ public:
     void OnMovePos(PlayerRef pPlayer,
         float fCurX, float fCurZ, uint32_t nMoveTime);
 
-    // ---- 유틸 ----
+    // 유틸
     bool IsMovable(int32_t nTileX, int32_t nTileZ) const;
     int32_t GetZoneID() { return m_nZoneID; }
 
+
+public:
+    void SpawnMonster(int32_t nID, MONSTER_TYPE eType, float fX, float fZ);
+    void OnMonsterAI(int32_t nMonsterID);
+    void UpdateMonsterView(PlayerRef pPlayer);
+
 private:
-    // ---- 시야 ----
+    // AI 상태별 함수
+    void Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ);
+    void Monster_Attack(MonsterRef pMonster);
+    void Monster_Patrol(MonsterRef pMonster);
+
+    // 헬퍼
+    PlayerRef FindNearestPlayer(MonsterRef pMonster);
+    bool      PlayerExistNear(MonsterRef pMonster);
+
+    // 패킷 전송
+    void Send_AddMonster(PlayerRef pTo, MonsterRef pMonster);
+    void Send_RemoveMonster(PlayerRef pTo, int32_t nMonsterID);
+    void Broadcast_AddMonster(MonsterRef pMonster);
+    void Broadcast_MoveMonster(MonsterRef pMonster);
+    void Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID = -1);
+
+    // 몬스터 ID 목록
+    std::unordered_set<int32_t> m_monsterIDs;
+    std::mutex                  m_monsterLock;
+
+private:
+    //시야
     std::vector<int32_t> GetNearPlayers(PlayerRef pPlayer);
     bool CanSee(PlayerRef pA, PlayerRef pB);
     void UpdateViewAndBroadcast(PlayerRef pPlayer,

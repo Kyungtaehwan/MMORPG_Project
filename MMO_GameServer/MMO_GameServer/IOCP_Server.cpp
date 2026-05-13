@@ -2,6 +2,9 @@
 #include "IOCP_Server.h"
 #include "Session_Manager.h"
 #include "Player_Manager.h"
+#include "Timer.h"
+#include "Monster_Manager.h" 
+#include "Zone_Manager.h"
 #include "Protocol.h"
 #include <iostream>
 #include <cstring>
@@ -52,6 +55,8 @@ bool CIOCP_Server::Start(uint16_t nPort)
     m_debugThread = std::thread(&CIOCP_Server::DebugConsoleThread, this);
     m_debugThread.detach();
 
+    m_timerThread = std::thread(&CIOCP_Server::TimerThread, this);
+    m_timerThread.detach();
     for (int32_t i = 0; i < nThreadCount; ++i)
         m_workerThreads.emplace_back(&CIOCP_Server::WorkerThread, this);
 
@@ -223,6 +228,23 @@ void CIOCP_Server::WorkerThread()
         CIOEvent* pIOEvent = reinterpret_cast<CIOEvent*>(pOver);
         if (pIOEvent == nullptr) continue;
 
+        if (pIOEvent->m_type == IOType::MonsterAI)
+        {
+            int32_t nMonsterID = static_cast<int32_t>(ulKey);
+
+            MonsterRef pMonster = CMonster_Manager::Get_Instance()
+                ->Get_Monster(nMonsterID);
+            if (pMonster)
+            {
+                CZone* pZone = CZone_Manager::Get_Instance()
+                    ->GetZone(pMonster->m_nZoneID);
+                if (pZone)
+                    pZone->OnMonsterAI(nMonsterID);
+            }
+
+            delete pIOEvent;
+            continue;  // 소켓 처리로 내려가지 않음
+        }
         // 로그 추가
         //std::cout << "[GQCS] bResult=" << bResult
         //    << " bytes=" << dwNumOfBytes
@@ -387,5 +409,46 @@ void CIOCP_Server::DebugConsoleThread()
             << "  대기: " << nWaiting
             << "  총 슬롯: " << (nConnected + nWaiting) << "   \n";
         std::cout << "==========================================\n";
+    }
+}
+
+void CIOCP_Server::TimerThread()
+{
+    using namespace std::chrono;
+
+    while (true)
+    {
+        // 큐가 비어있으면 잠깐 대기
+        {
+            std::unique_lock<std::mutex> lock(g_timerLock);
+            if (g_timerQueue.empty())
+            {
+                lock.unlock();
+                std::this_thread::sleep_for(milliseconds(1));
+                continue;
+            }
+
+            // 아직 시간 안됐으면 대기
+            FTimerEvent ev = g_timerQueue.top();
+            if (ev.wakeupTime > system_clock::now())
+            {
+                lock.unlock();
+                std::this_thread::sleep_for(milliseconds(1));
+                continue;
+            }
+
+            g_timerQueue.pop();
+            lock.unlock();
+
+            // Worker Thread에 넘김
+            // key = 몬스터 ID
+            // IOType::MonsterAI로 구분
+            CIOEvent* pEvent = new CIOEvent(IOType::MonsterAI);
+            PostQueuedCompletionStatus(
+                m_hIOCP,
+                0,
+                static_cast<ULONG_PTR>(ev.nID),
+                &pEvent->m_overlapped);
+        }
     }
 }

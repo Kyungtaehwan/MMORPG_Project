@@ -14,6 +14,7 @@ enum class IOType : uint8_t
     Accept,
     Recv,
     Send,
+    MonsterAI,
 };
 
 
@@ -31,10 +32,11 @@ struct CIOEvent
 
     uint8_t m_acceptBuf[(sizeof(SOCKADDR_IN) + 16) * 2] = {};
 
-    CIOEvent(IOType t) : m_type(t)
+    CIOEvent(IOType t) : m_type(t), m_owner(nullptr)
     {
         ZeroMemory(&m_overlapped, sizeof(m_overlapped));
         ZeroMemory(m_acceptBuf, sizeof(m_acceptBuf));
+
     }
 
     void Reset()
@@ -91,6 +93,8 @@ private:
 
     // accept
     CIOEvent             m_acceptEvent{ IOType::Accept };
+
+
 };
 
 using SessionRef = std::shared_ptr<CSession>;

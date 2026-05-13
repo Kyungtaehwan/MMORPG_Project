@@ -29,7 +29,6 @@ public:
     bool     m_bMoving = false;
     PLAYER_STATE m_eState = PLAYER_IDLE;
     // ---- 속도 ----
-    // 클라이언트 m_fSpeed와 반드시 동일해야 함
     float    m_fSpeed = 1.f;
 
     // ---- 타일 좌표 (시야 계산용) ----
@@ -43,6 +42,8 @@ public:
     std::unordered_set<int32_t> m_viewList;
     std::mutex                  m_viewLock;
 
+    std::unordered_set<int32_t> m_monsterViewList;
+    std::mutex                  m_monsterViewLock;
     // ---- 마지막 패킷 시간 ----
     uint32_t m_nLastMoveTime = 0;
 
