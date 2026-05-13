@@ -83,6 +83,12 @@ private:
     void Handle_SC_REMOVE_PLAYER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_MOVE_PLAYER(uint8_t* pBuffer, int32_t nSize);
 
+    // --몬스터--
+    void Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_REMOVE_MONSTER(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_MOVE_MONSTER(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_MONSTER_STATE(uint8_t* pBuffer, int32_t nSize);
+
     // ---- 송신 헬퍼 ----
     bool SendRaw(const void* pData, int32_t nSize);
 

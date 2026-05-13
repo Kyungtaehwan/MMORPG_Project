@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Zone_Manager.h"
+#include "Monster_Manager.h"
 #include <iostream>
 
 CZone_Manager* CZone_Manager::m_pInstance = nullptr;
@@ -47,6 +48,11 @@ CZone_Manager::CZone_Manager()
 
     // 나중에 존 추가
     // m_zones[ZONE_TOWN] = new CZone(ZONE_TOWN, "Town", ...);
+
+    CZone* pZone = m_zones[ZONE_TEST];
+
+    pZone->SpawnMonster(1, MONSTER_ORC, 7.f, 7.f);
+    pZone->SpawnMonster(2, MONSTER_ORC, 5.f, 25.f);
 }
 
 CZone_Manager::~CZone_Manager()

@@ -3,6 +3,8 @@
 #include "Camera.h"
 #include "Collision_Manager.h"
 #include "Other_Player.h"
+#include "Monster.h"
+#include "Monster_Orc.h"
 CObject_Manager* CObject_Manager::m_pInstance = nullptr;
 
 CObject_Manager::CObject_Manager()
@@ -105,6 +107,18 @@ CGameObject* CObject_Manager::Find_OtherPlayer(int32_t nPlayerID)
 	{
 		COther_Player* pOther = static_cast<COther_Player*>(pObj);
 		if (pOther->GetPlayerID() == nPlayerID)
+			return pObj;
+	}
+	return nullptr;
+}
+
+CGameObject* CObject_Manager::Find_Monster(int32_t nMonsterID)
+{
+	for (auto& pObj : m_ObjectList[OBJ_MONSTER])
+	{
+		// CMonster 베이스로 캐스팅 → 어떤 몬스터든 동작
+		CMonster* pMonster = static_cast<CMonster*>(pObj);
+		if (pMonster->Get_MonsterID() == nMonsterID)
 			return pObj;
 	}
 	return nullptr;

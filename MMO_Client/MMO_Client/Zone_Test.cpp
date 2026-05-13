@@ -98,10 +98,7 @@ void CZone_Test::Spawn_Objects()
     pPortal->Initialize();
     CObject_Manager::Get_Instance()->Add_Object(OBJ_PORTAL, pPortal);
 
-    CMonster_Orc* pMonster_Orc = new CMonster_Orc;
-    pMonster_Orc->Set_WorldPos(7.f, 7.f);
-    pMonster_Orc->Initialize();
-    CObject_Manager::Get_Instance()->Add_Object(OBJ_MONSTER, pMonster_Orc);
+
 }
 
 void CZone_Test::Clear_Objects()

@@ -1,6 +1,5 @@
 #pragma once
 #include "GameObject.h"
-
 class CObject_Manager
 {
 private:
@@ -18,7 +17,9 @@ public:
 		if (!List_Empty(OBJ_PLAYER))
 			return m_ObjectList[OBJ_PLAYER].front();
 	}
+
 	CGameObject* Find_OtherPlayer(int32_t nPlayerID);
+	CGameObject* Find_Monster(int32_t nMonsterID);
 
 	std::list<CGameObject*>* Get_List(OBJ_ID eID) {
 		if (!List_Empty(eID))

@@ -1,11 +1,12 @@
 #include "pch.h"
 #include "Network_Manager.h"
+#include <iostream>
 #include "Object_Manager.h"   // 다른 플레이어 오브젝트 관리
 #include "Other_Player.h"     // 다른 플레이어 렌더 객체
 #include "Player.h"           // 내 플레이어
-#include <iostream>
 #include "Level_Manager.h"
-
+#include "Monster.h"
+#include "Monster_Orc.h"
 CNetwork_Manager* CNetwork_Manager::m_pInstance = nullptr;
 
 // ================================================================
@@ -163,7 +164,25 @@ void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
             Handle_SC_MOVE_PLAYER(vData.data(), static_cast<int32_t>(vData.size()));
             });
         break;
+    case SC_ADD_MONSTER:
+        PushTask([this, vData]() mutable {
+            Handle_SC_ADD_MONSTER(vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
 
+    case SC_REMOVE_MONSTER:
+        PushTask([this, vData]() mutable {
+            Handle_SC_REMOVE_MONSTER(vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+
+    case SC_MOVE_MONSTER:
+        PushTask([this, vData]() mutable {
+            Handle_SC_MOVE_MONSTER(vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+
+    case SC_MONSTER_STATE:
+        PushTask([this, vData]() mutable {
+            Handle_SC_MONSTER_STATE(vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
     default:
         std::cout << "[Network] 알 수 없는 패킷: " << pHeader->id << std::endl;
         break;
@@ -295,6 +314,101 @@ void CNetwork_Manager::Handle_SC_MOVE_PLAYER(uint8_t* pBuffer, int32_t nSize)
         pPkt->fDestX, pPkt->fDestZ,
         pPkt->fSpeed, pPkt->moveTime);
 }
+//-몬스터
+void CNetwork_Manager::Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_ADD_MONSTER_PACKET* pPkt =
+        reinterpret_cast<SC_ADD_MONSTER_PACKET*>(pBuffer);
+
+    // 중복 방지
+    if (CObject_Manager::Get_Instance()->Find_Monster(pPkt->monsterID))
+        return;
+
+    // 몬스터 타입에 따라 생성
+    CMonster* pMonster = nullptr;
+    switch (static_cast<MONSTER_TYPE>(pPkt->monsterType))
+    {
+    case MONSTER_ORC:
+        pMonster = new CMonster_Orc;
+        break;
+    default:
+        std::cout << "[Network] 알 수 없는 몬스터 타입: "
+            << (int)pPkt->monsterType << std::endl;
+        return;
+    }
+
+    pMonster->Initialize();
+    pMonster->Set_WorldPos(pPkt->fCurX, pPkt->fCurZ);
+    pMonster->Set_MonsterID(pPkt->monsterID);
+    pMonster->Set_Speed(pPkt->fSpeed);
+
+    // 이동 중이면 목적지 세팅
+    MONSTER_STATE eState = static_cast<MONSTER_STATE>(pPkt->state);
+    if (eState == MON_WALK)
+    {
+        pMonster->Set_Dest(pPkt->fDestX, pPkt->fDestZ);
+        pMonster->Set_Moving(true);
+        pMonster->Motion_Change(MON_WALK);
+    }
+
+    CObject_Manager::Get_Instance()->Add_Object(OBJ_MONSTER, pMonster);
+
+    std::cout << "[Network] 몬스터 추가. ID=" << pPkt->monsterID
+        << " Type=" << (int)pPkt->monsterType
+        << " pos=(" << pPkt->fCurX << ", " << pPkt->fCurZ << ")"
+        << std::endl;
+}
+
+void CNetwork_Manager::Handle_SC_REMOVE_MONSTER(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_REMOVE_MONSTER_PACKET* pPkt =
+        reinterpret_cast<SC_REMOVE_MONSTER_PACKET*>(pBuffer);
+
+    CGameObject* pObj =
+        CObject_Manager::Get_Instance()->Find_Monster(pPkt->monsterID);
+    if (!pObj) return;
+
+    pObj->Set_Dead();
+
+    std::cout << "[Network] 몬스터 제거. ID=" << pPkt->monsterID << std::endl;
+}
+
+void CNetwork_Manager::Handle_SC_MOVE_MONSTER(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_MOVE_MONSTER_PACKET* pPkt =
+        reinterpret_cast<SC_MOVE_MONSTER_PACKET*>(pBuffer);
+
+    CGameObject* pObj =
+        CObject_Manager::Get_Instance()->Find_Monster(pPkt->monsterID);
+    if (!pObj) return;
+
+    // CMonster 베이스로 캐스팅 - 어떤 몬스터든 동작
+    CMonster* pMonster = static_cast<CMonster*>(pObj);
+    pMonster->OnMovePacket(
+        pPkt->fCurX, pPkt->fCurZ,
+        pPkt->fDestX, pPkt->fDestZ,
+        pPkt->fSpeed, pPkt->dir);
+}
+
+void CNetwork_Manager::Handle_SC_MONSTER_STATE(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_MONSTER_STATE_PACKET* pPkt =
+        reinterpret_cast<SC_MONSTER_STATE_PACKET*>(pBuffer);
+
+    CGameObject* pObj =
+        CObject_Manager::Get_Instance()->Find_Monster(pPkt->monsterID);
+    if (!pObj) return;
+
+    CMonster* pMonster = static_cast<CMonster*>(pObj);
+
+    // 방향 먼저 적용
+    pMonster->Set_Dir(static_cast<DIRECTION>(pPkt->dir));
+
+    pMonster->OnStatePacket(
+        static_cast<MONSTER_STATE>(pPkt->state),
+        pPkt->targetID);
+}
+
 
 // ================================================================
 //  송신 함수들
@@ -337,3 +451,4 @@ void CNetwork_Manager::SendMovePos(float fCurX, float fCurZ, uint32_t nMoveTime)
     pkt.moveTime = nMoveTime;
     SendRaw(&pkt, sizeof(pkt));
 }
+

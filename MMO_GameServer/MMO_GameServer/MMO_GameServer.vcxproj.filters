@@ -43,6 +43,15 @@
     <Filter Include="Contents_Level\03.Zone_Manager">
       <UniqueIdentifier>{68ee327a-c140-4393-8d3c-d68c53e52c2a}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Contents_Level\04.Monster_Manager">
+      <UniqueIdentifier>{0b4b9512-21f3-4258-878c-51fb74598ba5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Contents_Level\05.ServerTimer">
+      <UniqueIdentifier>{c66a01c4-ba63-4ecc-9193-9b3932db1c93}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Contents_Level\99.Util">
+      <UniqueIdentifier>{1e80875d-9037-4575-9db1-f6649f96ee0c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MainServer.cpp">
@@ -75,6 +84,18 @@
     <ClCompile Include="Zone_Manager.cpp">
       <Filter>Contents_Level\03.Zone_Manager</Filter>
     </ClCompile>
+    <ClCompile Include="Timer.cpp">
+      <Filter>Contents_Level\05.ServerTimer</Filter>
+    </ClCompile>
+    <ClCompile Include="Monster.cpp">
+      <Filter>Contents_Level\04.Monster_Manager</Filter>
+    </ClCompile>
+    <ClCompile Include="Monster_Manager.cpp">
+      <Filter>Contents_Level\04.Monster_Manager</Filter>
+    </ClCompile>
+    <ClCompile Include="PathFinder.cpp">
+      <Filter>Contents_Level\99.Util</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h">
@@ -106,6 +127,18 @@
     </ClInclude>
     <ClInclude Include="Zone_Manager.h">
       <Filter>Contents_Level\03.Zone_Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="Timer.h">
+      <Filter>Contents_Level\05.ServerTimer</Filter>
+    </ClInclude>
+    <ClInclude Include="Monster.h">
+      <Filter>Contents_Level\04.Monster_Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="Monster_Manager.h">
+      <Filter>Contents_Level\04.Monster_Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="PathFinder.h">
+      <Filter>Contents_Level\99.Util</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

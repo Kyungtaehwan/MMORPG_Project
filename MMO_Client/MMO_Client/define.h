@@ -33,6 +33,10 @@ enum ButtonID { BUTTON_LOGIN, BUTTON_EXIT, BUTTON_END };
 enum PLAYER_STATE {
 	PLAYER_IDLE, PLAYER_WALK, PLAYER_HIT, PLAYER_ATTACK, PLAYER_DEAD, PLAYER_END
 };
+
+
+
+
 enum INPUT_MODE
 {
 	INPUT_MODE_GAME,    // 게임 진행 중
@@ -57,6 +61,11 @@ enum NPC_TYPE
 	NPC_QUEST,
 	NPC_GUARD,
 	NPC_END
+};
+
+enum MONSTER_TYPE : uint8_t
+{
+	MONSTER_ORC = 0,
 };
 
 
@@ -87,6 +96,7 @@ enum TILE_TYPE : int
 
 	TILE_MAX
 };
+
 
 inline bool Is_MovableTile(TILE_TYPE eType)
 {

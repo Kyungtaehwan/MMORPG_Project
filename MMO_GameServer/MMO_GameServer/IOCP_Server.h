@@ -38,4 +38,7 @@ private:
 
     void DebugConsoleThread();
     std::thread m_debugThread;
+
+    void TimerThread();
+    std::thread m_timerThread;
 };
