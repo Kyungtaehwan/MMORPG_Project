@@ -33,13 +33,13 @@ public:
 
 
 private:
-    // 전부 HDC → ID2D1RenderTarget*
     void Render_Sprite(ID2D1RenderTarget* pRT, ID2D1Bitmap* pBitmap);
     void RenderIDLE(ID2D1RenderTarget* pRT);
     void RenderWALK(ID2D1RenderTarget* pRT);
     void RenderHIT(ID2D1RenderTarget* pRT);
     void RenderATTACK(ID2D1RenderTarget* pRT);
     void RenderDEAD(ID2D1RenderTarget* pRT);
+    void Check_AnimEnd();
     void Render_ClickEffect(ID2D1RenderTarget* pRT);
 
     void Motion_Change(PLAYER_STATE eState);
@@ -49,16 +49,26 @@ private:
     void Decide_Direction(float fNX, float fNZ);
     void Update_ClickEffect(float dt);
 
+public:
+    void Set_AttackTarget(int32_t nMonsterID) { m_nAttackTargetID = nMonsterID; }
+    void Update_AttackTarget();
 
+    void Hit();
 private:
     PLAYER_STATE m_eCurState;
     CLICK_EFFECT m_tClickEffect = {};
     float        m_fDestWorldX = 0.f;
     float        m_fDestWorldZ = 0.f;
     bool         m_bMoving = false;
-    
+   
     int32_t m_nLastTileX;
     int32_t m_nLastTileZ;
+    
+    int32_t  m_nAttackTargetID = -1;
+    float    m_fAttackRange = 1.5f;
+
+    bool m_bHit = false;
+
 
 public:
     // 아이템 관련

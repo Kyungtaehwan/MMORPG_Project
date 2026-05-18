@@ -60,7 +60,9 @@ public:
     void SpawnMonster(int32_t nID, MONSTER_TYPE eType, float fX, float fZ);
     void OnMonsterAI(int32_t nMonsterID);
     void UpdateMonsterView(PlayerRef pPlayer);
-
+    void OnPlayerAttackMonster(PlayerRef pPlayer,int32_t nMonsterID, float fPlayerX, float fPlayerZ);
+    void OnMonsterRespawn(int32_t nMonsterID);
+    void OnMonsterAttackHit(int32_t nMonsterID);
 private:
     // AI 상태별 함수
     void Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ);
@@ -72,11 +74,15 @@ private:
     bool      PlayerExistNear(MonsterRef pMonster);
 
     // 패킷 전송
+    void Broadcast_PlayerState(PlayerRef pPlayer, PLAYER_STATE eState);
+    void Broadcast_PlayerHit(PlayerRef pPlayer);
+    
     void Send_AddMonster(PlayerRef pTo, MonsterRef pMonster);
     void Send_RemoveMonster(PlayerRef pTo, int32_t nMonsterID);
     void Broadcast_AddMonster(MonsterRef pMonster);
     void Broadcast_MoveMonster(MonsterRef pMonster);
     void Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID = -1);
+    void Broadcast_MonsterHit(MonsterRef pMonster);
 
     // 몬스터 ID 목록
     std::unordered_set<int32_t> m_monsterIDs;
@@ -90,6 +96,7 @@ private:
         const std::vector<int32_t>& vOldView,
         const std::vector<int32_t>& vNewView,
         uint32_t nMoveTime);
+
 
     // ---- 패킷 전송 헬퍼 ----
     void Send_AddPlayer(PlayerRef pTo, PlayerRef pTarget);

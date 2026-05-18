@@ -39,6 +39,7 @@ int CMonster_Orc::Update(float dt)
 
     __super::Update(dt);
 
+    Check_AnimEnd();
     Update_MouseCollider();
 
     return OBJ_NOEVENT;
@@ -97,7 +98,7 @@ void CMonster_Orc::Motion_Change(MONSTER_STATE eState)
         m_tIsoInfo.fCY = 146.f;
         m_tIsoInfo.fHeight = 30.f;
         m_bLoopAnim = false;
-        Set_Frame(14, 100);
+        Set_Frame(14, 50);
         break;
 
     case MON_ATTACK_1:
@@ -105,7 +106,7 @@ void CMonster_Orc::Motion_Change(MONSTER_STATE eState)
         m_tIsoInfo.fCY = 216.f;
         m_tIsoInfo.fHeight = -5.f;
         m_bLoopAnim = false;
-        Set_Frame(14, 100);
+        Set_Frame(14, 50);
         break;
 
     case MON_HIT:
@@ -113,15 +114,15 @@ void CMonster_Orc::Motion_Change(MONSTER_STATE eState)
         m_tIsoInfo.fCY = 163.f;
         m_tIsoInfo.fHeight = 30.f;
         m_bLoopAnim = false;
-        Set_Frame(6, 80);
+        Set_Frame(6, 20);
         break;
 
     case MON_DEAD:
         m_tIsoInfo.fCX = 325.f;
         m_tIsoInfo.fCY = 206.f;
-        m_tIsoInfo.fHeight = 30.f;
+        m_tIsoInfo.fHeight = -10.f;
         m_bLoopAnim = false;
-        Set_Frame(22, 150);
+        Set_Frame(22, 50);
         break;
 
     default: break;
@@ -169,6 +170,40 @@ void CMonster_Orc::On_StatePacket(MONSTER_STATE eState, int32_t nTargetID)
 
     case MON_DEAD:
         Motion_Change(MON_DEAD);
+        break;
+
+    default: break;
+    }
+}
+
+void CMonster_Orc::Check_AnimEnd() {
+
+    if (m_bLoopAnim) return;
+    if (m_tFrame.iFrameStart < m_tFrame.iFrameEnd) return;
+
+    switch (m_eState)
+    {
+    case MON_HIT:
+        if (m_bMoving)
+            Motion_Change(MON_WALK);
+        else
+            Motion_Change(MON_IDLE);
+        break;
+    case MON_ATTACK_0:
+        if (m_bMoving)
+            Motion_Change(MON_WALK);
+        else
+            Motion_Change(MON_IDLE);
+        break;
+    case MON_ATTACK_1:
+        if (m_bMoving)
+            Motion_Change(MON_WALK);
+        else
+            Motion_Change(MON_IDLE);
+        break;
+
+    case MON_DEAD:
+        m_bDead = true;
         break;
 
     default: break;

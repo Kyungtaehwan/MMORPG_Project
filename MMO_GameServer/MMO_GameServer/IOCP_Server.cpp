@@ -245,11 +245,40 @@ void CIOCP_Server::WorkerThread()
             delete pIOEvent;
             continue;  // 소켓 처리로 내려가지 않음
         }
-        // 로그 추가
-        //std::cout << "[GQCS] bResult=" << bResult
-        //    << " bytes=" << dwNumOfBytes
-        //    << " key=" << ulKey
-        //    << " type=" << (int)pIOEvent->m_type << std::endl;
+        else if (pIOEvent->m_type == IOType::MonsterRespawn)
+        {
+            int32_t nMonsterID = static_cast<int32_t>(ulKey);
+
+            MonsterRef pMonster = CMonster_Manager::Get_Instance()
+                ->Get_Monster(nMonsterID);
+            if (pMonster)
+            {
+                CZone* pZone = CZone_Manager::Get_Instance()
+                    ->GetZone(pMonster->m_nZoneID);
+                if (pZone)
+                    pZone->OnMonsterRespawn(nMonsterID);
+            }
+
+            delete pIOEvent;
+            continue;
+        }
+        else if (pIOEvent->m_type == IOType::MonsterAttackHit)
+        {
+            int32_t nMonsterID = static_cast<int32_t>(ulKey);
+
+            MonsterRef pMonster = CMonster_Manager::Get_Instance()
+                ->Get_Monster(nMonsterID);
+            if (pMonster)
+            {
+                CZone* pZone = CZone_Manager::Get_Instance()
+                    ->GetZone(pMonster->m_nZoneID);
+                if (pZone)
+                    pZone->OnMonsterAttackHit(nMonsterID);
+            }
+
+            delete pIOEvent;
+            continue;
+        }
 
         CSession* rawSession = pIOEvent->m_owner;
         if (!rawSession) continue;
@@ -418,7 +447,6 @@ void CIOCP_Server::TimerThread()
 
     while (true)
     {
-        // 큐가 비어있으면 잠깐 대기
         {
             std::unique_lock<std::mutex> lock(g_timerLock);
             if (g_timerQueue.empty())
@@ -428,7 +456,6 @@ void CIOCP_Server::TimerThread()
                 continue;
             }
 
-            // 아직 시간 안됐으면 대기
             FTimerEvent ev = g_timerQueue.top();
             if (ev.wakeupTime > system_clock::now())
             {
@@ -440,13 +467,28 @@ void CIOCP_Server::TimerThread()
             g_timerQueue.pop();
             lock.unlock();
 
-            // Worker Thread에 넘김
-            // key = 몬스터 ID
-            // IOType::MonsterAI로 구분
-            CIOEvent* pEvent = new CIOEvent(IOType::MonsterAI);
+
+            IOType eIOType;
+            switch (ev.eType)
+            {
+            case EEventType::MonsterAI:
+                eIOType = IOType::MonsterAI;
+                break;
+            case EEventType::MonsterRespawn:
+                eIOType = IOType::MonsterRespawn;
+                break;
+            case EEventType::MonsterAttackHit:
+                eIOType = IOType::MonsterAttackHit;
+                break;
+            default:
+                eIOType = IOType::MonsterAI;
+                break;
+
+            }
+
+            CIOEvent* pEvent = new CIOEvent(eIOType);
             PostQueuedCompletionStatus(
-                m_hIOCP,
-                0,
+                m_hIOCP, 0,
                 static_cast<ULONG_PTR>(ev.nID),
                 &pEvent->m_overlapped);
         }

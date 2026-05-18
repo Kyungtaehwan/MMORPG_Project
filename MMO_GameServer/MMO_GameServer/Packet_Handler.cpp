@@ -16,6 +16,7 @@ void CPacket_Handler::Handle(std::shared_ptr<CSession> pSession,
     case CS_LOGIN:     Handle_CS_LOGIN(pSession, pBuffer, nSize); break;
     case CS_MOVE_DEST: Handle_CS_MOVE_DEST(pSession, pBuffer, nSize); break;
     case CS_MOVE_POS:  Handle_CS_MOVE_POS(pSession, pBuffer, nSize); break;
+    case CS_ATTACK_MONSTER: Handle_CS_ATTACK_MONSTER(pSession, pBuffer, nSize); break;
     default:
         std::cout << "[CPacket_Handler] 알 수 없는 패킷: "
             << pHeader->id << std::endl;
@@ -118,3 +119,25 @@ void CPacket_Handler::Send_SC_ENTER_GAME(std::shared_ptr<CSession> pSession)
     pkt.zoneID = pPlayer->m_nZoneID;
     pSession->Send(&pkt, sizeof(pkt));
 }
+
+void CPacket_Handler::Handle_CS_ATTACK_MONSTER(
+    std::shared_ptr<CSession> pSession,
+    uint8_t* pBuffer, int32_t nSize)
+{
+    if (nSize < static_cast<int32_t>(sizeof(CS_ATTACK_MONSTER_PACKET))) return;
+
+    CS_ATTACK_MONSTER_PACKET* pPkt =
+        reinterpret_cast<CS_ATTACK_MONSTER_PACKET*>(pBuffer);
+
+    PlayerRef pPlayer = CPlayer_Manager::Get_Instance()
+        ->Get_Player(pSession->GetID());
+    if (!pPlayer) return;
+
+    CZone* pZone = CZone_Manager::Get_Instance()
+        ->GetZone(pPlayer->m_nZoneID);
+    if (!pZone) return;
+
+    pZone->OnPlayerAttackMonster(pPlayer,
+        pPkt->monsterID, pPkt->fCurX, pPkt->fCurZ);
+}
+

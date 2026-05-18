@@ -15,6 +15,7 @@ enum PacketID : uint16_t
     CS_LOGIN = 1000,
     CS_MOVE_DEST = 1001,  // 마우스 클릭  목적지 전송
     CS_MOVE_POS = 1002,  // 이동 중 타일 변경 시  현재 위치 전송
+    CS_ATTACK_MONSTER = 1003,
 
     // Server → Client
     //세션, 플레이어 관련
@@ -24,13 +25,14 @@ enum PacketID : uint16_t
     SC_ADD_PLAYER = 2003,
     SC_REMOVE_PLAYER = 2004,
     SC_MOVE_PLAYER = 2005,  // 목적지 + 현재위치 포함 (보간용)
-
+    SC_PLAYER_STATE = 2006,
+    SC_PLAYER_HIT = 2007,
     //몬스터 용
     SC_ADD_MONSTER = 2100,
     SC_REMOVE_MONSTER = 2101,
     SC_MOVE_MONSTER = 2102,
     SC_MONSTER_STATE = 2103,
-
+    SC_MONSTER_HIT = 2104,
 };
 
 // ---- C→S ----
@@ -159,4 +161,35 @@ struct SC_MONSTER_STATE_PACKET
     int32_t       targetID;
 };
 
+struct CS_ATTACK_MONSTER_PACKET
+{
+    PacketHeader header;
+    int32_t      monsterID;
+    float        fCurX;
+    float        fCurZ;
+};
+
+struct SC_PLAYER_STATE_PACKET
+{
+    PacketHeader header;
+    uint32_t     playerID;
+    uint8_t      state;
+};
+
+struct SC_PLAYER_HIT_PACKET
+{
+    PacketHeader header;
+    uint32_t     playerID;
+    int32_t      nHp;
+    int32_t      nMaxHp;
+};
+
+struct SC_MONSTER_HIT_PACKET
+{
+    PacketHeader header;
+    int32_t      monsterID;
+    int32_t      nHp;
+    int32_t      nMaxHp;
+    uint8_t      dir;
+};
 #pragma pack(pop)

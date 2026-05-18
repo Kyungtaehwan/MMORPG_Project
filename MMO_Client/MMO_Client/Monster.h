@@ -119,6 +119,8 @@ public:
 
     void          Set_MonsterName(const TCHAR* pName) { lstrcpy(m_szName, pName); }
     MONSTER_STATE Get_MonsterState()             const { return m_eState; }
+    float   Get_WorldX()     const { return m_tIsoInfo.fWorldX; }
+    float   Get_WorldZ()     const { return m_tIsoInfo.fWorldZ; }
 
 protected:
     void Render_Sprite(ID2D1RenderTarget* pRT, ID2D1Bitmap* pBitmap);

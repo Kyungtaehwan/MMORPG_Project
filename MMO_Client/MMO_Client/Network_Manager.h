@@ -60,7 +60,7 @@ public:
     void SendLogin(const char* pszID, const char* pszPW);
     void SendMoveDest(float fDestX, float fDestZ, uint32_t nMoveTime);
     void SendMovePos(float fCurX, float fCurZ, uint32_t nMoveTime);
-
+    void SendAttackMonster(int32_t nMonsterID, float fCurX, float fCurZ);
     // ---- 메인 스레드에서 매 프레임 호출 ----
     // 큐에 쌓인 패킷 핸들러를 전부 처리
     void Dispatch();
@@ -82,9 +82,15 @@ private:
     void Handle_SC_ADD_PLAYER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_REMOVE_PLAYER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_MOVE_PLAYER(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_PLAYER_STATE(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize);
+public:
+    
 
+private:
     // --몬스터--
     void Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_MONSTER_HIT(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_REMOVE_MONSTER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_MOVE_MONSTER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_MONSTER_STATE(uint8_t* pBuffer, int32_t nSize);

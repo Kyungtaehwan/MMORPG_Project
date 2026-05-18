@@ -55,14 +55,21 @@ public:
     int32_t  m_nTileZ = 0;
 
     // ---- 스탯 ----
-    int32_t  m_nHp = 100;
-    int32_t  m_nMaxHp = 100;
-    int32_t  m_nAtk = 10;
-    float    m_fAtkRange = 1.0f;   // 공격 범위a
-    float    m_fAggroRange = 3.f;    // 어그로 시작 범위
-    float    m_fDeAggroRange = 4.f;   // 어그로 해제 범위
-    uint32_t m_nLastAtkTime = 0;    // 마지막 공격 시간
-    uint32_t m_nAtkCoolMs = 2000; // 공격 쿨타임 (ms)
+    int32_t             m_nHp = 100;
+    int32_t             m_nMaxHp = 100;
+    int32_t             m_nAtk = 10;
+    float               m_fAtkRange = 1.0f;   // 공격 범위a
+    float               m_fAggroRange = 3.f;    // 어그로 시작 범위
+    float               m_fDeAggroRange = 4.f;   // 어그로 해제 범위
+    uint32_t            m_nLastAtkTime = 0;    // 마지막 공격 시간
+    uint32_t            m_nAtkCoolMs = 2000; // 공격 쿨타임 (ms)
+    uint32_t            m_nHitStunEndTime = 100; //스턴 시간
+
+    uint32_t m_nAtkHitDelayMs_0 = 350;
+    uint32_t m_nAtkHitDelayMs_1 = 400;
+
+    int32_t  m_nPendingHitTargetID = -1;  // 타격 대기 중인 타겟
+
     // ---- AI ----
     int32_t            m_nTargetID = -1;
     std::atomic<bool>  m_bActive{ false };
