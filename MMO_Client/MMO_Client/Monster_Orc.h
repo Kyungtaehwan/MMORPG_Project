@@ -24,7 +24,7 @@ private:
     void Move_To_Dest(float dt);
     void Decide_Direction(float fNX, float fNZ);
     void Update_MouseCollider();
-
+    void Check_AnimEnd();
 #ifdef GAME_DEBUG
     void Debug_Render(ID2D1RenderTarget* pRT);
     void Debug_DrawCollider(ID2D1RenderTarget* pRT);

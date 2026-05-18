@@ -38,6 +38,7 @@ public:
 
 	void		DeleteID(OBJ_ID eID);
 
+	CGameObject* Pick_Monster(POINT tMouse);
 private:
 
 	std::list<CGameObject*>		m_ObjectList[OBJ_END];

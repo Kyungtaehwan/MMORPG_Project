@@ -455,6 +455,7 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
             MonsterRef pMonster = CMonster_Manager::Get_Instance()
                 ->Get_Monster(nID);
             if (!pMonster) continue;
+            if (pMonster->IsDead()) continue;
 
             // 논리 좌표계 기준 타일 거리
             int32_t nDX = abs(pPlayer->m_nTileX - pMonster->m_nTileX);
@@ -519,6 +520,23 @@ void CZone::OnMonsterAI(int32_t nMonsterID)
     if (!pMonster || pMonster->IsDead()) return;
 
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
+
+    if (pMonster->m_eState == MON_HIT)
+    {
+        if (nNow < pMonster->m_nHitStunEndTime)
+        {
+            // 아직 경직 중 → AI 스킵 + 다음 틱 예약
+            AddTimer(nMonsterID, EEventType::MonsterAI, 500);
+            return;
+        }
+        else
+        {
+            // 경직 종료 → IDLE 복귀
+            pMonster->m_eState = MON_IDLE;
+            pMonster->m_nHitStunEndTime = 0;
+            Broadcast_MonsterState(pMonster);
+        }
+    }
 
     if (!PlayerExistNear(pMonster))
     {
@@ -748,36 +766,41 @@ void CZone::Monster_Attack(MonsterRef pMonster)
 {
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
-    // 쿨타임 체크
     if (nNow - pMonster->m_nLastAtkTime < pMonster->m_nAtkCoolMs)
         return;
 
-    // 공격 시 타겟 방향 계산
     PlayerRef pTarget = CPlayer_Manager::Get_Instance()
         ->Get_Player(pMonster->m_nTargetID);
-    if (pTarget)
-    {
-        float fPlayerX, fPlayerZ;
-        pTarget->GetCurrentPos(nNow, fPlayerX, fPlayerZ);
+    if (!pTarget) return;
 
-        float fDX = fPlayerX - pMonster->m_fCurX;
-        float fDZ = fPlayerZ - pMonster->m_fCurZ;
-        float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+    // 방향 계산
+    float fPlayerX, fPlayerZ;
+    pTarget->GetCurrentPos(nNow, fPlayerX, fPlayerZ);
+    float fDX = fPlayerX - pMonster->m_fCurX;
+    float fDZ = fPlayerZ - pMonster->m_fCurZ;
+    float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+    if (fDist > 0.001f)
+        pMonster->m_eDir = pMonster->CalcDirection(fDX / fDist, fDZ / fDist);
 
-        if (fDist > 0.001f)
-            pMonster->m_eDir = pMonster->CalcDirection(fDX / fDist, fDZ / fDist);
-    }
-
-    // 이전 공격 상태 리셋 후 재공격
     if (pMonster->m_eState == MON_ATTACK_0 || pMonster->m_eState == MON_ATTACK_1)
         pMonster->m_eState = MON_IDLE;
 
-    pMonster->m_eState = (rand() % 2 == 0) ? MON_ATTACK_0 : MON_ATTACK_1;
+    // 공격 모션 결정
+    MONSTER_STATE eAtkState = (rand() % 2 == 0) ? MON_ATTACK_0 : MON_ATTACK_1;
+    pMonster->m_eState = eAtkState;
     pMonster->m_nLastAtkTime = nNow;
 
-    // TODO: 플레이어 HP 감소
-
+    // ---- 1. 공격 모션 즉시 전송 ----
     Broadcast_MonsterState(pMonster, pMonster->m_nTargetID);
+
+    // ---- 2. 타격은 딜레이 후 전송 ----
+    pMonster->m_nPendingHitTargetID = pMonster->m_nTargetID;
+
+    uint32_t nHitDelay = (eAtkState == MON_ATTACK_0)
+        ? pMonster->m_nAtkHitDelayMs_0
+        : pMonster->m_nAtkHitDelayMs_1;
+
+    AddTimer(pMonster->m_nMonsterID, EEventType::MonsterAttackHit, nHitDelay);
 }
 
 // ================================================================
@@ -976,6 +999,243 @@ void CZone::Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID)
     pkt.state = static_cast<uint8_t>(pMonster->m_eState);
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     pkt.targetID = nTargetID;
+
+    std::lock_guard<std::mutex> lock(m_zoneLock);
+    for (int32_t nID : m_playerIDs)
+    {
+        PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
+        if (!pPlayer) continue;
+
+        {
+            std::lock_guard<std::mutex> vlock(pPlayer->m_monsterViewLock);
+            if (pPlayer->m_monsterViewList.count(pMonster->m_nMonsterID) == 0)
+                continue;
+        }
+
+        auto pSession = CSession_Manager::Get_Instance()
+            ->Get_Session(pPlayer->m_nSessionID);
+        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+    }
+}
+
+void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
+    int32_t nMonsterID, float fPlayerX, float fPlayerZ)
+{
+    MonsterRef pMonster = CMonster_Manager::Get_Instance()
+        ->Get_Monster(nMonsterID);
+    if (!pMonster || pMonster->IsDead()) return;
+
+    // 경직 중인 몬스터도 추가 피격 가능 (HIT 중첩)
+    // 단 사망한 몬스터는 불가 (위에서 체크)
+
+    // ---- 거리 검증 ----
+    // 클라이언트 공격 범위(1.5f)의 2배로 넉넉하게 허용
+    constexpr float PLAYER_ATK_TOLERANCE = 3.f;
+
+    float fDX = fPlayerX - pMonster->m_fCurX;
+    float fDZ = fPlayerZ - pMonster->m_fCurZ;
+    float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+
+    if (fDist > PLAYER_ATK_TOLERANCE)
+    {
+        std::cout << "[경고] 공격 거리 초과. PlayerID="
+            << pPlayer->m_nPlayerID
+            << " 거리=" << fDist << std::endl;
+        return;
+    }
+
+    // ---- 공격자 모션 브로드캐스트 ----
+    // viewList 내 다른 플레이어들에게 공격 모션 전송
+    Broadcast_PlayerState(pPlayer, PLAYER_ATTACK);
+
+    // ---- HP 감소 ----
+    constexpr int32_t PLAYER_ATK = 20;
+    pMonster->m_nHp -= PLAYER_ATK;
+
+    std::cout << "[Zone] 몬스터 피격. ID=" << nMonsterID
+        << " HP=" << pMonster->m_nHp
+        << "/" << pMonster->m_nMaxHp << std::endl;
+
+    // ---- 사망 처리 ----
+    if (pMonster->m_nHp <= 0)
+    {
+        pMonster->m_nHp = 0;
+        pMonster->m_eState = MON_DEAD;
+        pMonster->m_bActive = false;
+        pMonster->m_nHitStunEndTime = 0;
+
+        Broadcast_MonsterState(pMonster);
+
+        AddTimer(nMonsterID, EEventType::MonsterRespawn, 5000);
+
+        std::cout << "[Zone] 몬스터 사망. ID=" << nMonsterID << std::endl;
+        return;
+    }
+
+    // ---- 피격 처리 ----
+    // 몬스터가 공격자 방향 바라봄
+    float fLen = sqrtf(fDX * fDX + fDZ * fDZ);
+    if (fLen > 0.001f)
+        pMonster->m_eDir = pMonster->CalcDirection(fDX / fLen, fDZ / fLen);
+
+    pMonster->m_eState = MON_HIT;
+
+    // 경직 시간 세팅 (HIT 애니메이션 = 7프레임 × 80ms = 560ms → 600ms)
+    uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
+    pMonster->m_nHitStunEndTime = nNow + 600;
+
+    // 피격 패킷 브로드캐스트
+    Broadcast_MonsterHit(pMonster);
+}
+
+void CZone::OnMonsterRespawn(int32_t nMonsterID)
+{
+    MonsterRef pMonster = CMonster_Manager::Get_Instance()
+        ->Get_Monster(nMonsterID);
+    if (!pMonster) return;
+
+    pMonster->m_nHp = pMonster->m_nMaxHp;
+    pMonster->m_eState = MON_IDLE;
+    pMonster->m_eDir = MON_DIR_B;
+    pMonster->m_fCurX = pMonster->m_fSpawnX;
+    pMonster->m_fCurZ = pMonster->m_fSpawnZ;
+    pMonster->m_fDestX = pMonster->m_fSpawnX;
+    pMonster->m_fDestZ = pMonster->m_fSpawnZ;
+    pMonster->m_nTargetID = -1;
+    pMonster->m_nLastAtkTime = 0;
+    pMonster->m_nHitStunEndTime = 0;
+    pMonster->m_bActive = false;
+    pMonster->UpdateTilePos();
+
+    std::cout << "[Zone] 몬스터 리스폰. ID=" << nMonsterID << std::endl;
+
+    bool bActivated = false;  // AI 중복 활성화 방지
+
+    std::lock_guard<std::mutex> lock(m_zoneLock);
+    for (int32_t nPlayerID : m_playerIDs)
+    {
+        PlayerRef pPlayer = CPlayer_Manager::Get_Instance()
+            ->Get_Player(nPlayerID);
+        if (!pPlayer) continue;
+
+        int32_t nDX = abs(pPlayer->m_nTileX - pMonster->m_nTileX);
+        int32_t nDZ = abs(pPlayer->m_nTileZ - pMonster->m_nTileZ);
+        if (nDX > VIEW_RANGE || nDZ > VIEW_RANGE) continue;
+
+        {
+            std::lock_guard<std::mutex> vlock(pPlayer->m_monsterViewLock);
+            pPlayer->m_monsterViewList.insert(nMonsterID);
+        }
+
+        Send_AddMonster(pPlayer, pMonster);
+
+        // ← 시야 내 플레이어가 있으면 AI 활성화 (한 번만)
+        if (!bActivated)
+        {
+            bool expected = false;
+            if (pMonster->m_bActive.compare_exchange_strong(expected, true))
+            {
+                AddTimer(nMonsterID, EEventType::MonsterAI, 500);
+                bActivated = true;
+            }
+        }
+    }
+}
+
+void CZone::OnMonsterAttackHit(int32_t nMonsterID)
+{
+    MonsterRef pMonster = CMonster_Manager::Get_Instance()
+        ->Get_Monster(nMonsterID);
+    if (!pMonster || pMonster->IsDead()) return;
+
+    // 타격 대기 타겟 없으면 스킵 (공격 취소된 경우)
+    if (pMonster->m_nPendingHitTargetID == -1) return;
+
+    PlayerRef pTarget = CPlayer_Manager::Get_Instance()
+        ->Get_Player(pMonster->m_nPendingHitTargetID);
+    pMonster->m_nPendingHitTargetID = -1;
+
+    if (!pTarget) return;
+
+    // 실제 거리 재확인 (도망갔을 수도 있음)
+    uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
+    float fPlayerX, fPlayerZ;
+    pTarget->GetCurrentPos(nNow, fPlayerX, fPlayerZ);
+    float fDX = fPlayerX - pMonster->m_fCurX;
+    float fDZ = fPlayerZ - pMonster->m_fCurZ;
+    float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+
+    // 타격 범위를 조금 넉넉하게 (공격 범위 × 2)
+    if (fDist > pMonster->m_fAtkRange * 2.f) return;
+
+    // HP 감소 + 피격 패킷
+    constexpr int32_t MONSTER_ATK = 10;
+    pTarget->m_iHp -= MONSTER_ATK;
+    if (pTarget->m_iHp < 0) pTarget->m_iHp = 0;
+
+    Broadcast_PlayerHit(pTarget);
+
+    std::cout << "[Zone] 몬스터 타격 적용. 몬스터ID=" << nMonsterID
+        << " 플레이어ID=" << pTarget->m_nPlayerID
+        << " HP=" << pTarget->m_iHp << std::endl;
+}
+
+void CZone::Broadcast_PlayerState(PlayerRef pPlayer, PLAYER_STATE eState)
+{
+    SC_PLAYER_STATE_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_PLAYER_STATE;
+    pkt.playerID = pPlayer->m_nPlayerID;
+    pkt.state = static_cast<uint8_t>(eState);
+
+    std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
+    for (int32_t nNearID : pPlayer->m_viewList)
+    {
+        PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
+        if (!pNear) continue;
+
+        auto pSession = CSession_Manager::Get_Instance()
+            ->Get_Session(pNear->m_nSessionID);
+        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+    }
+}
+
+void CZone::Broadcast_PlayerHit(PlayerRef pPlayer)
+{
+    SC_PLAYER_HIT_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_PLAYER_HIT;
+    pkt.playerID = pPlayer->m_nPlayerID;
+    pkt.nHp = pPlayer->m_iHp;
+    pkt.nMaxHp = pPlayer->m_iMaxHp;
+
+    // 피격 당사자에게
+    auto pSession = CSession_Manager::Get_Instance()
+        ->Get_Session(pPlayer->m_nSessionID);
+    if (pSession) pSession->Send(&pkt, sizeof(pkt));
+
+    // viewList 내 다른 플레이어들에게
+    std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
+    for (int32_t nNearID : pPlayer->m_viewList)
+    {
+        PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
+        if (!pNear) continue;
+
+        auto pNearSession = CSession_Manager::Get_Instance()
+            ->Get_Session(pNear->m_nSessionID);
+        if (pNearSession) pNearSession->Send(&pkt, sizeof(pkt));
+    }
+}
+
+void CZone::Broadcast_MonsterHit(MonsterRef pMonster)
+{
+    SC_MONSTER_HIT_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_MONSTER_HIT;
+    pkt.monsterID = pMonster->m_nMonsterID;
+    pkt.nHp = pMonster->m_nHp;
+    pkt.nMaxHp = pMonster->m_nMaxHp;
+    pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
 
     std::lock_guard<std::mutex> lock(m_zoneLock);
     for (int32_t nID : m_playerIDs)

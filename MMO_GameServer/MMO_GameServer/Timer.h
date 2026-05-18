@@ -8,6 +8,8 @@
 enum class EEventType : uint8_t
 {
     MonsterAI = 0,
+    MonsterRespawn = 1,
+    MonsterAttackHit = 2,
 };
 
 struct FTimerEvent

@@ -164,6 +164,11 @@ void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
             Handle_SC_MOVE_PLAYER(vData.data(), static_cast<int32_t>(vData.size()));
             });
         break;
+    case SC_PLAYER_HIT:
+        PushTask([this, vData]() mutable {
+            Handle_SC_PLAYER_HIT(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
     case SC_ADD_MONSTER:
         PushTask([this, vData]() mutable {
             Handle_SC_ADD_MONSTER(vData.data(), static_cast<int32_t>(vData.size()));
@@ -182,6 +187,17 @@ void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
     case SC_MONSTER_STATE:
         PushTask([this, vData]() mutable {
             Handle_SC_MONSTER_STATE(vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+    case SC_PLAYER_STATE:
+        PushTask([this, vData]() mutable {
+            Handle_SC_PLAYER_STATE(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+
+    case SC_MONSTER_HIT:
+        PushTask([this, vData]() mutable {
+            Handle_SC_MONSTER_HIT(
+                vData.data(), static_cast<int32_t>(vData.size()));
             }); break;
     default:
         std::cout << "[Network] 알 수 없는 패킷: " << pHeader->id << std::endl;
@@ -452,3 +468,93 @@ void CNetwork_Manager::SendMovePos(float fCurX, float fCurZ, uint32_t nMoveTime)
     SendRaw(&pkt, sizeof(pkt));
 }
 
+void CNetwork_Manager::SendAttackMonster(
+    int32_t nMonsterID, float fCurX, float fCurZ)
+{
+    CS_ATTACK_MONSTER_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_ATTACK_MONSTER;
+    pkt.monsterID = nMonsterID;
+    pkt.fCurX = fCurX;
+    pkt.fCurZ = fCurZ;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+// 다른 플레이어 공격 모션 수신
+void CNetwork_Manager::Handle_SC_PLAYER_STATE(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_PLAYER_STATE_PACKET* pPkt =
+        reinterpret_cast<SC_PLAYER_STATE_PACKET*>(pBuffer);
+
+    // 내 플레이어는 로컬에서 이미 처리
+    if (pPkt->playerID == m_nMyPlayerID) return;
+
+    CGameObject* pObj =
+        CObject_Manager::Get_Instance()->Find_OtherPlayer(pPkt->playerID);
+    if (!pObj) return;
+
+    COther_Player* pOther = static_cast<COther_Player*>(pObj);
+    PLAYER_STATE eTempState = (PLAYER_STATE)pPkt->state;
+    switch (eTempState) {
+    case PLAYER_ATTACK:
+        pOther->OnAttackPacket();
+        break;
+    case PLAYER_HIT:
+        break;
+    case PLAYER_DEAD:
+        break;
+
+    default:
+        break;
+
+    }
+}
+
+void CNetwork_Manager::Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_PLAYER_HIT_PACKET* pPkt =
+        reinterpret_cast<SC_PLAYER_HIT_PACKET*>(pBuffer);
+
+    if (pPkt->playerID == m_nMyPlayerID)
+    {
+        // 내 플레이어 피격
+        CPlayer* pPlayer = dynamic_cast<CPlayer*>(CObject_Manager::Get_Instance()->Get_Player());
+        if (!pPlayer) return;
+
+        pPlayer->Set_Hp(pPkt->nHp);
+        pPlayer->Hit();
+    }
+    else
+    {
+        // 다른 플레이어 피격
+        CGameObject* pObj =
+            CObject_Manager::Get_Instance()->Find_OtherPlayer(pPkt->playerID);
+        if (!pObj) return;
+
+        COther_Player* pOther = static_cast<COther_Player*>(pObj);
+        pOther->OnHitPacket(pPkt->nHp);
+    }
+}
+
+// 몬스터 피격 수신
+void CNetwork_Manager::Handle_SC_MONSTER_HIT(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_MONSTER_HIT_PACKET* pPkt =
+        reinterpret_cast<SC_MONSTER_HIT_PACKET*>(pBuffer);
+
+    CGameObject* pObj =
+        CObject_Manager::Get_Instance()->Find_Monster(pPkt->monsterID);
+    if (!pObj) return;
+
+    CMonster* pMonster = static_cast<CMonster*>(pObj);
+
+    // HP 갱신
+    pMonster->Set_Hp(pPkt->nHp);
+   // pMonster->Set_MaxHp(pPkt->nMaxHp);
+
+    // 방향 적용
+    pMonster->Set_Dir(static_cast<DIRECTION>(pPkt->dir));
+
+    // 피격 상태 적용
+    pMonster->OnStatePacket(MON_HIT, -1);
+}

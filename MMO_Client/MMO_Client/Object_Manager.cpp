@@ -116,7 +116,6 @@ CGameObject* CObject_Manager::Find_Monster(int32_t nMonsterID)
 {
 	for (auto& pObj : m_ObjectList[OBJ_MONSTER])
 	{
-		// CMonster 베이스로 캐스팅 → 어떤 몬스터든 동작
 		CMonster* pMonster = static_cast<CMonster*>(pObj);
 		if (pMonster->Get_MonsterID() == nMonsterID)
 			return pObj;
@@ -140,4 +139,15 @@ void CObject_Manager::DeleteID(OBJ_ID eID)
 		Safe_Delete(iter);
 
 	m_ObjectList[eID].clear();
+}
+
+CGameObject* CObject_Manager::Pick_Monster(POINT tMouse)
+{
+	for (auto& pObj : m_ObjectList[OBJ_MONSTER])
+	{
+		CMonster* pMonster = static_cast<CMonster*>(pObj);
+		if (pMonster->Is_MouseCollide(tMouse))
+			return pObj;
+	}
+	return nullptr;
 }

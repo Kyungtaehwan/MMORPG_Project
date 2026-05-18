@@ -30,6 +30,10 @@ public:
     PLAYER_STATE m_eState = PLAYER_IDLE;
     // ---- 속도 ----
     float    m_fSpeed = 1.f;
+    // ---- 전투 -----
+    uint32_t      m_iHp;
+    uint32_t      m_iMaxHp;
+
 
     // ---- 타일 좌표 (시야 계산용) ----
     int32_t  m_nTileX = 0;

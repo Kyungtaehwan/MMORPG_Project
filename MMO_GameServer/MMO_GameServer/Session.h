@@ -15,6 +15,8 @@ enum class IOType : uint8_t
     Recv,
     Send,
     MonsterAI,
+    MonsterRespawn,
+    MonsterAttackHit
 };
 
 

@@ -58,6 +58,7 @@ void COther_Player::Render(ID2D1RenderTarget* pRT)
     {
     case PLAYER_IDLE:   RenderIDLE(pRT);   break;
     case PLAYER_WALK:   RenderWALK(pRT);   break;
+    case PLAYER_ATTACK: RenderATTACK(pRT); break;
     case PLAYER_HIT:    RenderHIT(pRT);    break;
     case PLAYER_DEAD:   RenderDEAD(pRT);   break;
     default: break;
@@ -118,17 +119,75 @@ void COther_Player::OnMovePosPacket(float fCurX, float fCurZ,
     // 작은 오차는 보간으로 자연스럽게 수렴
 }
 
-void COther_Player::SetDeadState()
-{
-    m_eCurState = PLAYER_DEAD;
-    m_tIsoInfo.fCX = 160.f;
-    m_tIsoInfo.fCY = 160.f;
-    m_tIsoInfo.fHeight = 30.f;
-    m_bLoopAnim = false;
-    m_bMoving = false;
 
-    Set_Frame(23, 70);
-    m_tFrame.iFrameStart = m_tFrame.iFrameEnd;
+void COther_Player::OnAttackPacket()
+{
+    Motion_Change(PLAYER_ATTACK);
+    m_bMoving = false;
+}
+
+void COther_Player::OnHitPacket(int32_t iHp)
+{
+    Motion_Change(PLAYER_HIT);
+    m_iHp = iHp;
+}
+
+// ================================================================
+//  렌더링
+// ================================================================
+
+
+void COther_Player::RenderIDLE(ID2D1RenderTarget* pRT)
+{
+    ID2D1Bitmap* pBitmap = nullptr;
+    switch (m_eDir)
+    {
+    case DIR_B:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_B");  break;
+    case DIR_LB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_LB"); break;
+    case DIR_L:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_L");  break;
+    case DIR_LT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_LT"); break;
+    case DIR_T:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_T");  break;
+    case DIR_RT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_RT"); break;
+    case DIR_R:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_R");  break;
+    case DIR_RB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_RB"); break;
+    default: break;
+    }
+    Render_Sprite(pRT, pBitmap);
+}
+
+void COther_Player::RenderWALK(ID2D1RenderTarget* pRT)
+{
+    ID2D1Bitmap* pBitmap = nullptr;
+    switch (m_eDir)
+    {
+    case DIR_B:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_B");  break;
+    case DIR_LB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_LB"); break;
+    case DIR_L:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_L");  break;
+    case DIR_LT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_LT"); break;
+    case DIR_T:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_T");  break;
+    case DIR_RT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_RT"); break;
+    case DIR_R:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_R");  break;
+    case DIR_RB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_RB"); break;
+    default: break;
+    }
+    Render_Sprite(pRT, pBitmap);
+}
+
+void COther_Player::RenderATTACK(ID2D1RenderTarget* pRT) {
+    ID2D1Bitmap* pBitmap = nullptr;
+    switch (m_eDir)
+    {
+    case DIR_B:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_B");  break;
+    case DIR_LB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_LB"); break;
+    case DIR_L:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_L");  break;
+    case DIR_LT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_LT"); break;
+    case DIR_T:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_T");  break;
+    case DIR_RT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_RT"); break;
+    case DIR_R:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_R");  break;
+    case DIR_RB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_ATTACK_RB"); break;
+    default: break;
+    }
+    Render_Sprite(pRT, pBitmap);
 }
 
 void COther_Player::RenderHIT(ID2D1RenderTarget* pRT)
@@ -166,110 +225,7 @@ void COther_Player::RenderDEAD(ID2D1RenderTarget* pRT)
     }
     Render_Sprite(pRT, pBitmap);
 }
-// ================================================================
-//  이동
-// ================================================================
-void COther_Player::Move_To_Dest(float dt)
-{
-    float fDX = m_fDestX - m_tIsoInfo.fWorldX;
-    float fDZ = m_fDestZ - m_tIsoInfo.fWorldZ;
-    float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
-    float fFrameSpeed = m_fSpeed * dt;
 
-    if (fDist <= fFrameSpeed)
-    {
-        m_tIsoInfo.fWorldX = m_fDestX;
-        m_tIsoInfo.fWorldZ = m_fDestZ;
-        m_bMoving = false;
-        Motion_Change(PLAYER_IDLE);
-        return;
-    }
-
-    float fNX = fDX / fDist;
-    float fNZ = fDZ / fDist;
-    m_tIsoInfo.fWorldX += fNX * fFrameSpeed;
-    m_tIsoInfo.fWorldZ += fNZ * fFrameSpeed;
-
-    Decide_Direction(fNX, fNZ);
-}
-
-void COther_Player::Decide_Direction(float fNX, float fNZ)
-{
-    float fScreenDX = (fNX - fNZ) * TILE_HALF_W;
-    float fScreenDY = (fNX + fNZ) * TILE_HALF_H;
-    float fAngle = atan2f(fScreenDY, fScreenDX) * 180.f / 3.14159f;
-
-    DIRECTION eNewDir = m_eDir;
-
-    if (fAngle >= -22.5f && fAngle < 22.5f)  eNewDir = DIR_R;
-    else if (fAngle >= 22.5f && fAngle < 67.5f)  eNewDir = DIR_RB;
-    else if (fAngle >= 67.5f && fAngle < 112.5f)  eNewDir = DIR_B;
-    else if (fAngle >= 112.5f && fAngle < 157.5f)  eNewDir = DIR_LB;
-    else if (fAngle >= 157.5f || fAngle < -157.5f) eNewDir = DIR_L;
-    else if (fAngle >= -157.5f && fAngle < -112.5f) eNewDir = DIR_LT;
-    else if (fAngle >= -112.5f && fAngle < -67.5f) eNewDir = DIR_T;
-    else                                              eNewDir = DIR_RT;
-
-    if (eNewDir != m_eDir)
-        Direction_Change(eNewDir);
-}
-
-// ================================================================
-//  상태/방향
-// ================================================================
-void COther_Player::Motion_Change(PLAYER_STATE eState)
-{
-    m_eCurState = eState;
-
-    switch (eState)
-    {
-    case PLAYER_IDLE:
-        m_tIsoInfo.fCX = 160.f;
-        m_tIsoInfo.fCY = 128.f;
-        m_tIsoInfo.fHeight = 30.f;
-        m_bLoopAnim = true;
-        Set_Frame(7, 100);
-        break;
-
-    case PLAYER_WALK:
-        m_tIsoInfo.fCX = 160.f;
-        m_tIsoInfo.fCY = 128.f;
-        m_tIsoInfo.fHeight = 30.f;
-        m_bLoopAnim = true;
-        Set_Frame(7, 100);
-        break;
-
-    case PLAYER_HIT:
-        m_tIsoInfo.fCX = 160.f;
-        m_tIsoInfo.fCY = 128.f;
-        m_tIsoInfo.fHeight = 30.f;
-        m_bLoopAnim = false;
-        Set_Frame(3, 30);
-        break;
-
-    case PLAYER_DEAD:
-        m_tIsoInfo.fCX = 160.f;
-        m_tIsoInfo.fCY = 160.f;
-        m_tIsoInfo.fHeight = 30.f;
-        m_bLoopAnim = false;
-        m_bMoving = false;
-        m_bDead = true;
-        Set_Frame(23, 70);
-        break;
-
-    default: break;
-    }
-}
-
-void COther_Player::Direction_Change(DIRECTION eDir)
-{
-    m_eDir = eDir;
-    m_tFrame.iFrameStart = 0;
-}
-
-// ================================================================
-//  렌더링
-// ================================================================
 void COther_Player::Render_Sprite(ID2D1RenderTarget* pRT,
     ID2D1Bitmap* pBitmap)
 {
@@ -321,41 +277,114 @@ void COther_Player::Render_Sprite(ID2D1RenderTarget* pRT,
 //    pBrush->Release();
 //}
 
-void COther_Player::RenderIDLE(ID2D1RenderTarget* pRT)
+
+// ================================================================
+//  이동
+// ================================================================
+void COther_Player::Move_To_Dest(float dt)
 {
-    ID2D1Bitmap* pBitmap = nullptr;
-    switch (m_eDir)
+    float fDX = m_fDestX - m_tIsoInfo.fWorldX;
+    float fDZ = m_fDestZ - m_tIsoInfo.fWorldZ;
+    float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+    float fFrameSpeed = m_fSpeed * dt;
+
+    if (fDist <= fFrameSpeed)
     {
-    case DIR_B:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_B");  break;
-    case DIR_LB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_LB"); break;
-    case DIR_L:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_L");  break;
-    case DIR_LT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_LT"); break;
-    case DIR_T:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_T");  break;
-    case DIR_RT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_RT"); break;
-    case DIR_R:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_R");  break;
-    case DIR_RB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_IDLE_RB"); break;
-    default: break;
+        m_tIsoInfo.fWorldX = m_fDestX;
+        m_tIsoInfo.fWorldZ = m_fDestZ;
+        m_bMoving = false;
+        Motion_Change(PLAYER_IDLE);
+        return;
     }
-    Render_Sprite(pRT, pBitmap);
+
+    float fNX = fDX / fDist;
+    float fNZ = fDZ / fDist;
+    m_tIsoInfo.fWorldX += fNX * fFrameSpeed;
+    m_tIsoInfo.fWorldZ += fNZ * fFrameSpeed;
+
+    Decide_Direction(fNX, fNZ);
 }
 
-
-void COther_Player::RenderWALK(ID2D1RenderTarget* pRT)
+void COther_Player::Decide_Direction(float fNX, float fNZ)
 {
-    ID2D1Bitmap* pBitmap = nullptr;
-    switch (m_eDir)
+    float fScreenDX = (fNX - fNZ) * TILE_HALF_W;
+    float fScreenDY = (fNX + fNZ) * TILE_HALF_H;
+    float fAngle = atan2f(fScreenDY, fScreenDX) * 180.f / 3.14159f;
+
+    DIRECTION eNewDir = m_eDir;
+
+    if (fAngle >= -22.5f && fAngle < 22.5f)  eNewDir = DIR_R;
+    else if (fAngle >= 22.5f && fAngle < 67.5f)  eNewDir = DIR_RB;
+    else if (fAngle >= 67.5f && fAngle < 112.5f)  eNewDir = DIR_B;
+    else if (fAngle >= 112.5f && fAngle < 157.5f)  eNewDir = DIR_LB;
+    else if (fAngle >= 157.5f || fAngle < -157.5f) eNewDir = DIR_L;
+    else if (fAngle >= -157.5f && fAngle < -112.5f) eNewDir = DIR_LT;
+    else if (fAngle >= -112.5f && fAngle < -67.5f) eNewDir = DIR_T;
+    else                                              eNewDir = DIR_RT;
+
+    if (eNewDir != m_eDir)
+        Direction_Change(eNewDir);
+}
+
+// ================================================================
+//  상태/방향 세팅
+// ================================================================
+void COther_Player::Motion_Change(PLAYER_STATE eState)
+{
+    m_eCurState = eState;
+
+    switch (eState)
     {
-    case DIR_B:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_B");  break;
-    case DIR_LB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_LB"); break;
-    case DIR_L:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_L");  break;
-    case DIR_LT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_LT"); break;
-    case DIR_T:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_T");  break;
-    case DIR_RT: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_RT"); break;
-    case DIR_R:  pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_R");  break;
-    case DIR_RB: pBitmap = CImg_Manager::Get_Instance()->Find_Png(L"PLAYER_WALK_RB"); break;
+    case PLAYER_IDLE:
+        m_tIsoInfo.fCX = 160.f;
+        m_tIsoInfo.fCY = 128.f;
+        m_tIsoInfo.fHeight = 30.f;
+        m_bLoopAnim = true;
+        Set_Frame(7, 100);
+        break;
+
+    case PLAYER_WALK:
+        m_tIsoInfo.fCX = 160.f;
+        m_tIsoInfo.fCY = 128.f;
+        m_tIsoInfo.fHeight = 30.f;
+        m_bLoopAnim = true;
+        Set_Frame(7, 100);
+        break;
+
+    case PLAYER_ATTACK:
+        m_tIsoInfo.fCX = 160.f;
+        m_tIsoInfo.fCY = 128.f;
+        m_tIsoInfo.fHeight = 30.f;
+        m_bLoopAnim = false;
+        Set_Frame(15, 30);
+
+        break;
+    case PLAYER_HIT:
+        m_tIsoInfo.fCX = 160.f;
+        m_tIsoInfo.fCY = 128.f;
+        m_tIsoInfo.fHeight = 30.f;
+        m_bLoopAnim = false;
+        Set_Frame(3, 30);
+        break;
+
+    case PLAYER_DEAD:
+        m_tIsoInfo.fCX = 160.f;
+        m_tIsoInfo.fCY = 160.f;
+        m_tIsoInfo.fHeight = 30.f;
+        m_bLoopAnim = false;
+        m_bMoving = false;
+        m_bDead = true;
+        Set_Frame(23, 70);
+        break;
+
     default: break;
     }
-    Render_Sprite(pRT, pBitmap);
+}
+
+void COther_Player::Direction_Change(DIRECTION eDir)
+{
+    m_eDir = eDir;
+    m_tFrame.iFrameStart = 0;
 }
 
 void COther_Player::Check_AnimEnd()
@@ -375,7 +404,26 @@ void COther_Player::Check_AnimEnd()
     case PLAYER_DEAD:
 
         break;
+    case PLAYER_ATTACK:
+        if (m_bMoving)
+            Motion_Change(PLAYER_WALK);
+        else
+            Motion_Change(PLAYER_IDLE);
 
+        break;
     default: break;
     }
+}
+
+void COther_Player::SetDeadState()
+{
+    m_eCurState = PLAYER_DEAD;
+    m_tIsoInfo.fCX = 160.f;
+    m_tIsoInfo.fCY = 160.f;
+    m_tIsoInfo.fHeight = 30.f;
+    m_bLoopAnim = false;
+    m_bMoving = false;
+
+    Set_Frame(23, 70);
+    m_tFrame.iFrameStart = m_tFrame.iFrameEnd;
 }

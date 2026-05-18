@@ -8,6 +8,8 @@
 #include "ItemData_Equipment.h"
 #include "ItemData_Etc.h" 
 #include "Network_Manager.h"
+#include "Object_Manager.h"
+#include "Monster.h"
 
 CPlayer::CPlayer()
 {
@@ -123,8 +125,14 @@ int CPlayer::Update(float dt)
 {
 	Key_Input(dt);
 	Update_ClickEffect(dt);
+
+	if (m_nAttackTargetID != -1)
+		Update_AttackTarget();
+
 	__super::Update_Rect();
 	__super::Move_Frame();
+	Check_AnimEnd();
+
 	return OBJ_NOEVENT;
 }
 
@@ -155,6 +163,12 @@ void CPlayer::Release(void)
 	if (m_pInventory) { delete m_pInventory; m_pInventory = nullptr; }
 	if (m_pEquipment) { delete m_pEquipment; m_pEquipment = nullptr; }
 }
+
+
+
+// ================================================================
+//  렌더링
+// ================================================================
 
 void CPlayer::Render_Sprite(ID2D1RenderTarget* pRT, ID2D1Bitmap* pBitmap)
 {
@@ -309,7 +323,37 @@ void CPlayer::Render_ClickEffect(ID2D1RenderTarget* pRT)
 	pBrush->Release();
 }
 
-// ===================== 상태/방향 변경 =====================
+void CPlayer::Check_AnimEnd()
+{
+	if (m_bLoopAnim) return;
+	if (m_tFrame.iFrameStart < m_tFrame.iFrameEnd) return;
+
+	switch (m_eCurState)
+	{
+	case PLAYER_HIT:
+		m_bHit = false;  // 경직 해제
+		if (m_bMoving)
+			Motion_Change(PLAYER_WALK);
+		else
+			Motion_Change(PLAYER_IDLE);
+		break;
+
+	case PLAYER_ATTACK:
+		if (m_bMoving)
+			Motion_Change(PLAYER_WALK);
+		else
+			Motion_Change(PLAYER_IDLE);
+		break;
+
+	case PLAYER_DEAD:
+		break;
+
+	default: break;
+	}
+}
+// ================================================================
+//  상태/방향 뱐걍
+// ================================================================
 
 void CPlayer::Motion_Change(PLAYER_STATE eState)
 {
@@ -321,6 +365,7 @@ void CPlayer::Motion_Change(PLAYER_STATE eState)
 		m_tIsoInfo.fCX = 160.f;
 		m_tIsoInfo.fCY = 128.f;
 		m_tIsoInfo.fHeight = 30.f;
+		m_bLoopAnim = true;
 		Set_Frame(7, 100);
 		break;
 
@@ -328,6 +373,7 @@ void CPlayer::Motion_Change(PLAYER_STATE eState)
 		m_tIsoInfo.fCX = 160.f;
 		m_tIsoInfo.fCY = 128.f;
 		m_tIsoInfo.fHeight = 30.f;
+		m_bLoopAnim = true;
 		Set_Frame(7, 100);
 		break;
 
@@ -369,6 +415,7 @@ void CPlayer::Direction_Change(DIRECTION eDir)
 void CPlayer::Key_Input(float dt)
 {
 	if (!CInput_Manager::Get_Instance()->Is_GameMode()) return;
+	if (m_bHit) return;
 
 	CInput_Manager* pInput = CInput_Manager::Get_Instance();
 
@@ -382,13 +429,67 @@ void CPlayer::Key_Input(float dt)
 
 	bool bMovable = CMap_Manager::Get_Instance()->Is_Movable(iTileX, iTileZ);
 
-	// 이동 불가 타일이면 미리 커서 변경
 	if (!bMovable)
 		pInput->Set_CursorMode(CURSOR_NON_ATTACK);
 
 	// ===== 클릭 처리 =====
 	if (pInput->Key_Down(VK_LBUTTON))
 	{
+
+		CGameObject* pClickedMonster =
+			CObject_Manager::Get_Instance()->Pick_Monster(tMouse);
+
+		if (pClickedMonster)
+		{
+			CMonster* pMonster = static_cast<CMonster*>(pClickedMonster);
+
+			if (pMonster->Get_MonsterState() != MON_DEAD)
+			{
+				// 공격 타겟 설정
+				m_nAttackTargetID = pMonster->Get_MonsterID();
+
+				// 기존 A* 이동 코드 그대로 재사용
+				// 몬스터 위치를 목적지로
+				fWorldX = pMonster->Get_WorldX();
+				fWorldZ = pMonster->Get_WorldZ();
+
+				int32_t nStartX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));
+				int32_t nStartZ = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldZ));
+				int32_t nEndX = static_cast<int32_t>(floorf(fWorldX));
+				int32_t nEndZ = static_cast<int32_t>(floorf(fWorldZ));
+
+				IsMovableFunc fnIsMovable = [](int32_t x, int32_t z) -> bool {
+					return CMap_Manager::Get_Instance()->Is_Movable(x, z);
+					};
+
+				m_waypoints = CPathFinder::FindPath(
+					nStartX, nStartZ,
+					nEndX, nEndZ,
+					m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
+					fnIsMovable,
+					EPathMode::CornerBased);
+
+				// 마지막 웨이포인트를 몬스터 위치로
+				if (!m_waypoints.empty())
+					m_waypoints.back() = { fWorldX, fWorldZ };
+
+				m_nCurWaypoint = 0;
+
+				if (!m_waypoints.empty())
+				{
+					m_bMoving = true;
+					Motion_Change(PLAYER_WALK);
+
+					CNetwork_Manager::Get_Instance()->SendMoveDest(
+						m_waypoints[0].first,
+						m_waypoints[0].second,
+						static_cast<uint32_t>(GetTickCount64()));
+				}
+			}
+			return;  // 몬스터 클릭이면 이하 타일 이동 처리 스킵
+		}
+		m_nAttackTargetID = -1;
+
 		if (!bMovable) return;
 
 		// 시작 타일
@@ -438,66 +539,10 @@ void CPlayer::Key_Input(float dt)
 	if (m_bMoving)
 		Move_To_Dest(dt);
 
-	if (!m_bMoving) {
-		if (pInput->Key_Down('A')) {
-			Motion_Change(PLAYER_ATTACK);
-		}
-		if (pInput->Key_Down('S')) {
-			Motion_Change(PLAYER_HIT);
-		}
-		if (pInput->Key_Down('D')) {
-			Motion_Change(PLAYER_DEAD);
-		}
-
-		if (pInput->Key_Down('F')) {
-			Motion_Change(PLAYER_IDLE);
-		}
-	}
-
 }
 
 void CPlayer::Move_To_Dest(float dt)
 {
-
-
-	//float fDX = m_fDestWorldX - m_tIsoInfo.fWorldX;
-	//float fDZ = m_fDestWorldZ - m_tIsoInfo.fWorldZ;
-	//float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
-
-	//float fFrameSpeed = m_fSpeed * dt;
-
-	//if (fDist <= fFrameSpeed)
-	//{
-	//	m_tIsoInfo.fWorldX = m_fDestWorldX;
-	//	m_tIsoInfo.fWorldZ = m_fDestWorldZ;
-	//	m_bMoving = false;
-	//	Motion_Change(PLAYER_IDLE);
-
-	//	CNetwork_Manager::Get_Instance()->SendMovePos(
-	//		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
-	//		static_cast<uint32_t>(GetTickCount64()));
-	//	return;
-	//}
-
-	//float fNX = fDX / fDist;
-	//float fNZ = fDZ / fDist;
-	//m_tIsoInfo.fWorldX += fNX * fFrameSpeed;
-	//m_tIsoInfo.fWorldZ += fNZ * fFrameSpeed;
-
-	//Decide_Direction(fNX, fNZ);
-
-	//int32_t nCurTileX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));
-	//int32_t nCurTileZ = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldZ));
-
-	//if (nCurTileX != m_nLastTileX || nCurTileZ != m_nLastTileZ)
-	//{
-	//	m_nLastTileX = nCurTileX;
-	//	m_nLastTileZ = nCurTileZ;
-
-	//	CNetwork_Manager::Get_Instance()->SendMovePos(
-	//		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
-	//		static_cast<uint32_t>(GetTickCount64()));
-	//}
 	if (m_waypoints.empty() || m_nCurWaypoint >= (int32_t)m_waypoints.size())
 	{
 		m_bMoving = false;
@@ -564,7 +609,6 @@ void CPlayer::Move_To_Dest(float dt)
 	}
 }
 
-
 void CPlayer::Decide_Direction(float fNX, float fNZ)
 {
 	// 이동 벡터의 각도로 8방향 결정
@@ -588,6 +632,7 @@ void CPlayer::Decide_Direction(float fNX, float fNZ)
 	if (eNewDir != m_eDir)
 		Direction_Change(eNewDir);
 }
+
 void CPlayer::Update_ClickEffect(float dt)
 {
 	if (!m_tClickEffect.bActive) return;
@@ -600,6 +645,71 @@ void CPlayer::Update_ClickEffect(float dt)
 	}
 }
 
+void CPlayer::Update_AttackTarget()
+{
+	// 타겟 탐색
+	CGameObject* pObj =
+		CObject_Manager::Get_Instance()->Find_Monster(m_nAttackTargetID);
+
+	if (!pObj)
+	{
+		m_nAttackTargetID = -1;
+		return;
+	}
+
+	CMonster* pMonster = static_cast<CMonster*>(pObj);
+
+	// 사망 시 타겟 해제
+	if (pMonster->Get_MonsterState() == MON_DEAD)
+	{
+		m_nAttackTargetID = -1;
+		return;
+	}
+
+	// 거리 체크
+	float fDX = pMonster->Get_WorldX() - m_tIsoInfo.fWorldX;
+	float fDZ = pMonster->Get_WorldZ() - m_tIsoInfo.fWorldZ;
+	float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+
+	if (fDist <= m_fAttackRange)
+	{
+		// 이동 중지
+		m_bMoving = false;
+		m_waypoints.clear();
+		m_nCurWaypoint = 0;
+		m_nAttackTargetID = -1;
+
+		// 몬스터 방향 바라봄
+		float fNX = fDX / fDist;
+		float fNZ = fDZ / fDist;
+		Decide_Direction(fNX, fNZ);
+
+		// 공격 모션 (기존 Motion_Change 재사용)
+		Motion_Change(PLAYER_ATTACK);
+
+		// 공격 패킷 전송
+		CNetwork_Manager::Get_Instance()->SendAttackMonster(
+			pMonster->Get_MonsterID(),
+			m_tIsoInfo.fWorldX,
+			m_tIsoInfo.fWorldZ);
+	}
+}
+
+void CPlayer::Hit()
+{
+	m_bHit = true;
+	m_bMoving = false;
+	m_waypoints.clear();
+	m_nCurWaypoint = 0;
+	m_nAttackTargetID = -1;
+
+	Motion_Change(PLAYER_HIT);
+}
+
+
+// ================================================================
+//  아이템 / 인벤토리
+// ================================================================
 void CPlayer::Use_Item(int iSlot)
 {
 	CItemData* pItem = m_pInventory->Get_Item(iSlot);
@@ -660,6 +770,8 @@ void CPlayer::UnEquip_Item(EQUIP_SLOT eSlot)
 	pItem = m_pEquipment->UnEquip(eSlot);
 	m_pInventory->Add_Item(pItem);
 }
+
+
 
 #ifdef GAME_DEBUG
 void CPlayer::Debug_Render(ID2D1RenderTarget* pRT)

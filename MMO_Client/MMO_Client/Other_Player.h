@@ -25,7 +25,8 @@ public:
     void OnMovePosPacket(float fCurX, float fCurZ, uint32_t moveTime);
 
     void SetDeadState();
-    void OnHitPacket(int32_t nDamage);
+    void OnAttackPacket();
+    void OnHitPacket(int32_t iHp);
     void OnDeadPacket();
 
     int32_t GetPlayerID() const { return m_nPlayerID; }
@@ -42,6 +43,7 @@ private:
     void Render_Sprite(ID2D1RenderTarget* pRT, ID2D1Bitmap* pBitmap);
     void RenderIDLE(ID2D1RenderTarget* pRT);
     void RenderWALK(ID2D1RenderTarget* pRT);
+    void RenderATTACK(ID2D1RenderTarget* pRT);
     void RenderHIT(ID2D1RenderTarget* pRT);
     void RenderDEAD(ID2D1RenderTarget* pRT);
 
