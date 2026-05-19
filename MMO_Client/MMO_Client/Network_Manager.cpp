@@ -199,6 +199,11 @@ void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
             Handle_SC_MONSTER_HIT(
                 vData.data(), static_cast<int32_t>(vData.size()));
             }); break;
+    case SC_RESPAWN:
+        PushTask([this, vData]() mutable {
+            Handle_SC_RESPAWN(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
     default:
         std::cout << "[Network] 알 수 없는 패킷: " << pHeader->id << std::endl;
         break;
@@ -274,7 +279,7 @@ void CNetwork_Manager::Handle_SC_ADD_PLAYER(uint8_t* pBuffer, int32_t nSize)
 
     COther_Player* pOther = new COther_Player;
     pOther->Initialize(pPkt->playerID, pPkt->name,
-        pPkt->fCurX, pPkt->fCurZ);
+        pPkt->fCurX, pPkt->fCurZ, pPkt->dir);
 
     if (pPkt->state == PLAYER_DEAD)
     {
@@ -502,6 +507,7 @@ void CNetwork_Manager::Handle_SC_PLAYER_STATE(uint8_t* pBuffer, int32_t nSize)
     case PLAYER_HIT:
         break;
     case PLAYER_DEAD:
+        pOther->OnDeadPacket();
         break;
 
     default:
@@ -522,7 +528,10 @@ void CNetwork_Manager::Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize)
         if (!pPlayer) return;
 
         pPlayer->Set_Hp(pPkt->nHp);
-        pPlayer->Hit();
+        if (pPkt->nHp <= 0)
+            pPlayer->Die();
+        else
+            pPlayer->Hit();
     }
     else
     {
@@ -557,4 +566,24 @@ void CNetwork_Manager::Handle_SC_MONSTER_HIT(uint8_t* pBuffer, int32_t nSize)
 
     // 피격 상태 적용
     pMonster->OnStatePacket(MON_HIT, -1);
+}
+
+void CNetwork_Manager::Handle_SC_RESPAWN(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_RESPAWN_PACKET* pPkt = reinterpret_cast<SC_RESPAWN_PACKET*>(pBuffer);
+
+    CPlayer* pPlayer = dynamic_cast<CPlayer*>(
+        CObject_Manager::Get_Instance()->Get_Player());
+    if (!pPlayer) return;
+
+    pPlayer->Set_Hp(pPkt->nHp);
+    pPlayer->Respawn(pPkt->fCurX, pPkt->fCurZ);
+}
+
+void CNetwork_Manager::SendRespawn()
+{
+    CS_RESPAWN_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_RESPAWN;
+    SendRaw(&pkt, sizeof(pkt));
 }

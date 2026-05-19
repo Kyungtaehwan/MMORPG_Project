@@ -16,7 +16,7 @@ void COther_Player::Initialize()
 {
 }
 
-void COther_Player::Initialize(int32_t nPlayerID, const char* pszName,float fX, float fZ)
+void COther_Player::Initialize(int32_t nPlayerID, const char* pszName, float fX, float fZ, uint8_t nDir)
 {
     m_nPlayerID = nPlayerID;
     strncpy_s(m_szName, pszName, sizeof(m_szName) - 1);
@@ -28,7 +28,7 @@ void COther_Player::Initialize(int32_t nPlayerID, const char* pszName,float fX, 
     m_bMoving = false;
 
     Motion_Change(PLAYER_IDLE);
-    Direction_Change(DIR_B);
+    Direction_Change(static_cast<DIRECTION>(nDir));
 }
 
 int COther_Player::Update(float dt)
@@ -364,7 +364,7 @@ void COther_Player::Motion_Change(PLAYER_STATE eState)
         m_tIsoInfo.fCY = 128.f;
         m_tIsoInfo.fHeight = 30.f;
         m_bLoopAnim = false;
-        Set_Frame(3, 30);
+        Set_Frame(3, 50);
         break;
 
     case PLAYER_DEAD:
@@ -373,12 +373,17 @@ void COther_Player::Motion_Change(PLAYER_STATE eState)
         m_tIsoInfo.fHeight = 30.f;
         m_bLoopAnim = false;
         m_bMoving = false;
-        m_bDead = true;
         Set_Frame(23, 70);
         break;
 
     default: break;
     }
+}
+
+void COther_Player::OnDeadPacket()
+{
+    if(m_eCurState!= PLAYER_DEAD)
+        Motion_Change(PLAYER_DEAD);
 }
 
 void COther_Player::Direction_Change(DIRECTION eDir)
@@ -402,7 +407,6 @@ void COther_Player::Check_AnimEnd()
         break;
 
     case PLAYER_DEAD:
-
         break;
     case PLAYER_ATTACK:
         if (m_bMoving)

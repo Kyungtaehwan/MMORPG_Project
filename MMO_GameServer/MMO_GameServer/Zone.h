@@ -63,6 +63,7 @@ public:
     void OnPlayerAttackMonster(PlayerRef pPlayer,int32_t nMonsterID, float fPlayerX, float fPlayerZ);
     void OnMonsterRespawn(int32_t nMonsterID);
     void OnMonsterAttackHit(int32_t nMonsterID);
+    void OnPlayerRespawn(PlayerRef pPlayer);
 private:
     // AI 상태별 함수
     void Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ);

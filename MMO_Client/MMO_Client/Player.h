@@ -54,6 +54,8 @@ public:
     void Update_AttackTarget();
 
     void Hit();
+    void Die();
+    void Respawn(float fX, float fZ);
 private:
     PLAYER_STATE m_eCurState;
     CLICK_EFFECT m_tClickEffect = {};
@@ -66,6 +68,8 @@ private:
     
     int32_t  m_nAttackTargetID = -1;
     float    m_fAttackRange = 1.5f;
+    uint32_t m_nLastAtkTime = 0;
+    uint32_t m_nAtkCoolMs   = 500;
 
     bool m_bHit = false;
 
