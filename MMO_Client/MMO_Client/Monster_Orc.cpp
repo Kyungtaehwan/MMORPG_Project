@@ -112,15 +112,15 @@ void CMonster_Orc::Motion_Change(MONSTER_STATE eState)
     case MON_HIT:
         m_tIsoInfo.fCX = 177.f;
         m_tIsoInfo.fCY = 163.f;
-        m_tIsoInfo.fHeight = 30.f;
+        m_tIsoInfo.fHeight = 25.f;
         m_bLoopAnim = false;
-        Set_Frame(6, 20);
+        Set_Frame(6, 50);
         break;
 
     case MON_DEAD:
         m_tIsoInfo.fCX = 325.f;
         m_tIsoInfo.fCY = 206.f;
-        m_tIsoInfo.fHeight = -10.f;
+        m_tIsoInfo.fHeight = -45.f;
         m_bLoopAnim = false;
         Set_Frame(22, 50);
         break;

@@ -390,7 +390,7 @@ void CPlayer::Motion_Change(PLAYER_STATE eState)
 		m_tIsoInfo.fCY = 128.f;
 		m_tIsoInfo.fHeight = 30.f;
 		m_bLoopAnim = false;
-		Set_Frame(3, 30);
+		Set_Frame(3, 50);
 		break;
 
 	case PLAYER_DEAD:
@@ -415,6 +415,14 @@ void CPlayer::Direction_Change(DIRECTION eDir)
 void CPlayer::Key_Input(float dt)
 {
 	if (!CInput_Manager::Get_Instance()->Is_GameMode()) return;
+
+	if (m_eCurState == PLAYER_DEAD)
+	{
+		if (CInput_Manager::Get_Instance()->Key_Down('R'))
+			CNetwork_Manager::Get_Instance()->SendRespawn();
+		return;
+	}
+
 	if (m_bHit) return;
 
 	CInput_Manager* pInput = CInput_Manager::Get_Instance();
@@ -673,21 +681,20 @@ void CPlayer::Update_AttackTarget()
 
 	if (fDist <= m_fAttackRange)
 	{
-		// 이동 중지
+		uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
+		if (nNow - m_nLastAtkTime < m_nAtkCoolMs) return;
+		m_nLastAtkTime = nNow;
+
 		m_bMoving = false;
 		m_waypoints.clear();
 		m_nCurWaypoint = 0;
-		m_nAttackTargetID = -1;
 
-		// 몬스터 방향 바라봄
 		float fNX = fDX / fDist;
 		float fNZ = fDZ / fDist;
 		Decide_Direction(fNX, fNZ);
 
-		// 공격 모션 (기존 Motion_Change 재사용)
 		Motion_Change(PLAYER_ATTACK);
 
-		// 공격 패킷 전송
 		CNetwork_Manager::Get_Instance()->SendAttackMonster(
 			pMonster->Get_MonsterID(),
 			m_tIsoInfo.fWorldX,
@@ -986,3 +993,27 @@ void CPlayer::Debug_DrawPath(ID2D1RenderTarget* pRT)
 #endif
 
 
+
+void CPlayer::Die()
+{
+	m_bMoving = false;
+	m_waypoints.clear();
+	m_nCurWaypoint = 0;
+	m_nAttackTargetID = -1;
+	m_bHit = false;
+	Motion_Change(PLAYER_DEAD);
+}
+
+void CPlayer::Respawn(float fX, float fZ)
+{
+	m_tIsoInfo.fWorldX = fX;
+	m_tIsoInfo.fWorldZ = fZ;
+	m_fDestWorldX = fX;
+	m_fDestWorldZ = fZ;
+	m_bMoving = false;
+	m_waypoints.clear();
+	m_nCurWaypoint = 0;
+	m_nAttackTargetID = -1;
+	m_bHit = false;
+	Motion_Change(PLAYER_IDLE);
+}

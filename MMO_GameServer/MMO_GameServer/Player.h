@@ -30,9 +30,10 @@ public:
     PLAYER_STATE m_eState = PLAYER_IDLE;
     // ---- 속도 ----
     float    m_fSpeed = 1.f;
+    uint8_t  m_eDir = 0;
     // ---- 전투 -----
-    uint32_t      m_iHp;
-    uint32_t      m_iMaxHp;
+    int32_t       m_iHp = 100;
+    int32_t       m_iMaxHp = 100;
 
 
     // ---- 타일 좌표 (시야 계산용) ----
@@ -50,6 +51,9 @@ public:
     std::mutex                  m_monsterViewLock;
     // ---- 마지막 패킷 시간 ----
     uint32_t m_nLastMoveTime = 0;
+    uint32_t m_nLastAtkTime  = 0;
+    uint32_t m_nAtkCoolMs    = 400;
+    bool     m_bDead = false;
 
     // ================================================================
     //  GetCurrentPos 

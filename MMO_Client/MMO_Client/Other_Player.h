@@ -12,7 +12,7 @@ public:
 
     virtual void Initialize()        override;
     void Initialize(int32_t nPlayerID, const char* pszName,
-        float fX, float fZ);
+        float fX, float fZ, uint8_t nDir = 0);
     virtual int  Update(float dt)    override;
     virtual void Late_Update(float dt) override;
     virtual void Render(ID2D1RenderTarget* pRT) override;
@@ -33,7 +33,6 @@ public:
 
 
 private:
-    bool    m_bLoopAnim = true;
     void    Check_AnimEnd();  // 애니메이션 완료 체크
 
     void Move_To_Dest(float dt);

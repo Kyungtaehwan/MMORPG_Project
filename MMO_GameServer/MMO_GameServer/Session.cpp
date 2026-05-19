@@ -3,6 +3,7 @@
 #include "Packet_Handler.h"
 #include "Session_Manager.h"
 #include "Player_Manager.h"
+#include "Zone_Manager.h"
 #include "Protocol.h"
 #include <iostream>
 #include <cstring>
@@ -100,6 +101,15 @@ void CSession::Disconnect()
 
     std::cout << "[CSession] 연결 해제. ID=" << m_id << std::endl;
 
+    {
+        PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(m_id);
+        if (pPlayer)
+        {
+            CZone* pZone = CZone_Manager::Get_Instance()->GetZone(pPlayer->m_nZoneID);
+            if (pZone)
+                pZone->LeaveZone(pPlayer);
+        }
+    }
     closesocket(m_socket);
     m_socket = INVALID_SOCKET;
     CPlayer_Manager::Get_Instance()->Remove(m_id);

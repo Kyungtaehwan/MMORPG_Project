@@ -17,6 +17,7 @@ void CPacket_Handler::Handle(std::shared_ptr<CSession> pSession,
     case CS_MOVE_DEST: Handle_CS_MOVE_DEST(pSession, pBuffer, nSize); break;
     case CS_MOVE_POS:  Handle_CS_MOVE_POS(pSession, pBuffer, nSize); break;
     case CS_ATTACK_MONSTER: Handle_CS_ATTACK_MONSTER(pSession, pBuffer, nSize); break;
+    case CS_RESPAWN:         Handle_CS_RESPAWN(pSession, pBuffer, nSize); break;
     default:
         std::cout << "[CPacket_Handler] 알 수 없는 패킷: "
             << pHeader->id << std::endl;
@@ -141,3 +142,19 @@ void CPacket_Handler::Handle_CS_ATTACK_MONSTER(
         pPkt->monsterID, pPkt->fCurX, pPkt->fCurZ);
 }
 
+
+void CPacket_Handler::Handle_CS_RESPAWN(
+    std::shared_ptr<CSession> pSession,
+    uint8_t* pBuffer, int32_t nSize)
+{
+    if (nSize < static_cast<int32_t>(sizeof(CS_RESPAWN_PACKET))) return;
+
+    PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(pSession->GetID());
+    if (!pPlayer) return;
+    if (!pPlayer->m_bDead) return;
+
+    CZone* pZone = CZone_Manager::Get_Instance()->GetZone(pPlayer->m_nZoneID);
+    if (!pZone) return;
+
+    pZone->OnPlayerRespawn(pPlayer);
+}
