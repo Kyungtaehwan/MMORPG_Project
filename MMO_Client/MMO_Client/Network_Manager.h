@@ -1,15 +1,15 @@
-#pragma once
+ï»¿#pragma once
 #include "Protocol.h"
 
 // ================================================================
-//  ÆĞÅ¶ Å¥ ¾ÆÀÌÅÛ
-//  ¼ö½Å ½º·¹µå°¡ ÆĞÅ¶À» ¶÷´Ù·Î °¨½Î¼­ Å¥¿¡ push
-//  ¸ŞÀÎ ½º·¹µå°¡ ¸Å ÇÁ·¹ÀÓ ²¨³»¼­ Ã³¸®
+//  íŒ¨í‚· í ì•„ì´í…œ
+//  ìˆ˜ì‹  ìŠ¤ë ˆë“œê°€ íŒ¨í‚·ì„ ëŒë‹¤ë¡œ ê°ì‹¸ì„œ íì— push
+//  ë©”ì¸ ìŠ¤ë ˆë“œê°€ ë§¤ í”„ë ˆì„ êº¼ë‚´ì„œ ì²˜ë¦¬
 //
-//  ÀÌ·¸°Ô ÇÏ´Â ÀÌÀ¯:
-//  D2D ·»´õ´Â ½Ì±Û½º·¹µå ¸ğµ¨ ¡æ ¸ŞÀÎ ½º·¹µå¿¡¼­¸¸ °¡´É
-//  ¼ö½Å ½º·¹µå¿¡¼­ Á÷Á¢ UI °Çµå¸®¸é Å©·¡½Ã
-//  Å¥¸¦ °ÅÄ¡¸é Ç×»ó ¸ŞÀÎ ½º·¹µå¿¡¼­ Ã³¸® º¸Àå
+//  ì´ë ‡ê²Œ í•˜ëŠ” ì´ìœ :
+//  D2D ë Œë”ëŠ” ì‹±ê¸€ìŠ¤ë ˆë“œ ëª¨ë¸ â†’ ë©”ì¸ ìŠ¤ë ˆë“œì—ì„œë§Œ ê°€ëŠ¥
+//  ìˆ˜ì‹  ìŠ¤ë ˆë“œì—ì„œ ì§ì ‘ UI ê±´ë“œë¦¬ë©´ í¬ë˜ì‹œ
+//  íë¥¼ ê±°ì¹˜ë©´ í•­ìƒ ë©”ì¸ ìŠ¤ë ˆë“œì—ì„œ ì²˜ë¦¬ ë³´ì¥
 // ================================================================
 struct FPacketTask
 {
@@ -17,13 +17,13 @@ struct FPacketTask
 };
 
 // ================================================================
-//  CNetwork_Manager  Å¬¶óÀÌ¾ğÆ® ³×Æ®¿öÅ© ½Ì±ÛÅæ
+//  CNetwork_Manager  í´ë¼ì´ì–¸íŠ¸ ë„¤íŠ¸ì›Œí¬ ì‹±ê¸€í†¤
 //
-//  ±¸Á¶:
-//  1) Connect() ¡æ TCP ¿¬°á + ¼ö½Å ½º·¹µå ½ÃÀÛ
-//  2) ¼ö½Å ½º·¹µå ¡æ ÆĞÅ¶ ¼ö½Å ¡æ Å¥¿¡ push
-//  3) Dispatch() ¡æ ¸ŞÀÎ ½º·¹µå¿¡¼­ ¸Å ÇÁ·¹ÀÓ È£Ãâ
-//                  Å¥¿¡¼­ ²¨³»¼­ Ã³¸®
+//  êµ¬ì¡°:
+//  1) Connect() â†’ TCP ì—°ê²° + ìˆ˜ì‹  ìŠ¤ë ˆë“œ ì‹œì‘
+//  2) ìˆ˜ì‹  ìŠ¤ë ˆë“œ â†’ íŒ¨í‚· ìˆ˜ì‹  â†’ íì— push
+//  3) Dispatch() â†’ ë©”ì¸ ìŠ¤ë ˆë“œì—ì„œ ë§¤ í”„ë ˆì„ í˜¸ì¶œ
+//                  íì—ì„œ êº¼ë‚´ì„œ ì²˜ë¦¬
 // ================================================================
 class CNetwork_Manager
 {
@@ -51,32 +51,37 @@ public:
     CNetwork_Manager(const CNetwork_Manager&) = delete;
     CNetwork_Manager& operator=(const CNetwork_Manager&) = delete;
 
-    // ---- ¿¬°á ----
+    // ---- ì—°ê²° ----
     bool Connect(const wchar_t* pszIP, uint16_t nPort);
     void Disconnect();
     bool IsConnected() const { return m_bConnected; }
 
-    // ---- ¼Û½Å ----
+    // ---- ì†¡ì‹  ----
     void SendLogin(const char* pszID, const char* pszPW);
     void SendMoveDest(float fDestX, float fDestZ, uint32_t nMoveTime);
     void SendMovePos(float fCurX, float fCurZ, uint32_t nMoveTime);
     void SendAttackMonster(int32_t nMonsterID, float fCurX, float fCurZ);
     void SendRespawn();
-    // ---- ¸ŞÀÎ ½º·¹µå¿¡¼­ ¸Å ÇÁ·¹ÀÓ È£Ãâ ----
-    // Å¥¿¡ ½×ÀÎ ÆĞÅ¶ ÇÚµé·¯¸¦ ÀüºÎ Ã³¸®
+    void SendPortal(int32_t nTargetZone, float fSpawnX, float fSpawnZ);
+    void SendPickup(uint32_t nDropId);
+    void SendEquip(int32_t nInvenSlot);
+    void SendUnEquip(int32_t nEquipSlot);
+    void SendUseItem(int32_t nInvenSlot);
+    // ---- ë©”ì¸ ìŠ¤ë ˆë“œì—ì„œ ë§¤ í”„ë ˆì„ í˜¸ì¶œ ----
+    // íì— ìŒ“ì¸ íŒ¨í‚· í•¸ë“¤ëŸ¬ë¥¼ ì „ë¶€ ì²˜ë¦¬
     void Dispatch();
 
-    // ---- °ÔÀÓ µ¥ÀÌÅÍ ----
+    // ---- ê²Œì„ ë°ì´í„° ----
     uint32_t GetMyPlayerID() const { return m_nMyPlayerID; }
 
 private:
-    // ---- ¼ö½Å ½º·¹µå ----
+    // ---- ìˆ˜ì‹  ìŠ¤ë ˆë“œ ----
     void RecvThread();
 
-    // ---- ÆĞÅ¶ ÆÄ½Ì + Å¥ push ----
+    // ---- íŒ¨í‚· íŒŒì‹± + í push ----
     void ProcessPacket(uint8_t* pBuffer, int32_t nSize);
 
-    // ---- ÆĞÅ¶º° ÇÚµé·¯ ----
+    // ---- íŒ¨í‚·ë³„ í•¸ë“¤ëŸ¬ ----
     void Handle_SC_LOGIN_OK(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_LOGIN_FAIL(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_ENTER_GAME(uint8_t* pBuffer, int32_t nSize);
@@ -86,21 +91,27 @@ private:
     void Handle_SC_PLAYER_STATE(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_RESPAWN(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_CHANGE_ZONE(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_ADD_DROP(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_REMOVE_DROP(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_INVEN_UPDATE(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_PLAYER_HP(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_BUFF(uint8_t* pBuffer, int32_t nSize);
 public:
     
 
 private:
-    // --¸ó½ºÅÍ--
+    // --ëª¬ìŠ¤í„°--
     void Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_MONSTER_HIT(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_REMOVE_MONSTER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_MOVE_MONSTER(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_MONSTER_STATE(uint8_t* pBuffer, int32_t nSize);
 
-    // ---- ¼Û½Å ÇïÆÛ ----
+    // ---- ì†¡ì‹  í—¬í¼ ----
     bool SendRaw(const void* pData, int32_t nSize);
 
-    // ---- Å¥ push (¼ö½Å ½º·¹µå¿¡¼­ È£Ãâ) ----
+    // ---- í push (ìˆ˜ì‹  ìŠ¤ë ˆë“œì—ì„œ í˜¸ì¶œ) ----
     void PushTask(std::function<void()> handler)
     {
         std::lock_guard<std::mutex> lock(m_queueLock);
@@ -113,14 +124,14 @@ private:
     SOCKET               m_socket = INVALID_SOCKET;
     std::atomic<bool>    m_bConnected = false;
 
-    // ¼ö½Å ½º·¹µå
+    // ìˆ˜ì‹  ìŠ¤ë ˆë“œ
     std::thread          m_recvThread;
 
-    // ÆĞÅ¶ Å¥  ¼ö½Å ½º·¹µå°¡ push, ¸ŞÀÎ ½º·¹µå°¡ pop
+    // íŒ¨í‚· í  ìˆ˜ì‹  ìŠ¤ë ˆë“œê°€ push, ë©”ì¸ ìŠ¤ë ˆë“œê°€ pop
     std::queue<FPacketTask> m_taskQueue;
     std::mutex              m_queueLock;
 
-    // recv ¹öÆÛ ºÒ¿ÏÀü ÆĞÅ¶ Ã³¸®
+    // recv ë²„í¼ ë¶ˆì™„ì „ íŒ¨í‚· ì²˜ë¦¬
     static constexpr int32_t RECV_BUF_SIZE = 4096;
     uint8_t  m_recvBuf[RECV_BUF_SIZE] = {};
     int32_t  m_nPrevRemain = 0;

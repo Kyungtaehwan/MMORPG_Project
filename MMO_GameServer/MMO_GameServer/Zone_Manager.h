@@ -1,13 +1,15 @@
-#pragma once
+﻿#pragma once
 #include "Zone.h"
 #include <unordered_map>
 #include <mutex>
 
 enum ZONE_ID : int32_t
 {
-    ZONE_TEST = 0,
+    ZONE_TEST = 0,   // 북쪽 몬스터 필드 (기존)
     ZONE_TOWN = 1,
-    // �߰� ��...
+    ZONE_FIELD_E = 2,   // 동쪽 필드
+    ZONE_FIELD_S = 3,   // 남쪽 필드
+    ZONE_FIELD_W = 4,   // 서쪽 필드
 };
 
 class CZone_Manager
@@ -41,6 +43,6 @@ public:
 private:
     static CZone_Manager* m_pInstance;
 
-    // �� ID �� CZone ������
+    // 존 ID → CZone 포인터
     std::unordered_map<int32_t, CZone*> m_zones;
 };

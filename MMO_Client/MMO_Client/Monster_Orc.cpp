@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Monster_Orc.h"
 #include "Img_Manager.h"
 #include "Camera.h"
@@ -25,7 +25,7 @@ void CMonster_Orc::Initialize()
     pImg->Insert_Png(L"../Resource/Monster/Orc/dead(325X206X23X8).png", L"ORC_DEAD");
 
     Set_Collider(0.6f, 0.6f);
-    Set_MonsterName(L"¿ÀÅ©");
+    Set_MonsterName(L"ì˜¤í¬");
     Set_MouseCollider(0.f, 0.f, m_tIsoInfo.fCX, m_tIsoInfo.fCY);
     Motion_Change(MON_IDLE);
 }
@@ -130,7 +130,7 @@ void CMonster_Orc::Motion_Change(MONSTER_STATE eState)
 }
 
 // ================================================================
-//  On_MovePacket - ¿ÀÅ© Àü¿ë ÀÌµ¿ ÆĞÅ¶ Ã³¸®
+//  On_MovePacket - ì˜¤í¬ ì „ìš© ì´ë™ íŒ¨í‚· ì²˜ë¦¬
 // ================================================================
 void CMonster_Orc::On_MovePacket(uint8_t nDir)
 {
@@ -140,8 +140,8 @@ void CMonster_Orc::On_MovePacket(uint8_t nDir)
 }
 
 // ================================================================
-//  On_StatePacket - ¿ÀÅ© Àü¿ë »óÅÂ ÆĞÅ¶ Ã³¸®
-//  ¿ÀÅ©´Â °ø°İ ¸ğ¼Ç 2Á¾
+//  On_StatePacket - ì˜¤í¬ ì „ìš© ìƒíƒœ íŒ¨í‚· ì²˜ë¦¬
+//  ì˜¤í¬ëŠ” ê³µê²© ëª¨ì…˜ 2ì¢…
 // ================================================================
 void CMonster_Orc::On_StatePacket(MONSTER_STATE eState, int32_t nTargetID)
 {
@@ -211,10 +211,15 @@ void CMonster_Orc::Check_AnimEnd() {
 }
 
 // ================================================================
-//  Move_To_Dest - ¸ñÀûÁö·Î ÀÌµ¿
+//  Move_To_Dest - ëª©ì ì§€ë¡œ ì´ë™
 // ================================================================
 void CMonster_Orc::Move_To_Dest(float dt)
 {
+    // í”¼ê²©/ê³µê²©/ì‚¬ë§ ì¤‘ì—” ì´ë™Â·ì• ë‹ˆë©”ì´ì…˜ì„ ê±·ê¸°ë¡œ ë®ì–´ì“°ì§€ ì•ŠëŠ”ë‹¤
+    if (m_eState == MON_HIT || m_eState == MON_ATTACK_0 ||
+        m_eState == MON_ATTACK_1 || m_eState == MON_DEAD)
+        return;
+
     float fDX = m_fDestWorldX - m_tIsoInfo.fWorldX;
     float fDZ = m_fDestWorldZ - m_tIsoInfo.fWorldZ;
     float fDist = sqrtf(fDX * fDX + fDZ * fDZ);

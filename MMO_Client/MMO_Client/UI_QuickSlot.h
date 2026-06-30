@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "UI.h"
 #include "Item_Define.h"
 
@@ -32,7 +32,7 @@ private:
 
     int     Get_SlotAt(POINT tMouse);
     void    Update_SlotValidity();
-    bool    Is_UseSlot(int iSlot) { return iSlot >= 0 && iSlot < 4; }  // 0~3¸¸ ¼Òºñ¾ÆÀÌÅÛ
+    bool    Is_UseSlot(int iSlot) { return iSlot >= 0 && iSlot < 4; }  // 0~3ë§Œ ì†Œë¹„ì•„ì´í…œ
 
 #ifdef GAME_DEBUG
     void Debug_Render(ID2D1RenderTarget* pRT);
@@ -40,8 +40,9 @@ private:
 
 private:
     CPlayer* m_pPlayer = nullptr;
-    CItemData_UseItem* m_aSlot[8] = {};   // 0~3: ¼Òºñ¾ÆÀÌÅÛ, 4~7: ½ºÅ³(ÃßÈÄ)
-    // ¼ÒÀ¯±Ç ¾øÀ½ ÀÎº¥Åä¸®°¡ ¼ÒÀ¯, Äü½½·ÔÀº ÂüÁ¶¸¸
+    // í¬ì¸í„° ëŒ€ì‹  ì•„ì´í…œ ê³ ìœ  ì½”ë“œ ì €ìž¥ (0 = ë¹ˆì¹¸).
+    // ì¸ë²¤ì´ ì„œë²„ ìŠ¤ëƒ…ìƒ·ìœ¼ë¡œ ìž¬êµ¬ì„±ë¼ë„ ì½”ë“œëŠ” ì•ˆ ë°”ë€Œì–´ ë“±ë¡ ìœ ì§€ë¨.
+    int      m_aSlotCode[8] = {};   // 0~3: ì†Œë¹„ì•„ì´í…œ, 4~7: ìŠ¤í‚¬(ì¶”í›„)
 
     static constexpr float SLOT_SIZE = 78.f;
     static constexpr float PANEL_W = 624.f;

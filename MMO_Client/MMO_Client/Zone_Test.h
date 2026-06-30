@@ -1,6 +1,7 @@
-#pragma once
+﻿#pragma once
 #include "Zone.h"
 
+// 북쪽 몬스터 필드.
 class CZone_Test : public CZone
 {
 public:

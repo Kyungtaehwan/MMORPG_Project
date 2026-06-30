@@ -1,18 +1,22 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Network_Manager.h"
 #include <iostream>
-#include "Object_Manager.h"   // ´Ù¸¥ ÇÃ·¹ÀÌ¾î ¿ÀºêÁ§Æ® °ü¸®
-#include "Other_Player.h"     // ´Ù¸¥ ÇÃ·¹ÀÌ¾î ·»´õ °´Ã¼
-#include "Player.h"           // ³» ÇÃ·¹ÀÌ¾î
+#include "Object_Manager.h"   // ë‹¤ë¥¸ í”Œë ˆì´ì–´ ì˜¤ë¸Œì íŠ¸ ê´€ë¦¬
+#include "Other_Player.h"     // ë‹¤ë¥¸ í”Œë ˆì´ì–´ ë Œë” ê°ì²´
+#include "Player.h"           // ë‚´ í”Œë ˆì´ì–´
 #include "Level_Manager.h"
 #include "Monster.h"
 #include "Monster_Orc.h"
+#include "Map_Manager.h"     // ì¡´ ì „í™˜
+#include "DropItem.h"        // ì•„ì´í…œ ë“œë¡­
+#include "Inventory.h"       // ì¸ë²¤ ìŠ¤ëƒ…ìƒ·
+#include "Equipment.h"       // ì¥ë¹„ ìŠ¤ëƒ…ìƒ·
 CNetwork_Manager* CNetwork_Manager::m_pInstance = nullptr;
 
 // ================================================================
 //  Connect
-//  TCP ¿¬°á + ¼ö½Å ½º·¹µå ½ÃÀÛ
-//  Å¬¶óÀÌ¾ğÆ®´Â ¼­¹ö 1°³¿Í¸¸ Åë½Å  ¿öÄ¿ ½º·¹µå 1°³¸é ÃæºĞ
+//  TCP ì—°ê²° + ìˆ˜ì‹  ìŠ¤ë ˆë“œ ì‹œì‘
+//  í´ë¼ì´ì–¸íŠ¸ëŠ” ì„œë²„ 1ê°œì™€ë§Œ í†µì‹   ì›Œì»¤ ìŠ¤ë ˆë“œ 1ê°œë©´ ì¶©ë¶„
 // ================================================================
 bool CNetwork_Manager::Connect(const wchar_t* pszIP, uint16_t nPort)
 {
@@ -22,12 +26,12 @@ bool CNetwork_Manager::Connect(const wchar_t* pszIP, uint16_t nPort)
     m_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (m_socket == INVALID_SOCKET) return false;
 
-    // TCP_NODELAY  ÀÛÀº ÆĞÅ¶À» Áï½Ã Àü¼Û (°ÔÀÓ¿¡¼­ ÇÊ¼ö)
+    // TCP_NODELAY  ì‘ì€ íŒ¨í‚·ì„ ì¦‰ì‹œ ì „ì†¡ (ê²Œì„ì—ì„œ í•„ìˆ˜)
     BOOL bNoDelay = TRUE;
     setsockopt(m_socket, IPPROTO_TCP, TCP_NODELAY,
         reinterpret_cast<const char*>(&bNoDelay), sizeof(bNoDelay));
 
-    // IP º¯È¯
+    // IP ë³€í™˜
     char szIP[64] = {};
     WideCharToMultiByte(CP_ACP, 0, pszIP, -1, szIP, sizeof(szIP), NULL, NULL);
 
@@ -39,16 +43,16 @@ bool CNetwork_Manager::Connect(const wchar_t* pszIP, uint16_t nPort)
     if (connect(m_socket,
         reinterpret_cast<SOCKADDR*>(&addr), sizeof(addr)) == SOCKET_ERROR)
     {
-        std::cout << "[Network] ¿¬°á ½ÇÆĞ: " << WSAGetLastError() << std::endl;
+        std::cout << "[Network] ì—°ê²° ì‹¤íŒ¨: " << WSAGetLastError() << std::endl;
         closesocket(m_socket);
         m_socket = INVALID_SOCKET;
         return false;
     }
 
     m_bConnected = true;
-    std::cout << "[Network] ¼­¹ö ¿¬°á ¿Ï·á" << std::endl;
+    std::cout << "[Network] ì„œë²„ ì—°ê²° ì™„ë£Œ" << std::endl;
 
-    // ¼ö½Å ½º·¹µå ½ÃÀÛ  detach·Î ¹é±×¶ó¿îµå ½ÇÇà
+    // ìˆ˜ì‹  ìŠ¤ë ˆë“œ ì‹œì‘  detachë¡œ ë°±ê·¸ë¼ìš´ë“œ ì‹¤í–‰
     m_recvThread = std::thread(&CNetwork_Manager::RecvThread, this);
     m_recvThread.detach();
 
@@ -65,11 +69,11 @@ void CNetwork_Manager::Disconnect()
 }
 
 // ================================================================
-//  RecvThread ¹é±×¶ó¿îµå ¼ö½Å ½º·¹µå
+//  RecvThread ë°±ê·¸ë¼ìš´ë“œ ìˆ˜ì‹  ìŠ¤ë ˆë“œ
 //
-//  ¼­¹ö ÆĞÅ¶ ¼ö½Å  ProcessPacket()À¸·Î ÆÄ½Ì
-//  ÆÄ½ÌµÈ ÆĞÅ¶Àº ¶÷´Ù·Î °¨½Î¼­ Å¥¿¡ push
-//  ½ÇÁ¦ Ã³¸®´Â ¸ŞÀÎ ½º·¹µå Dispatch()¿¡¼­
+//  ì„œë²„ íŒ¨í‚· ìˆ˜ì‹   ProcessPacket()ìœ¼ë¡œ íŒŒì‹±
+//  íŒŒì‹±ëœ íŒ¨í‚·ì€ ëŒë‹¤ë¡œ ê°ì‹¸ì„œ íì— push
+//  ì‹¤ì œ ì²˜ë¦¬ëŠ” ë©”ì¸ ìŠ¤ë ˆë“œ Dispatch()ì—ì„œ
 // ================================================================
 void CNetwork_Manager::RecvThread()
 {
@@ -83,12 +87,12 @@ void CNetwork_Manager::RecvThread()
 
         if (nReceived <= 0)
         {
-            std::cout << "[Network] ¼­¹ö ¿¬°á ²÷±è" << std::endl;
+            std::cout << "[Network] ì„œë²„ ì—°ê²° ëŠê¹€" << std::endl;
             m_bConnected = false;
             break;
         }
 
-        // ¼­¹ö ÄÚµå¿Í µ¿ÀÏÇÑ ÆĞÅ¶ °æ°è ÆÄ½Ì
+        // ì„œë²„ ì½”ë“œì™€ ë™ì¼í•œ íŒ¨í‚· ê²½ê³„ íŒŒì‹±
         int32_t  nRemain = m_nPrevRemain + nReceived;
         uint8_t* pCursor = m_recvBuf;
 
@@ -99,8 +103,8 @@ void CNetwork_Manager::RecvThread()
             PacketHeader* pHeader = reinterpret_cast<PacketHeader*>(pCursor);
             if (nRemain < pHeader->size) break;
 
-            // ÆĞÅ¶ µ¥ÀÌÅÍ¸¦ º¹»çÇØ¼­ ¶÷´Ù¿¡ Ä¸Ã³
-            // (pCursor´Â ´ÙÀ½ ·çÇÁ¿¡¼­ ¹Ù²î¹Ç·Î º¹»ç ÇÊ¼ö)
+            // íŒ¨í‚· ë°ì´í„°ë¥¼ ë³µì‚¬í•´ì„œ ëŒë‹¤ì— ìº¡ì²˜
+            // (pCursorëŠ” ë‹¤ìŒ ë£¨í”„ì—ì„œ ë°”ë€Œë¯€ë¡œ ë³µì‚¬ í•„ìˆ˜)
             std::vector<uint8_t> vData(pCursor, pCursor + pHeader->size);
 
             ProcessPacket(pCursor, pHeader->size);
@@ -117,14 +121,14 @@ void CNetwork_Manager::RecvThread()
 
 // ================================================================
 //  ProcessPacket
-//  ÆĞÅ¶ ID È®ÀÎ  ÇØ´ç ÇÚµé·¯ È£Ãâ
-//  ÇÚµé·¯´Â ¶÷´Ù·Î °¨½Î¼­ Å¥¿¡ push
+//  íŒ¨í‚· ID í™•ì¸  í•´ë‹¹ í•¸ë“¤ëŸ¬ í˜¸ì¶œ
+//  í•¸ë“¤ëŸ¬ëŠ” ëŒë‹¤ë¡œ ê°ì‹¸ì„œ íì— push
 // ================================================================
 void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
 {
     PacketHeader* pHeader = reinterpret_cast<PacketHeader*>(pBuffer);
 
-    // ÆĞÅ¶ µ¥ÀÌÅÍ¸¦ vector·Î º¹»ç  ¶÷´Ù°¡ Ä¸Ã³ÇÒ ¼ö ÀÖ°Ô
+    // íŒ¨í‚· ë°ì´í„°ë¥¼ vectorë¡œ ë³µì‚¬  ëŒë‹¤ê°€ ìº¡ì²˜í•  ìˆ˜ ìˆê²Œ
     std::vector<uint8_t> vData(pBuffer, pBuffer + nSize);
 
     switch (pHeader->id)
@@ -204,30 +208,60 @@ void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
             Handle_SC_RESPAWN(
                 vData.data(), static_cast<int32_t>(vData.size()));
             }); break;
+    case SC_CHANGE_ZONE:
+        PushTask([this, vData]() mutable {
+            Handle_SC_CHANGE_ZONE(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+    case SC_ADD_DROP:
+        PushTask([this, vData]() mutable {
+            Handle_SC_ADD_DROP(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+    case SC_REMOVE_DROP:
+        PushTask([this, vData]() mutable {
+            Handle_SC_REMOVE_DROP(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+    case SC_INVEN_UPDATE:
+        PushTask([this, vData]() mutable {
+            Handle_SC_INVEN_UPDATE(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+    case SC_PLAYER_HP:
+        PushTask([this, vData]() mutable {
+            Handle_SC_PLAYER_HP(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+    case SC_BUFF:
+        PushTask([this, vData]() mutable {
+            Handle_SC_BUFF(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
     default:
-        std::cout << "[Network] ¾Ë ¼ö ¾ø´Â ÆĞÅ¶: " << pHeader->id << std::endl;
+        std::cout << "[Network] ì•Œ ìˆ˜ ì—†ëŠ” íŒ¨í‚·: " << pHeader->id << std::endl;
         break;
     }
 }
 
 // ================================================================
-//  Dispatch  ¸ŞÀÎ ½º·¹µå¿¡¼­ ¸Å ÇÁ·¹ÀÓ È£Ãâ
+//  Dispatch  ë©”ì¸ ìŠ¤ë ˆë“œì—ì„œ ë§¤ í”„ë ˆì„ í˜¸ì¶œ
 //
-//  Å¥¿¡ ½×ÀÎ ÅÂ½ºÅ©¸¦ ÀüºÎ Ã³¸®
-//  ¶ôÀ» Âª°Ô Àâ´Â ¹æ¹ı
-//  ÀüÃ¼ Å¥¸¦ ·ÎÄÃ Å¥·Î swap  ¶ô ÇØÁ¦  Ã³¸®
-//   Ã³¸® Áß »õ ÆĞÅ¶ÀÌ ¿Íµµ Å¥¿¡ ½×À» ¼ö ÀÖÀ½
+//  íì— ìŒ“ì¸ íƒœìŠ¤í¬ë¥¼ ì „ë¶€ ì²˜ë¦¬
+//  ë½ì„ ì§§ê²Œ ì¡ëŠ” ë°©ë²•
+//  ì „ì²´ íë¥¼ ë¡œì»¬ íë¡œ swap  ë½ í•´ì œ  ì²˜ë¦¬
+//   ì²˜ë¦¬ ì¤‘ ìƒˆ íŒ¨í‚·ì´ ì™€ë„ íì— ìŒ“ì„ ìˆ˜ ìˆìŒ
 // ================================================================
 void CNetwork_Manager::Dispatch()
 {
-    // Å¥ ÀüÃ¼¸¦ ·ÎÄÃ·Î °¡Á®¿È (¶ô ÃÖ¼ÒÈ­)
+    // í ì „ì²´ë¥¼ ë¡œì»¬ë¡œ ê°€ì ¸ì˜´ (ë½ ìµœì†Œí™”)
     std::queue<FPacketTask> localQueue;
     {
         std::lock_guard<std::mutex> lock(m_queueLock);
         std::swap(localQueue, m_taskQueue);
     }
 
-    // ¶ô ¾øÀÌ Ã³¸® ÀÌ¹Ì ¸ŞÀÎ ½º·¹µå¿¡ ÀÖÀ¸¹Ç·Î D2D ¾ÈÀü
+    // ë½ ì—†ì´ ì²˜ë¦¬ ì´ë¯¸ ë©”ì¸ ìŠ¤ë ˆë“œì— ìˆìœ¼ë¯€ë¡œ D2D ì•ˆì „
     while (!localQueue.empty())
     {
         localQueue.front().m_handler();
@@ -236,22 +270,22 @@ void CNetwork_Manager::Dispatch()
 }
 
 // ================================================================
-//  ÆĞÅ¶º° ÇÚµé·¯  ¸ŞÀÎ ½º·¹µå¿¡¼­ ½ÇÇàµÊ
+//  íŒ¨í‚·ë³„ í•¸ë“¤ëŸ¬  ë©”ì¸ ìŠ¤ë ˆë“œì—ì„œ ì‹¤í–‰ë¨
 // ================================================================
 void CNetwork_Manager::Handle_SC_LOGIN_OK(uint8_t* pBuffer, int32_t nSize)
 {
     SC_LOGIN_OK_PACKET* pPkt = reinterpret_cast<SC_LOGIN_OK_PACKET*>(pBuffer);
     m_nMyPlayerID = pPkt->playerID;
-    std::cout << "[Network] ·Î±×ÀÎ ¼º°ø. PlayerID=" << m_nMyPlayerID << std::endl;
+    std::cout << "[Network] ë¡œê·¸ì¸ ì„±ê³µ. PlayerID=" << m_nMyPlayerID << std::endl;
 
 }
 
 void CNetwork_Manager::Handle_SC_LOGIN_FAIL(uint8_t* pBuffer, int32_t nSize)
 {
     SC_LOGIN_FAIL_PACKET* pPkt = reinterpret_cast<SC_LOGIN_FAIL_PACKET*>(pBuffer);
-    std::cout << "[Network] ·Î±×ÀÎ ½ÇÆĞ. reason=" << (int)pPkt->reason << std::endl;
+    std::cout << "[Network] ë¡œê·¸ì¸ ì‹¤íŒ¨. reason=" << (int)pPkt->reason << std::endl;
 
-    // TODO: ½ÇÆĞ ¸Ş½ÃÁö UI Ç¥½Ã
+    // TODO: ì‹¤íŒ¨ ë©”ì‹œì§€ UI í‘œì‹œ
 }
 
 void CNetwork_Manager::Handle_SC_ENTER_GAME(uint8_t* pBuffer, int32_t nSize)
@@ -298,7 +332,7 @@ void CNetwork_Manager::Handle_SC_ADD_PLAYER(uint8_t* pBuffer, int32_t nSize)
 
     CObject_Manager::Get_Instance()->Add_Object(OBJ_OTHER_PLAYER, pOther);
 
-    std::cout << "[Network] ÇÃ·¹ÀÌ¾î Ãß°¡. ID=" << pPkt->playerID
+    std::cout << "[Network] í”Œë ˆì´ì–´ ì¶”ê°€. ID=" << pPkt->playerID
         << " name=" << pPkt->name
         << " state=" << (int)pPkt->state << std::endl;
 }
@@ -312,10 +346,10 @@ void CNetwork_Manager::Handle_SC_REMOVE_PLAYER(uint8_t* pBuffer, int32_t nSize)
         CObject_Manager::Get_Instance()->Find_OtherPlayer(pPkt->playerID);
     if (!pObj) return;
 
-    // Set_Dead() ¡æ Object_Manager Update¿¡¼­ ÀÚµ¿ Á¦°Å
+    // Set_Dead() â†’ Object_Manager Updateì—ì„œ ìë™ ì œê±°
     pObj->Set_Dead();
 
-    std::cout << "[Network] ÇÃ·¹ÀÌ¾î Á¦°Å. ID=" << pPkt->playerID << std::endl;
+    std::cout << "[Network] í”Œë ˆì´ì–´ ì œê±°. ID=" << pPkt->playerID << std::endl;
 }
 
 void CNetwork_Manager::Handle_SC_MOVE_PLAYER(uint8_t* pBuffer, int32_t nSize)
@@ -335,17 +369,17 @@ void CNetwork_Manager::Handle_SC_MOVE_PLAYER(uint8_t* pBuffer, int32_t nSize)
         pPkt->fDestX, pPkt->fDestZ,
         pPkt->fSpeed, pPkt->moveTime);
 }
-//-¸ó½ºÅÍ
+//-ëª¬ìŠ¤í„°
 void CNetwork_Manager::Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize)
 {
     SC_ADD_MONSTER_PACKET* pPkt =
         reinterpret_cast<SC_ADD_MONSTER_PACKET*>(pBuffer);
 
-    // Áßº¹ ¹æÁö
+    // ì¤‘ë³µ ë°©ì§€
     if (CObject_Manager::Get_Instance()->Find_Monster(pPkt->monsterID))
         return;
 
-    // ¸ó½ºÅÍ Å¸ÀÔ¿¡ µû¶ó »ı¼º
+    // ëª¬ìŠ¤í„° íƒ€ì…ì— ë”°ë¼ ìƒì„±
     CMonster* pMonster = nullptr;
     switch (static_cast<MONSTER_TYPE>(pPkt->monsterType))
     {
@@ -353,7 +387,7 @@ void CNetwork_Manager::Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize)
         pMonster = new CMonster_Orc;
         break;
     default:
-        std::cout << "[Network] ¾Ë ¼ö ¾ø´Â ¸ó½ºÅÍ Å¸ÀÔ: "
+        std::cout << "[Network] ì•Œ ìˆ˜ ì—†ëŠ” ëª¬ìŠ¤í„° íƒ€ì…: "
             << (int)pPkt->monsterType << std::endl;
         return;
     }
@@ -363,7 +397,7 @@ void CNetwork_Manager::Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize)
     pMonster->Set_MonsterID(pPkt->monsterID);
     pMonster->Set_Speed(pPkt->fSpeed);
 
-    // ÀÌµ¿ ÁßÀÌ¸é ¸ñÀûÁö ¼¼ÆÃ
+    // ì´ë™ ì¤‘ì´ë©´ ëª©ì ì§€ ì„¸íŒ…
     MONSTER_STATE eState = static_cast<MONSTER_STATE>(pPkt->state);
     if (eState == MON_WALK)
     {
@@ -374,7 +408,7 @@ void CNetwork_Manager::Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize)
 
     CObject_Manager::Get_Instance()->Add_Object(OBJ_MONSTER, pMonster);
 
-    std::cout << "[Network] ¸ó½ºÅÍ Ãß°¡. ID=" << pPkt->monsterID
+    std::cout << "[Network] ëª¬ìŠ¤í„° ì¶”ê°€. ID=" << pPkt->monsterID
         << " Type=" << (int)pPkt->monsterType
         << " pos=(" << pPkt->fCurX << ", " << pPkt->fCurZ << ")"
         << std::endl;
@@ -391,7 +425,7 @@ void CNetwork_Manager::Handle_SC_REMOVE_MONSTER(uint8_t* pBuffer, int32_t nSize)
 
     pObj->Set_Dead();
 
-    std::cout << "[Network] ¸ó½ºÅÍ Á¦°Å. ID=" << pPkt->monsterID << std::endl;
+    std::cout << "[Network] ëª¬ìŠ¤í„° ì œê±°. ID=" << pPkt->monsterID << std::endl;
 }
 
 void CNetwork_Manager::Handle_SC_MOVE_MONSTER(uint8_t* pBuffer, int32_t nSize)
@@ -403,7 +437,7 @@ void CNetwork_Manager::Handle_SC_MOVE_MONSTER(uint8_t* pBuffer, int32_t nSize)
         CObject_Manager::Get_Instance()->Find_Monster(pPkt->monsterID);
     if (!pObj) return;
 
-    // CMonster º£ÀÌ½º·Î Ä³½ºÆÃ - ¾î¶² ¸ó½ºÅÍµç µ¿ÀÛ
+    // CMonster ë² ì´ìŠ¤ë¡œ ìºìŠ¤íŒ… - ì–´ë–¤ ëª¬ìŠ¤í„°ë“  ë™ì‘
     CMonster* pMonster = static_cast<CMonster*>(pObj);
     pMonster->OnMovePacket(
         pPkt->fCurX, pPkt->fCurZ,
@@ -422,7 +456,7 @@ void CNetwork_Manager::Handle_SC_MONSTER_STATE(uint8_t* pBuffer, int32_t nSize)
 
     CMonster* pMonster = static_cast<CMonster*>(pObj);
 
-    // ¹æÇâ ¸ÕÀú Àû¿ë
+    // ë°©í–¥ ë¨¼ì € ì ìš©
     pMonster->Set_Dir(static_cast<DIRECTION>(pPkt->dir));
 
     pMonster->OnStatePacket(
@@ -432,7 +466,7 @@ void CNetwork_Manager::Handle_SC_MONSTER_STATE(uint8_t* pBuffer, int32_t nSize)
 
 
 // ================================================================
-//  ¼Û½Å ÇÔ¼öµé
+//  ì†¡ì‹  í•¨ìˆ˜ë“¤
 // ================================================================
 bool CNetwork_Manager::SendRaw(const void* pData, int32_t nSize)
 {
@@ -485,13 +519,13 @@ void CNetwork_Manager::SendAttackMonster(
     SendRaw(&pkt, sizeof(pkt));
 }
 
-// ´Ù¸¥ ÇÃ·¹ÀÌ¾î °ø°İ ¸ğ¼Ç ¼ö½Å
+// ë‹¤ë¥¸ í”Œë ˆì´ì–´ ê³µê²© ëª¨ì…˜ ìˆ˜ì‹ 
 void CNetwork_Manager::Handle_SC_PLAYER_STATE(uint8_t* pBuffer, int32_t nSize)
 {
     SC_PLAYER_STATE_PACKET* pPkt =
         reinterpret_cast<SC_PLAYER_STATE_PACKET*>(pBuffer);
 
-    // ³» ÇÃ·¹ÀÌ¾î´Â ·ÎÄÃ¿¡¼­ ÀÌ¹Ì Ã³¸®
+    // ë‚´ í”Œë ˆì´ì–´ëŠ” ë¡œì»¬ì—ì„œ ì´ë¯¸ ì²˜ë¦¬
     if (pPkt->playerID == m_nMyPlayerID) return;
 
     CGameObject* pObj =
@@ -523,7 +557,7 @@ void CNetwork_Manager::Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize)
 
     if (pPkt->playerID == m_nMyPlayerID)
     {
-        // ³» ÇÃ·¹ÀÌ¾î ÇÇ°İ
+        // ë‚´ í”Œë ˆì´ì–´ í”¼ê²©
         CPlayer* pPlayer = dynamic_cast<CPlayer*>(CObject_Manager::Get_Instance()->Get_Player());
         if (!pPlayer) return;
 
@@ -535,7 +569,7 @@ void CNetwork_Manager::Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize)
     }
     else
     {
-        // ´Ù¸¥ ÇÃ·¹ÀÌ¾î ÇÇ°İ
+        // ë‹¤ë¥¸ í”Œë ˆì´ì–´ í”¼ê²©
         CGameObject* pObj =
             CObject_Manager::Get_Instance()->Find_OtherPlayer(pPkt->playerID);
         if (!pObj) return;
@@ -545,7 +579,7 @@ void CNetwork_Manager::Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize)
     }
 }
 
-// ¸ó½ºÅÍ ÇÇ°İ ¼ö½Å
+// ëª¬ìŠ¤í„° í”¼ê²© ìˆ˜ì‹ 
 void CNetwork_Manager::Handle_SC_MONSTER_HIT(uint8_t* pBuffer, int32_t nSize)
 {
     SC_MONSTER_HIT_PACKET* pPkt =
@@ -557,14 +591,14 @@ void CNetwork_Manager::Handle_SC_MONSTER_HIT(uint8_t* pBuffer, int32_t nSize)
 
     CMonster* pMonster = static_cast<CMonster*>(pObj);
 
-    // HP °»½Å
+    // HP ê°±ì‹ 
     pMonster->Set_Hp(pPkt->nHp);
    // pMonster->Set_MaxHp(pPkt->nMaxHp);
 
-    // ¹æÇâ Àû¿ë
+    // ë°©í–¥ ì ìš©
     pMonster->Set_Dir(static_cast<DIRECTION>(pPkt->dir));
 
-    // ÇÇ°İ »óÅÂ Àû¿ë
+    // í”¼ê²© ìƒíƒœ ì ìš©
     pMonster->OnStatePacket(MON_HIT, -1);
 }
 
@@ -585,5 +619,148 @@ void CNetwork_Manager::SendRespawn()
     CS_RESPAWN_PACKET pkt = {};
     pkt.header.size = sizeof(pkt);
     pkt.header.id = CS_RESPAWN;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendPortal(int32_t nTargetZone, float fSpawnX, float fSpawnZ)
+{
+    CS_PORTAL_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_PORTAL;
+    pkt.targetZone = nTargetZone;
+    pkt.spawnX = fSpawnX;
+    pkt.spawnZ = fSpawnZ;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+// ================================================================
+//  Handle_SC_CHANGE_ZONE
+//  ì„œë²„ê°€ ì¡´ ì „í™˜ì„ í™•ì •í•¨. ìƒˆ ë§µì„ ë¡œë“œí•˜ê³ (íƒ€ì¼ + Spawn_Objectsë¡œ
+//  NPC/í¬íƒˆ ìƒì„±) ë¡œì»¬ í”Œë ˆì´ì–´ë¥¼ ì´ë™ì‹œí‚¨ë‹¤.
+//  ì˜› ì¡´ì˜ ëª¬ìŠ¤í„°/ë‹¤ë¥¸ í”Œë ˆì´ì–´ëŠ” ì„œë²„ì˜ remove íŒ¨í‚·ìœ¼ë¡œ ì œê±°ë¨.
+// ================================================================
+void CNetwork_Manager::Handle_SC_CHANGE_ZONE(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_CHANGE_ZONE_PACKET* pPkt =
+        reinterpret_cast<SC_CHANGE_ZONE_PACKET*>(pBuffer);
+
+    CMap_Manager::Get_Instance()->Change_Zone_Async(
+        static_cast<ZONE_ID>(pPkt->zoneID));
+
+    // ì´ì „ ì¡´ì˜ ë“œë¡­ ì •ë¦¬ (ë“œë¡­ì€ ë– ë‚  ë•Œ ì œê±° íŒ¨í‚·ì´ ì—†ìŒ).
+    // ìƒˆ ì¡´ì˜ ë“œë¡­ì€ ì„œë²„ EnterZone ì˜ Send_AllDrops ë¡œ ë‹¤ì‹œ ë°›ìŒ.
+    CObject_Manager::Get_Instance()->DeleteID(OBJ_DROP);
+
+    CPlayer* pPlayer = dynamic_cast<CPlayer*>(
+        CObject_Manager::Get_Instance()->Get_Player());
+    if (pPlayer)
+        pPlayer->Set_WorldPos(pPkt->spawnX, pPkt->spawnZ);
+
+    std::cout << "[Network] ì¡´ ì „í™˜ -> " << pPkt->zoneID
+        << " spawn=(" << pPkt->spawnX << ", " << pPkt->spawnZ << ")"
+        << std::endl;
+}
+
+void CNetwork_Manager::SendPickup(uint32_t nDropId)
+{
+    CS_PICKUP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_PICKUP;
+    pkt.dropId = nDropId;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::Handle_SC_ADD_DROP(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_ADD_DROP_PACKET* pPkt = reinterpret_cast<SC_ADD_DROP_PACKET*>(pBuffer);
+
+    if (CObject_Manager::Get_Instance()->Find_Drop(pPkt->dropId))
+        return;  // ì¤‘ë³µ ë°©ì§€
+
+    CDropItem* pDrop = new CDropItem;
+    pDrop->Init_Drop(pPkt->dropId, pPkt->itemCode, pPkt->amount,
+        pPkt->fX, pPkt->fZ);
+    pDrop->Initialize();
+    CObject_Manager::Get_Instance()->Add_Object(OBJ_DROP, pDrop);
+}
+
+void CNetwork_Manager::Handle_SC_REMOVE_DROP(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_REMOVE_DROP_PACKET* pPkt = reinterpret_cast<SC_REMOVE_DROP_PACKET*>(pBuffer);
+
+    CGameObject* pObj = CObject_Manager::Get_Instance()->Find_Drop(pPkt->dropId);
+    if (pObj) pObj->Set_Dead();
+}
+
+void CNetwork_Manager::Handle_SC_INVEN_UPDATE(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_INVEN_UPDATE_PACKET* pPkt = reinterpret_cast<SC_INVEN_UPDATE_PACKET*>(pBuffer);
+
+    CPlayer* pPlayer = dynamic_cast<CPlayer*>(
+        CObject_Manager::Get_Instance()->Get_Player());
+    if (!pPlayer) return;
+
+    CInventory* pInven = pPlayer->Get_Inventory();
+    if (pInven)
+        pInven->Set_From_Snapshot(pPkt->codes, pPkt->counts, pPkt->gold);
+
+    CEquipment* pEquip = pPlayer->Get_Equipment();
+    if (pEquip)
+        pEquip->Set_From_Snapshot(pPkt->equip);
+}
+
+void CNetwork_Manager::Handle_SC_PLAYER_HP(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_PLAYER_HP_PACKET* pPkt = reinterpret_cast<SC_PLAYER_HP_PACKET*>(pBuffer);
+
+    if (pPkt->playerID != m_nMyPlayerID) return;
+
+    CPlayer* pPlayer = dynamic_cast<CPlayer*>(
+        CObject_Manager::Get_Instance()->Get_Player());
+    if (!pPlayer) return;
+
+    // íšŒë³µ/ìŠ¤íƒ¯ ë™ê¸°í™” (í”¼ê²© ì• ë‹ˆ ì—†ìŒ)
+    pPlayer->Set_Hp(pPkt->nHp);
+    pPlayer->Set_Mp(pPkt->nMp);
+}
+
+void CNetwork_Manager::Handle_SC_BUFF(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_BUFF_PACKET* pPkt = reinterpret_cast<SC_BUFF_PACKET*>(pBuffer);
+
+    if (pPkt->playerID != m_nMyPlayerID) return;
+
+    CPlayer* pPlayer = dynamic_cast<CPlayer*>(
+        CObject_Manager::Get_Instance()->Get_Player());
+    if (!pPlayer) return;
+
+    // ì„œë²„ê°€ ì‚¬ìš© í™•ì • â†’ í´ë¼ê°€ ìì²´ íƒ€ì´ë¨¸ë¡œ í‘œì‹œ
+    pPlayer->Add_Buff(pPkt->buffType, (DWORD)pPkt->durationMs);
+}
+
+void CNetwork_Manager::SendEquip(int32_t nInvenSlot)
+{
+    CS_EQUIP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_EQUIP;
+    pkt.invenSlot = nInvenSlot;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendUnEquip(int32_t nEquipSlot)
+{
+    CS_UNEQUIP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_UNEQUIP;
+    pkt.equipSlot = nEquipSlot;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendUseItem(int32_t nInvenSlot)
+{
+    CS_USE_ITEM_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_USE_ITEM;
+    pkt.invenSlot = nInvenSlot;
     SendRaw(&pkt, sizeof(pkt));
 }

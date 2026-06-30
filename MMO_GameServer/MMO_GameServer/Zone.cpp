@@ -1,8 +1,13 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Zone.h"
 #include "Player_Manager.h"
 #include "Session_Manager.h"
 #include "Protocol.h"
+#include "ServerItem.h"
+#include <atomic>
+
+// ì „ì—­ ë“œë¡­ ID ë°œê¸‰ (ì¡´ ê³µí†µ)
+static std::atomic<int32_t> g_nextDropId{ 1 };
 
 
 
@@ -51,7 +56,7 @@ CZone::CZone(int32_t nZoneID, const char* pszName,
         }
     }
 
-    std::cout << "[CZone] '" << m_szName << "' »ı¼º. "
+    std::cout << "[CZone] '" << m_szName << "' ìƒì„±. "
         << m_nTileCountX << "x" << m_nTileCountZ << std::endl;
 }
 
@@ -99,19 +104,20 @@ void CZone::EnterZone(PlayerRef pPlayer, float fSpawnX, float fSpawnZ)
         PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
         if (!pNear) continue;
 
-        // ³ª¿¡°Ô »ó´ë¹æ add
+        // ë‚˜ì—ê²Œ ìƒëŒ€ë°© add
         Send_AddPlayer(pPlayer, pNear);
 
-        // »ó´ë¹æ¿¡°Ô ³ª add
+        // ìƒëŒ€ë°©ì—ê²Œ ë‚˜ add
         Send_AddPlayer(pNear, pPlayer);
 
-        // »ó´ë¹æ view_list¿¡ ³ª Ãß°¡
+        // ìƒëŒ€ë°© view_listì— ë‚˜ ì¶”ê°€
         {
             std::lock_guard<std::mutex> lock(pNear->m_viewLock);
             pNear->m_viewList.insert(pPlayer->m_nPlayerID);
         }
     }
     UpdateMonsterView(pPlayer);
+    Send_AllDrops(pPlayer);   // ì¡´ì— ë‚¨ì•„ìˆëŠ” ë“œë¡­ ì „ì†¡
 }
 
 // ================================================================
@@ -136,7 +142,10 @@ void CZone::LeaveZone(PlayerRef pPlayer)
         PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
         if (!pNear) continue;
 
+        // ìƒëŒ€ë°© í´ë¼ì—ì„œ ë‚˜ë¥¼ ì œê±°
         Send_RemovePlayer(pNear, pPlayer->m_nPlayerID);
+        // ë‚´ í´ë¼ì—ì„œ ìƒëŒ€ë°© ì œê±° (ì¡´ì„ ë– ë‚  ë•Œ ì˜› ì¡´ í”Œë ˆì´ì–´ê°€ ë‚¨ì§€ ì•Šë„ë¡)
+        Send_RemovePlayer(pPlayer, nNearID);
 
         {
             std::lock_guard<std::mutex> lock(pNear->m_viewLock);
@@ -146,12 +155,12 @@ void CZone::LeaveZone(PlayerRef pPlayer)
 }
 
 // ================================================================
-//  OnMoveDest ? ¸¶¿ì½º Å¬¸¯ ½Ã 1¹ø È£Ãâ
+//  OnMoveDest ? ë§ˆìš°ìŠ¤ í´ë¦­ ì‹œ 1ë²ˆ í˜¸ì¶œ
 //
-//  1) ¸ñÀûÁö Å¸ÀÏÀÌ ÀÌµ¿ °¡´ÉÇÑÁö °ËÁõ
-//  2) ÇÃ·¹ÀÌ¾î ¸ñÀûÁö ÀúÀå
-//  3) ÇöÀç view_list¿¡ ºê·ÎµåÄ³½ºÆ®
-//     (´Ù¸¥ Å¬¶óÀÌ¾ğÆ®µéÀÌ ÀÌ ÇÃ·¹ÀÌ¾îÀÇ ÀÌµ¿À» º¸°£ ½ÃÀÛ)
+//  1) ëª©ì ì§€ íƒ€ì¼ì´ ì´ë™ ê°€ëŠ¥í•œì§€ ê²€ì¦
+//  2) í”Œë ˆì´ì–´ ëª©ì ì§€ ì €ì¥
+//  3) í˜„ì¬ view_listì— ë¸Œë¡œë“œìºìŠ¤íŠ¸
+//     (ë‹¤ë¥¸ í´ë¼ì´ì–¸íŠ¸ë“¤ì´ ì´ í”Œë ˆì´ì–´ì˜ ì´ë™ì„ ë³´ê°„ ì‹œì‘)
 // ================================================================
 void CZone::OnMoveDest(PlayerRef pPlayer,
     float fDestX, float fDestZ, uint32_t nMoveTime)
@@ -161,21 +170,21 @@ void CZone::OnMoveDest(PlayerRef pPlayer,
     int32_t nDestTileX = static_cast<int32_t>(floorf(fDestX));
     int32_t nDestTileZ = static_cast<int32_t>(floorf(fDestZ));
 
-    // ¸ñÀûÁö ºí·Ï °ËÁõ
+    // ëª©ì ì§€ ë¸”ë¡ ê²€ì¦
     if (!IsMovable(nDestTileX, nDestTileZ))
     {
-        // ÀÌµ¿ ºÒ°¡ Å¸ÀÏ ? ÇöÀç À§Ä¡·Î µÇµ¹¸²
+        // ì´ë™ ë¶ˆê°€ íƒ€ì¼ ? í˜„ì¬ ìœ„ì¹˜ë¡œ ë˜ëŒë¦¼
         Send_MovePlayer(pPlayer, pPlayer, nMoveTime);
         return;
     }
 
-    // ¸ñÀûÁö + ÀÌµ¿ ½ÃÀÛ Á¤º¸ ÀúÀå
-    // m_fMoveStartX/Z¿Í m_nMoveStartTimeÀ» ÀúÀåÇØµÎ¸é
-    // ¼­¹ö°¡ ¾ğÁ¦µçÁö GetCurrentPos()·Î Á¤È®ÇÑ À§Ä¡ ¿ª»ê °¡´É
+    // ëª©ì ì§€ + ì´ë™ ì‹œì‘ ì •ë³´ ì €ì¥
+    // m_fMoveStartX/Zì™€ m_nMoveStartTimeì„ ì €ì¥í•´ë‘ë©´
+    // ì„œë²„ê°€ ì–¸ì œë“ ì§€ GetCurrentPos()ë¡œ ì •í™•í•œ ìœ„ì¹˜ ì—­ì‚° ê°€ëŠ¥
     float fCalcX, fCalcZ;
     pPlayer->GetCurrentPos(nMoveTime, fCalcX, fCalcZ);
 
-    pPlayer->m_fMoveStartX = fCalcX;    // Å¬¸¯ ½ÃÁ¡ÀÇ ½ÇÁ¦ À§Ä¡
+    pPlayer->m_fMoveStartX = fCalcX;    // í´ë¦­ ì‹œì ì˜ ì‹¤ì œ ìœ„ì¹˜
     pPlayer->m_fMoveStartZ = fCalcZ;
     pPlayer->m_nMoveStartTime = nMoveTime;
     pPlayer->m_fDestX = fDestX;
@@ -209,8 +218,8 @@ void CZone::OnMoveDest(PlayerRef pPlayer,
         }
     }
 
-    // ÇöÀç view_list¿¡ ºê·ÎµåÄ³½ºÆ®
-    // ½Ã¾ß Àç°è»êÀº ÇÏÁö ¾ÊÀ½ ? ¾ÆÁ÷ À§Ä¡ ¾È ¹Ù²î¾úÀ¸´Ï±î
+    // í˜„ì¬ view_listì— ë¸Œë¡œë“œìºìŠ¤íŠ¸
+    // ì‹œì•¼ ì¬ê³„ì‚°ì€ í•˜ì§€ ì•ŠìŒ ? ì•„ì§ ìœ„ì¹˜ ì•ˆ ë°”ë€Œì—ˆìœ¼ë‹ˆê¹Œ
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         for (int32_t nNearID : pPlayer->m_viewList)
@@ -222,20 +231,20 @@ void CZone::OnMoveDest(PlayerRef pPlayer,
 }
 
 // ================================================================
-//  OnMovePos ? Å¬¶óÀÌ¾ğÆ® Å¸ÀÏ º¯°æ ½Ã¸¶´Ù È£Ãâ
+//  OnMovePos ? í´ë¼ì´ì–¸íŠ¸ íƒ€ì¼ ë³€ê²½ ì‹œë§ˆë‹¤ í˜¸ì¶œ
 //
-//  1) ÇöÀç À§Ä¡ ¾÷µ¥ÀÌÆ®
-//  2) Å¸ÀÏ ÁÂÇ¥ °»½Å
-//  3) Å¸ÀÏÀÌ ¹Ù²î¾úÀ¸¸é ½Ã¾ß Àç°è»ê
-//     ¡æ »õ·Î º¸ÀÌ´Â ÇÃ·¹ÀÌ¾î: SC_ADD_PLAYER ¾ç¹æÇâ
-//     ¡æ ½Ã¾ß ¹Û ÇÃ·¹ÀÌ¾î:    SC_REMOVE_PLAYER ¾ç¹æÇâ
-//     ¡æ °è¼Ó º¸ÀÌ´Â ÇÃ·¹ÀÌ¾î: SC_MOVE_PLAYER
-//  4) Å¸ÀÏÀÌ ¾È ¹Ù²î¾úÀ¸¸é move ºê·ÎµåÄ³½ºÆ®¸¸
+//  1) í˜„ì¬ ìœ„ì¹˜ ì—…ë°ì´íŠ¸
+//  2) íƒ€ì¼ ì¢Œí‘œ ê°±ì‹ 
+//  3) íƒ€ì¼ì´ ë°”ë€Œì—ˆìœ¼ë©´ ì‹œì•¼ ì¬ê³„ì‚°
+//     â†’ ìƒˆë¡œ ë³´ì´ëŠ” í”Œë ˆì´ì–´: SC_ADD_PLAYER ì–‘ë°©í–¥
+//     â†’ ì‹œì•¼ ë°– í”Œë ˆì´ì–´:    SC_REMOVE_PLAYER ì–‘ë°©í–¥
+//     â†’ ê³„ì† ë³´ì´ëŠ” í”Œë ˆì´ì–´: SC_MOVE_PLAYER
+//  4) íƒ€ì¼ì´ ì•ˆ ë°”ë€Œì—ˆìœ¼ë©´ move ë¸Œë¡œë“œìºìŠ¤íŠ¸ë§Œ
 // ================================================================
 void CZone::OnMovePos(PlayerRef pPlayer,
     float fCurX, float fCurZ, uint32_t nMoveTime)
 {
-    // ¼Óµµ °ËÁõ
+    // ì†ë„ ê²€ì¦
 
     if (pPlayer->m_bDead) return;
 
@@ -256,12 +265,12 @@ void CZone::OnMovePos(PlayerRef pPlayer,
         }
     }
 
-    // ÇöÀç À§Ä¡ ¾÷µ¥ÀÌÆ®
+    // í˜„ì¬ ìœ„ì¹˜ ì—…ë°ì´íŠ¸
     pPlayer->m_fCurX = fCurX;
     pPlayer->m_fCurZ = fCurZ;
     pPlayer->m_nLastMoveTime = nMoveTime;
 
-    // ¸ñÀûÁö µµÂø ¿©ºÎ Ã¼Å©
+    // ëª©ì ì§€ ë„ì°© ì—¬ë¶€ ì²´í¬
     if (pPlayer->IsArrived(nMoveTime))
     {
         pPlayer->m_fCurX = pPlayer->m_fDestX;
@@ -273,8 +282,8 @@ void CZone::OnMovePos(PlayerRef pPlayer,
 
     if (!bTileChanged)
     {
-        // Å¸ÀÏ ¾È¿¡¼­¸¸ ¿òÁ÷ÀÓ ? ½Ã¾ß º¯È­ ¾øÀ½
-        // move ÆĞÅ¶¸¸ ÇöÀç view_list¿¡ ºê·ÎµåÄ³½ºÆ®
+        // íƒ€ì¼ ì•ˆì—ì„œë§Œ ì›€ì§ì„ ? ì‹œì•¼ ë³€í™” ì—†ìŒ
+        // move íŒ¨í‚·ë§Œ í˜„ì¬ view_listì— ë¸Œë¡œë“œìºìŠ¤íŠ¸
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         for (int32_t nNearID : pPlayer->m_viewList)
         {
@@ -284,7 +293,7 @@ void CZone::OnMovePos(PlayerRef pPlayer,
         return;
     }
 
-    // ---- Å¸ÀÏ ¹Ù²ñ ¡æ ½Ã¾ß Àç°è»ê ----
+    // ---- íƒ€ì¼ ë°”ë€œ â†’ ì‹œì•¼ ì¬ê³„ì‚° ----
     std::vector<int32_t> vOldView;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
@@ -305,7 +314,7 @@ void CZone::OnMovePos(PlayerRef pPlayer,
 }
 
 // ================================================================
-//  GetNearPlayers ? Á¸ ÀüÃ¼ ¼øÈ¸ + Å¸ÀÏ °Å¸®·Î ½Ã¾ß ÆÇÁ¤
+//  GetNearPlayers ? ì¡´ ì „ì²´ ìˆœíšŒ + íƒ€ì¼ ê±°ë¦¬ë¡œ ì‹œì•¼ íŒì •
 // ================================================================
 std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
 {
@@ -335,10 +344,10 @@ bool CZone::CanSee(PlayerRef pA, PlayerRef pB)
 // ================================================================
 //  UpdateViewAndBroadcast
 //
-//  old/new ºñ±³:
-//  new¿¡ ÀÖ°í old¿¡ ¾øÀ½ ¡æ »õ·Î º¸ÀÓ ¡æ SC_ADD_PLAYER ¾ç¹æÇâ
-//  old¿¡ ÀÖ°í new¿¡ ¾øÀ½ ¡æ ½Ã¾ß ¹Û   ¡æ SC_REMOVE_PLAYER ¾ç¹æÇâ
-//  µÑ ´Ù ÀÖÀ½            ¡æ °è¼Ó º¸ÀÓ ¡æ SC_MOVE_PLAYER
+//  old/new ë¹„êµ:
+//  newì— ìˆê³  oldì— ì—†ìŒ â†’ ìƒˆë¡œ ë³´ì„ â†’ SC_ADD_PLAYER ì–‘ë°©í–¥
+//  oldì— ìˆê³  newì— ì—†ìŒ â†’ ì‹œì•¼ ë°–   â†’ SC_REMOVE_PLAYER ì–‘ë°©í–¥
+//  ë‘˜ ë‹¤ ìˆìŒ            â†’ ê³„ì† ë³´ì„ â†’ SC_MOVE_PLAYER
 // ================================================================
 void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
     const std::vector<int32_t>& vOldView,
@@ -348,7 +357,7 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
     std::unordered_set<int32_t> setOld(vOldView.begin(), vOldView.end());
     std::unordered_set<int32_t> setNew(vNewView.begin(), vNewView.end());
 
-    // ³ª ÀÚ½Å¿¡°Ô ÀÌµ¿ È®ÀÎ ÆĞÅ¶
+    // ë‚˜ ìì‹ ì—ê²Œ ì´ë™ í™•ì¸ íŒ¨í‚·
     Send_MovePlayer(pPlayer, pPlayer, nMoveTime);
 
     for (int32_t nNearID : setNew)
@@ -358,9 +367,9 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
 
         if (setOld.count(nNearID) == 0)
         {
-            // ---- »õ·Î ½Ã¾ß¿¡ µé¾î¿È ----
-            Send_AddPlayer(pPlayer, pNear);   // ³ª¿¡°Ô »ó´ë¹æ add
-            Send_AddPlayer(pNear, pPlayer);   // »ó´ë¹æ¿¡°Ô ³ª add
+            // ---- ìƒˆë¡œ ì‹œì•¼ì— ë“¤ì–´ì˜´ ----
+            Send_AddPlayer(pPlayer, pNear);   // ë‚˜ì—ê²Œ ìƒëŒ€ë°© add
+            Send_AddPlayer(pNear, pPlayer);   // ìƒëŒ€ë°©ì—ê²Œ ë‚˜ add
 
             {
                 std::lock_guard<std::mutex> lock(pNear->m_viewLock);
@@ -369,7 +378,7 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
         }
         else
         {
-            // ---- °è¼Ó ½Ã¾ß ¾È ----
+            // ---- ê³„ì† ì‹œì•¼ ì•ˆ ----
             Send_MovePlayer(pNear, pPlayer, nMoveTime);
         }
     }
@@ -381,9 +390,9 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
         PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
         if (!pNear) continue;
 
-        // ---- ½Ã¾ß ¹ÛÀ¸·Î ³ª°¨ ----
-        Send_RemovePlayer(pPlayer, nNearID);           // ³ª¿¡°Ô »ó´ë¹æ remove
-        Send_RemovePlayer(pNear, pPlayer->m_nPlayerID); // »ó´ë¹æ¿¡°Ô ³ª remove
+        // ---- ì‹œì•¼ ë°–ìœ¼ë¡œ ë‚˜ê° ----
+        Send_RemovePlayer(pPlayer, nNearID);           // ë‚˜ì—ê²Œ ìƒëŒ€ë°© remove
+        Send_RemovePlayer(pNear, pPlayer->m_nPlayerID); // ìƒëŒ€ë°©ì—ê²Œ ë‚˜ remove
 
         {
             std::lock_guard<std::mutex> lock(pNear->m_viewLock);
@@ -393,7 +402,7 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
 }
 
 // ================================================================
-//  ÆĞÅ¶ Àü¼Û ÇïÆÛ
+//  íŒ¨í‚· ì „ì†¡ í—¬í¼
 // ================================================================
 void CZone::Send_AddPlayer(PlayerRef pTo, PlayerRef pTarget)
 {
@@ -459,22 +468,22 @@ void CZone::SpawnMonster(int32_t nID, MONSTER_TYPE eType, float fX, float fZ)
         m_monsterIDs.insert(nID);
     }
 
-    // ½ºÆù ½Ã ½Ã¾ß ¹üÀ§ ³» ÇÃ·¹ÀÌ¾î¿¡°Ô ¾Ë¸²
+    // ìŠ¤í° ì‹œ ì‹œì•¼ ë²”ìœ„ ë‚´ í”Œë ˆì´ì–´ì—ê²Œ ì•Œë¦¼
     Broadcast_AddMonster(pMonster);
 
-    std::cout << "[Zone] ¸ó½ºÅÍ ½ºÆù. ID=" << nID
+    std::cout << "[Zone] ëª¬ìŠ¤í„° ìŠ¤í°. ID=" << nID
         << " pos=(" << fX << ", " << fZ << ")" << std::endl;
 }
 
 // ================================================================
 //  UpdateMonsterView
-//  ÇÃ·¹ÀÌ¾î Å¸ÀÏ º¯°æ ½Ã È£Ãâ
-//  ½Ã¾ß ÁøÀÔ ¡æ SC_ADD_MONSTER + CAS È°¼ºÈ­
-//  ½Ã¾ß ÀÌÅ» ¡æ SC_REMOVE_MONSTER
+//  í”Œë ˆì´ì–´ íƒ€ì¼ ë³€ê²½ ì‹œ í˜¸ì¶œ
+//  ì‹œì•¼ ì§„ì… â†’ SC_ADD_MONSTER + CAS í™œì„±í™”
+//  ì‹œì•¼ ì´íƒˆ â†’ SC_REMOVE_MONSTER
 // ================================================================
 void CZone::UpdateMonsterView(PlayerRef pPlayer)
 {
-    // ÇöÀç ½Ã¾ß ³» ¸ó½ºÅÍ °è»ê
+    // í˜„ì¬ ì‹œì•¼ ë‚´ ëª¬ìŠ¤í„° ê³„ì‚°
     std::vector<int32_t> vNewView;
     {
         std::lock_guard<std::mutex> lock(m_monsterLock);
@@ -485,7 +494,7 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
             if (!pMonster) continue;
             if (pMonster->IsDead()) continue;
 
-            // ³í¸® ÁÂÇ¥°è ±âÁØ Å¸ÀÏ °Å¸®
+            // ë…¼ë¦¬ ì¢Œí‘œê³„ ê¸°ì¤€ íƒ€ì¼ ê±°ë¦¬
             int32_t nDX = abs(pPlayer->m_nTileX - pMonster->m_nTileX);
             int32_t nDZ = abs(pPlayer->m_nTileZ - pMonster->m_nTileZ);
             if (nDX <= VIEW_RANGE && nDZ <= VIEW_RANGE)
@@ -493,7 +502,7 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
         }
     }
 
-    // ÀÌÀü ½Ã¾ß
+    // ì´ì „ ì‹œì•¼
     std::vector<int32_t> vOldView;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_monsterViewLock);
@@ -502,7 +511,7 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
             pPlayer->m_monsterViewList.end());
     }
 
-    // ½Ã¾ß °»½Å
+    // ì‹œì•¼ ê°±ì‹ 
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_monsterViewLock);
         pPlayer->m_monsterViewList.clear();
@@ -513,7 +522,7 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
     std::unordered_set<int32_t> setOld(vOldView.begin(), vOldView.end());
     std::unordered_set<int32_t> setNew(vNewView.begin(), vNewView.end());
 
-    // »õ·Î ½Ã¾ß ÁøÀÔ
+    // ìƒˆë¡œ ì‹œì•¼ ì§„ì…
     for (int32_t nID : setNew)
     {
         if (setOld.count(nID) != 0) continue;
@@ -524,13 +533,13 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
 
         Send_AddMonster(pPlayer, pMonster);
 
-        // CAS È°¼ºÈ­ - º¹±Í Áß(m_bActive=true)ÀÌ¸é ½ÇÆĞ ¡æ Áßº¹ ¹æÁö
+        // CAS í™œì„±í™” - ë³µê·€ ì¤‘(m_bActive=true)ì´ë©´ ì‹¤íŒ¨ â†’ ì¤‘ë³µ ë°©ì§€
         bool expected = false;
         if (pMonster->m_bActive.compare_exchange_strong(expected, true))
             AddTimer(nID, EEventType::MonsterAI, 500);
     }
 
-    // ½Ã¾ß ÀÌÅ»
+    // ì‹œì•¼ ì´íƒˆ
     for (int32_t nID : setOld)
     {
         if (setNew.count(nID) != 0) continue;
@@ -539,7 +548,7 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
 }
 
 // ================================================================
-//  OnMonsterAI Worker Thread¿¡¼­ 500ms¸¶´Ù È£Ãâ
+//  OnMonsterAI Worker Threadì—ì„œ 500msë§ˆë‹¤ í˜¸ì¶œ
 // ================================================================
 void CZone::OnMonsterAI(int32_t nMonsterID)
 {
@@ -553,13 +562,13 @@ void CZone::OnMonsterAI(int32_t nMonsterID)
     {
         if (nNow < pMonster->m_nHitStunEndTime)
         {
-            // ¾ÆÁ÷ °æÁ÷ Áß ¡æ AI ½ºÅµ + ´ÙÀ½ Æ½ ¿¹¾à
+            // ì•„ì§ ê²½ì§ ì¤‘ â†’ AI ìŠ¤í‚µ + ë‹¤ìŒ í‹± ì˜ˆì•½
             AddTimer(nMonsterID, EEventType::MonsterAI, 500);
             return;
         }
         else
         {
-            // °æÁ÷ Á¾·á ¡æ IDLE º¹±Í
+            // ê²½ì§ ì¢…ë£Œ â†’ IDLE ë³µê·€
             pMonster->m_eState = MON_IDLE;
             pMonster->m_nHitStunEndTime = 0;
             Broadcast_MonsterState(pMonster);
@@ -568,8 +577,8 @@ void CZone::OnMonsterAI(int32_t nMonsterID)
 
     if (!PlayerExistNear(pMonster))
     {
-        // Å¸°ÙÀÌ ÀÖ¾ú´ø °æ¿ì¿¡¸¸ º¹±Í
-        // Å¸°Ù ¾øÀÌ È°¼ºÈ­µÈ °æ¿ì(Ã¹ È°¼ºÈ­ µî)´Â ±×³É ´ë±â
+        // íƒ€ê²Ÿì´ ìˆì—ˆë˜ ê²½ìš°ì—ë§Œ ë³µê·€
+        // íƒ€ê²Ÿ ì—†ì´ í™œì„±í™”ëœ ê²½ìš°(ì²« í™œì„±í™” ë“±)ëŠ” ê·¸ëƒ¥ ëŒ€ê¸°
         if (pMonster->m_nTargetID != -1)
         {
             pMonster->m_nTargetID = -1;
@@ -597,7 +606,7 @@ void CZone::OnMonsterAI(int32_t nMonsterID)
         }
         else
         {
-            // Å¸°Ù ¾øÀÌ È°¼ºÈ­µÈ »óÅÂ ¡æ IDLE ´ë±â ·çÇÁ À¯Áö
+            // íƒ€ê²Ÿ ì—†ì´ í™œì„±í™”ëœ ìƒíƒœ â†’ IDLE ëŒ€ê¸° ë£¨í”„ ìœ ì§€
             if (pMonster->m_eState != MON_IDLE)
             {
                 pMonster->m_eState = MON_IDLE;
@@ -649,7 +658,7 @@ void CZone::OnMonsterAI(int32_t nMonsterID)
 
 // ================================================================
 //  MonsterChase
-//  Å¸ÀÏ º¯°æ or ¹æÇâ º¯°æ or »óÅÂ º¯°æ ½Ã¿¡¸¸ ÆĞÅ¶ Àü¼Û
+//  íƒ€ì¼ ë³€ê²½ or ë°©í–¥ ë³€ê²½ or ìƒíƒœ ë³€ê²½ ì‹œì—ë§Œ íŒ¨í‚· ì „ì†¡
 // ================================================================
 void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
 {
@@ -661,7 +670,7 @@ void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
     float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
     if (fDist < 0.001f) return;
 
-    // ÀÌ¹Ì °ø°İ ¹üÀ§ ³»¸é ¹æÇâ¸¸ ¹Ù¶óº¸°í Á¾·á
+    // ì´ë¯¸ ê³µê²© ë²”ìœ„ ë‚´ë©´ ë°©í–¥ë§Œ ë°”ë¼ë³´ê³  ì¢…ë£Œ
     if (fDist <= pMonster->m_fAtkRange)
     {
         MONSTER_DIR eNewDir = pMonster->CalcDirection(fDX / fDist, fDZ / fDist);
@@ -690,7 +699,7 @@ void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
         pMonster->m_fDestX = fPlayerX;
         pMonster->m_fDestZ = fPlayerZ;
 
-        // ½ÇÁ¦ À§Ä¡ ÀÌµ¿
+        // ì‹¤ì œ ìœ„ì¹˜ ì´ë™
         float fMoveStep = pMonster->m_fSpeed * 0.5f;
         if (fDist <= fMoveStep)
         {
@@ -703,7 +712,7 @@ void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
             pMonster->m_fCurZ += fNZ * fMoveStep;
         }
 
-        // ÀÌµ¿ ÈÄ °ø°İ ¹üÀ§ ÁøÀÔ Ã¼Å©
+        // ì´ë™ í›„ ê³µê²© ë²”ìœ„ ì§„ì… ì²´í¬
         float fAfterDX = fPlayerX - pMonster->m_fCurX;
         float fAfterDZ = fPlayerZ - pMonster->m_fCurZ;
         float fAfterDist = sqrtf(fAfterDX * fAfterDX + fAfterDZ * fAfterDZ);
@@ -761,12 +770,12 @@ void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
         pMonster->m_fCurZ += (fMoveDZ / fMoveDist) * fMoveStep;
     }
 
-    // ¡ç ÇÙ½É: ÀÌµ¿ ÈÄ ÇÃ·¹ÀÌ¾î±îÁö °Å¸® Àç°è»ê
+    // â† í•µì‹¬: ì´ë™ í›„ í”Œë ˆì´ì–´ê¹Œì§€ ê±°ë¦¬ ì¬ê³„ì‚°
     float fAfterDX = fPlayerX - pMonster->m_fCurX;
     float fAfterDZ = fPlayerZ - pMonster->m_fCurZ;
     float fAfterDist = sqrtf(fAfterDX * fAfterDX + fAfterDZ * fAfterDZ);
 
-    // ÀÌµ¿ ÈÄ °ø°İ ¹üÀ§ ÁøÀÔ ¡æ Áï½Ã ¸ØÃß°í ÇÃ·¹ÀÌ¾î ¹æÇâ ¹Ù¶óº½
+    // ì´ë™ í›„ ê³µê²© ë²”ìœ„ ì§„ì… â†’ ì¦‰ì‹œ ë©ˆì¶”ê³  í”Œë ˆì´ì–´ ë°©í–¥ ë°”ë¼ë´„
     if (fAfterDist <= pMonster->m_fAtkRange)
     {
         MONSTER_DIR eFaceDir = pMonster->CalcDirection(
@@ -774,14 +783,14 @@ void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
 
         pMonster->m_eState = MON_IDLE;
         pMonster->m_eDir = eFaceDir;
-        pMonster->m_fDestX = pMonster->m_fCurX;  // Á¦ÀÚ¸®
+        pMonster->m_fDestX = pMonster->m_fCurX;  // ì œìë¦¬
         pMonster->m_fDestZ = pMonster->m_fCurZ;
         pMonster->UpdateTilePos();
         Broadcast_MoveMonster(pMonster);
         return;
     }
 
-    // °ø°İ ¹üÀ§ ¹Û ¡æ °è¼Ó ÀÌµ¿
+    // ê³µê²© ë²”ìœ„ ë°– â†’ ê³„ì† ì´ë™
     pMonster->m_fDestX = fNextX;
     pMonster->m_fDestZ = fNextZ;
     pMonster->m_eState = MON_WALK;
@@ -797,7 +806,7 @@ void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
 
 // ================================================================
 //  MonsterAttack
-//  °ø°İ Áß ¹İº¹ ¹æÁö »óÅÂ º¯°æ ½Ã¿¡¸¸ ÆĞÅ¶ Àü¼Û
+//  ê³µê²© ì¤‘ ë°˜ë³µ ë°©ì§€ ìƒíƒœ ë³€ê²½ ì‹œì—ë§Œ íŒ¨í‚· ì „ì†¡
 // ================================================================
 void CZone::Monster_Attack(MonsterRef pMonster)
 {
@@ -810,7 +819,7 @@ void CZone::Monster_Attack(MonsterRef pMonster)
         ->Get_Player(pMonster->m_nTargetID);
     if (!pTarget) return;
 
-    // ¹æÇâ °è»ê
+    // ë°©í–¥ ê³„ì‚°
     float fPlayerX, fPlayerZ;
     pTarget->GetCurrentPos(nNow, fPlayerX, fPlayerZ);
     float fDX = fPlayerX - pMonster->m_fCurX;
@@ -822,15 +831,15 @@ void CZone::Monster_Attack(MonsterRef pMonster)
     if (pMonster->m_eState == MON_ATTACK_0 || pMonster->m_eState == MON_ATTACK_1)
         pMonster->m_eState = MON_IDLE;
 
-    // °ø°İ ¸ğ¼Ç °áÁ¤
+    // ê³µê²© ëª¨ì…˜ ê²°ì •
     MONSTER_STATE eAtkState = (rand() % 2 == 0) ? MON_ATTACK_0 : MON_ATTACK_1;
     pMonster->m_eState = eAtkState;
     pMonster->m_nLastAtkTime = nNow;
 
-    // ---- 1. °ø°İ ¸ğ¼Ç Áï½Ã Àü¼Û ----
+    // ---- 1. ê³µê²© ëª¨ì…˜ ì¦‰ì‹œ ì „ì†¡ ----
     Broadcast_MonsterState(pMonster, pMonster->m_nTargetID);
 
-    // ---- 2. Å¸°İÀº µô·¹ÀÌ ÈÄ Àü¼Û ----
+    // ---- 2. íƒ€ê²©ì€ ë”œë ˆì´ í›„ ì „ì†¡ ----
     pMonster->m_nPendingHitTargetID = pMonster->m_nTargetID;
 
     uint32_t nHitDelay = (eAtkState == MON_ATTACK_0)
@@ -842,8 +851,8 @@ void CZone::Monster_Attack(MonsterRef pMonster)
 
 // ================================================================
 //  Monster_Patrol
-//  ½ºÆù À§Ä¡·Î ÀÌµ¿¸¸ ´ã´ç
-//  µµÂø Ã¼Å©´Â OnMonsterAI¿¡¼­ Ã³¸®
+//  ìŠ¤í° ìœ„ì¹˜ë¡œ ì´ë™ë§Œ ë‹´ë‹¹
+//  ë„ì°© ì²´í¬ëŠ” OnMonsterAIì—ì„œ ì²˜ë¦¬
 // ================================================================
 void CZone::Monster_Patrol(MonsterRef pMonster)
 {
@@ -885,7 +894,7 @@ void CZone::Monster_Patrol(MonsterRef pMonster)
 }
 
 // ================================================================
-//  FindNearestPlayer - ¾î±×·Î ¹üÀ§ ³» °¡Àå °¡±î¿î ÇÃ·¹ÀÌ¾î
+//  FindNearestPlayer - ì–´ê·¸ë¡œ ë²”ìœ„ ë‚´ ê°€ì¥ ê°€ê¹Œìš´ í”Œë ˆì´ì–´
 // ================================================================
 PlayerRef CZone::FindNearestPlayer(MonsterRef pMonster)
 {
@@ -918,7 +927,7 @@ PlayerRef CZone::FindNearestPlayer(MonsterRef pMonster)
 }
 
 // ================================================================
-//  PlayerExistNear - ÇØÁ¦ ¹üÀ§ ³» ÇÃ·¹ÀÌ¾î Á¸Àç ¿©ºÎ
+//  PlayerExistNear - í•´ì œ ë²”ìœ„ ë‚´ í”Œë ˆì´ì–´ ì¡´ì¬ ì—¬ë¶€
 // ================================================================
 bool CZone::PlayerExistNear(MonsterRef pMonster)
 {
@@ -945,7 +954,7 @@ bool CZone::PlayerExistNear(MonsterRef pMonster)
 }
 
 // ================================================================
-//  ÆĞÅ¶ Àü¼Û ÇïÆÛ
+//  íŒ¨í‚· ì „ì†¡ í—¬í¼
 // ================================================================
 void CZone::Send_AddMonster(PlayerRef pTo, MonsterRef pMonster)
 {
@@ -988,7 +997,7 @@ void CZone::Broadcast_AddMonster(MonsterRef pMonster)
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
 
-        // ½Ã¾ß ¸®½ºÆ® ±â¹İ
+        // ì‹œì•¼ ë¦¬ìŠ¤íŠ¸ ê¸°ë°˜
         std::lock_guard<std::mutex> vlock(pPlayer->m_monsterViewLock);
         if (pPlayer->m_monsterViewList.count(pMonster->m_nMonsterID) == 0)
             continue;
@@ -1066,11 +1075,11 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
         ->Get_Monster(nMonsterID);
     if (!pMonster || pMonster->IsDead()) return;
 
-    // °æÁ÷ ÁßÀÎ ¸ó½ºÅÍµµ Ãß°¡ ÇÇ°İ °¡´É (HIT ÁßÃ¸)
-    // ´Ü »ç¸ÁÇÑ ¸ó½ºÅÍ´Â ºÒ°¡ (À§¿¡¼­ Ã¼Å©)
+    // ê²½ì§ ì¤‘ì¸ ëª¬ìŠ¤í„°ë„ ì¶”ê°€ í”¼ê²© ê°€ëŠ¥ (HIT ì¤‘ì²©)
+    // ë‹¨ ì‚¬ë§í•œ ëª¬ìŠ¤í„°ëŠ” ë¶ˆê°€ (ìœ„ì—ì„œ ì²´í¬)
 
-    // ---- °Å¸® °ËÁõ ----
-    // Å¬¶óÀÌ¾ğÆ® °ø°İ ¹üÀ§(1.5f)ÀÇ 2¹è·Î ³Ë³ËÇÏ°Ô Çã¿ë
+    // ---- ê±°ë¦¬ ê²€ì¦ ----
+    // í´ë¼ì´ì–¸íŠ¸ ê³µê²© ë²”ìœ„(1.5f)ì˜ 2ë°°ë¡œ ë„‰ë„‰í•˜ê²Œ í—ˆìš©
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
     if (nNow - pPlayer->m_nLastAtkTime < pPlayer->m_nAtkCoolMs) return;
     pPlayer->m_nLastAtkTime = nNow;
@@ -1083,25 +1092,24 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
 
     if (fDist > PLAYER_ATK_TOLERANCE)
     {
-        std::cout << "[°æ°í] °ø°İ °Å¸® ÃÊ°ú. PlayerID="
+        std::cout << "[ê²½ê³ ] ê³µê²© ê±°ë¦¬ ì´ˆê³¼. PlayerID="
             << pPlayer->m_nPlayerID
-            << " °Å¸®=" << fDist << std::endl;
+            << " ê±°ë¦¬=" << fDist << std::endl;
         return;
     }
 
-    // ---- °ø°İÀÚ ¸ğ¼Ç ºê·ÎµåÄ³½ºÆ® ----
-    // viewList ³» ´Ù¸¥ ÇÃ·¹ÀÌ¾îµé¿¡°Ô °ø°İ ¸ğ¼Ç Àü¼Û
+    // ---- ê³µê²©ì ëª¨ì…˜ ë¸Œë¡œë“œìºìŠ¤íŠ¸ ----
+    // viewList ë‚´ ë‹¤ë¥¸ í”Œë ˆì´ì–´ë“¤ì—ê²Œ ê³µê²© ëª¨ì…˜ ì „ì†¡
     Broadcast_PlayerState(pPlayer, PLAYER_ATTACK);
 
-    // ---- HP °¨¼Ò ----
-    constexpr int32_t PLAYER_ATK = 20;
-    pMonster->m_nHp -= PLAYER_ATK;
+    // ---- HP ê°ì†Œ (í”Œë ˆì´ì–´ ê³µê²©ë ¥ = ê¸°ë³¸ + ì¥ë¹„ + ë²„í”„) ----
+    pMonster->m_nHp -= pPlayer->Get_Atk();
 
-    std::cout << "[Zone] ¸ó½ºÅÍ ÇÇ°İ. ID=" << nMonsterID
+    std::cout << "[Zone] ëª¬ìŠ¤í„° í”¼ê²©. ID=" << nMonsterID
         << " HP=" << pMonster->m_nHp
         << "/" << pMonster->m_nMaxHp << std::endl;
 
-    // ---- »ç¸Á Ã³¸® ----
+    // ---- ì‚¬ë§ ì²˜ë¦¬ ----
     if (pMonster->m_nHp <= 0)
     {
         pMonster->m_nHp = 0;
@@ -1113,23 +1121,34 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
 
         AddTimer(nMonsterID, EEventType::MonsterRespawn, 5000);
 
-        std::cout << "[Zone] ¸ó½ºÅÍ »ç¸Á. ID=" << nMonsterID << std::endl;
+        // ì‚¬ë§ ìœ„ì¹˜ì— ì•„ì´í…œ ë“œë¡­ ì¶”ì²¨
+        FDropRoll roll = RollDrop();
+        if (roll.bDrop)
+            SpawnDrop(roll.code, roll.amount,
+                pMonster->m_fCurX, pMonster->m_fCurZ);
+
+        std::cout << "[Zone] ëª¬ìŠ¤í„° ì‚¬ë§. ID=" << nMonsterID << std::endl;
         return;
     }
 
-    // ---- ÇÇ°İ Ã³¸® ----
-    // ¸ó½ºÅÍ°¡ °ø°İÀÚ ¹æÇâ ¹Ù¶óº½
+    // ---- í”¼ê²© ì²˜ë¦¬ ----
+    // ëª¬ìŠ¤í„°ê°€ ê³µê²©ì ë°©í–¥ ë°”ë¼ë´„
     float fLen = sqrtf(fDX * fDX + fDZ * fDZ);
     if (fLen > 0.001f)
         pMonster->m_eDir = pMonster->CalcDirection(fDX / fLen, fDZ / fLen);
 
     pMonster->m_eState = MON_HIT;
 
-    // °æÁ÷ ½Ã°£ ¼¼ÆÃ (HIT ¾Ö´Ï¸ŞÀÌ¼Ç = 7ÇÁ·¹ÀÓ ¡¿ 80ms = 560ms ¡æ 600ms)
+    // í”¼ê²© ì‹œ ì´ë™ ì·¨ì†Œ (ì œìë¦¬ ê²½ì§). ìŠ¤í„´ì´ í’€ë¦¬ë©´ AIê°€ ë‹¤ì‹œ ì‚¬ê±°ë¦¬ íŒë‹¨.
+    pMonster->m_fDestX = pMonster->m_fCurX;
+    pMonster->m_fDestZ = pMonster->m_fCurZ;
+    pMonster->UpdateTilePos();
+
+    // ê²½ì§ ì‹œê°„ ì„¸íŒ… (HIT ì• ë‹ˆë©”ì´ì…˜ = 7í”„ë ˆì„ Ã— 80ms = 560ms â†’ 600ms)
     uint32_t nNow2 = static_cast<uint32_t>(GetTickCount64());
     pMonster->m_nHitStunEndTime = nNow2 + 600;
 
-    // ÇÇ°İ ÆĞÅ¶ ºê·ÎµåÄ³½ºÆ®
+    // í”¼ê²© íŒ¨í‚· ë¸Œë¡œë“œìºìŠ¤íŠ¸
     Broadcast_MonsterHit(pMonster);
 }
 
@@ -1153,9 +1172,9 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
     pMonster->m_bActive = false;
     pMonster->UpdateTilePos();
 
-    std::cout << "[Zone] ¸ó½ºÅÍ ¸®½ºÆù. ID=" << nMonsterID << std::endl;
+    std::cout << "[Zone] ëª¬ìŠ¤í„° ë¦¬ìŠ¤í°. ID=" << nMonsterID << std::endl;
 
-    bool bActivated = false;  // AI Áßº¹ È°¼ºÈ­ ¹æÁö
+    bool bActivated = false;  // AI ì¤‘ë³µ í™œì„±í™” ë°©ì§€
 
     std::lock_guard<std::mutex> lock(m_zoneLock);
     for (int32_t nPlayerID : m_playerIDs)
@@ -1175,7 +1194,7 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
 
         Send_AddMonster(pPlayer, pMonster);
 
-        // ¡ç ½Ã¾ß ³» ÇÃ·¹ÀÌ¾î°¡ ÀÖÀ¸¸é AI È°¼ºÈ­ (ÇÑ ¹ø¸¸)
+        // â† ì‹œì•¼ ë‚´ í”Œë ˆì´ì–´ê°€ ìˆìœ¼ë©´ AI í™œì„±í™” (í•œ ë²ˆë§Œ)
         if (!bActivated)
         {
             bool expected = false;
@@ -1200,7 +1219,7 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
         return;
     }
 
-    // Å¸°İ ´ë±â Å¸°Ù ¾øÀ¸¸é ½ºÅµ (°ø°İ Ãë¼ÒµÈ °æ¿ì)
+    // íƒ€ê²© ëŒ€ê¸° íƒ€ê²Ÿ ì—†ìœ¼ë©´ ìŠ¤í‚µ (ê³µê²© ì·¨ì†Œëœ ê²½ìš°)
     if (pMonster->m_nPendingHitTargetID == -1) return;
 
     PlayerRef pTarget = CPlayer_Manager::Get_Instance()
@@ -1210,7 +1229,7 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
     if (!pTarget) return;
     if (pTarget->m_iHp <= 0) return;
 
-    // ½ÇÁ¦ °Å¸® ÀçÈ®ÀÎ (µµ¸Á°¬À» ¼öµµ ÀÖÀ½)
+    // ì‹¤ì œ ê±°ë¦¬ ì¬í™•ì¸ (ë„ë§ê°”ì„ ìˆ˜ë„ ìˆìŒ)
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
     float fPlayerX, fPlayerZ;
     pTarget->GetCurrentPos(nNow, fPlayerX, fPlayerZ);
@@ -1218,7 +1237,7 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
     float fDZ = fPlayerZ - pMonster->m_fCurZ;
     float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
 
-    // Å¸°İ ¹üÀ§¸¦ Á¶±İ ³Ë³ËÇÏ°Ô (°ø°İ ¹üÀ§ ¡¿ 2)
+    // íƒ€ê²© ë²”ìœ„ë¥¼ ì¡°ê¸ˆ ë„‰ë„‰í•˜ê²Œ (ê³µê²© ë²”ìœ„ Ã— 2)
     if (fDist > pMonster->m_fAtkRange * 2.f) return;
 
     // Stop player movement on hit
@@ -1234,9 +1253,14 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
         pTarget->UpdateTilePos();
     }
 
-    // HP °¨¼Ò + ÇÇ°İ ÆĞÅ¶
+    // ë¬´ì  ë²„í”„ ì¤‘ì´ë©´ í”¼í•´ ì—†ìŒ
+    if (pTarget->IsInvincible()) return;
+
+    // HP ê°ì†Œ + í”¼ê²© íŒ¨í‚· (ë°›ëŠ” í”¼í•´ = max(1, ëª¬ìŠ¤í„°ê³µê²© - ë°©ì–´ë ¥))
     constexpr int32_t MONSTER_ATK = 10;
-    pTarget->m_iHp -= MONSTER_ATK;
+    int32_t nDmg = MONSTER_ATK - pTarget->Get_Def();
+    if (nDmg < 1) nDmg = 1;
+    pTarget->m_iHp -= nDmg;
     if (pTarget->m_iHp < 0) pTarget->m_iHp = 0;
 
     Broadcast_PlayerHit(pTarget);
@@ -1251,8 +1275,8 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
         Broadcast_PlayerState(pTarget, PLAYER_DEAD);
     }
 
-    std::cout << "[Zone] ¸ó½ºÅÍ Å¸°İ Àû¿ë. ¸ó½ºÅÍID=" << nMonsterID
-        << " ÇÃ·¹ÀÌ¾îID=" << pTarget->m_nPlayerID
+    std::cout << "[Zone] ëª¬ìŠ¤í„° íƒ€ê²© ì ìš©. ëª¬ìŠ¤í„°ID=" << nMonsterID
+        << " í”Œë ˆì´ì–´ID=" << pTarget->m_nPlayerID
         << " HP=" << pTarget->m_iHp << std::endl;
 }
 
@@ -1285,12 +1309,12 @@ void CZone::Broadcast_PlayerHit(PlayerRef pPlayer)
     pkt.nHp = pPlayer->m_iHp;
     pkt.nMaxHp = pPlayer->m_iMaxHp;
 
-    // ÇÇ°İ ´ç»çÀÚ¿¡°Ô
+    // í”¼ê²© ë‹¹ì‚¬ìì—ê²Œ
     auto pSession = CSession_Manager::Get_Instance()
         ->Get_Session(pPlayer->m_nSessionID);
     if (pSession) pSession->Send(&pkt, sizeof(pkt));
 
-    // viewList ³» ´Ù¸¥ ÇÃ·¹ÀÌ¾îµé¿¡°Ô
+    // viewList ë‚´ ë‹¤ë¥¸ í”Œë ˆì´ì–´ë“¤ì—ê²Œ
     std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
     for (int32_t nNearID : pPlayer->m_viewList)
     {
@@ -1391,4 +1415,155 @@ void CZone::OnPlayerRespawn(PlayerRef pPlayer)
         }
     }
     UpdateMonsterView(pPlayer);
+}
+
+// ================================================================
+//  ì•„ì´í…œ ë“œë¡­ / íšë“
+// ================================================================
+void CZone::SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ)
+{
+    FDrop made;
+    {
+        std::lock_guard<std::mutex> lock(m_dropLock);
+        int slot = -1;
+        for (int i = 0; i < MAX_DROPS; ++i)
+            if (!m_drops[i].active) { slot = i; break; }
+        if (slot < 0) return;  // í’€ ê°€ë“ ì°¸
+
+        FDrop& d = m_drops[slot];
+        d.id     = g_nextDropId.fetch_add(1);
+        d.code   = nCode;
+        d.amount = nAmount;
+        d.x      = fX;
+        d.z      = fZ;
+        d.active = true;
+        made = d;
+    }
+    Broadcast_AddDrop(made);
+
+    std::cout << "[Zone] ì•„ì´í…œ ë“œë¡­. id=" << made.id
+        << " code=" << made.code << " amount=" << made.amount << std::endl;
+}
+
+void CZone::OnPlayerPickup(PlayerRef pPlayer, uint32_t nDropId)
+{
+    if (pPlayer->m_bDead) return;
+
+    int32_t nCode = 0, nAmount = 0;
+    bool bFound = false;
+    {
+        std::lock_guard<std::mutex> lock(m_dropLock);
+        for (int i = 0; i < MAX_DROPS; ++i)
+        {
+            FDrop& d = m_drops[i];
+            if (!d.active || d.id != static_cast<int32_t>(nDropId)) continue;
+
+            // ê±°ë¦¬ ê²€ì¦ (ì¹˜íŠ¸ ë°©ì§€)
+            uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
+            float fDist = pPlayer->GetDistanceTo(d.x, d.z, nNow);
+            if (fDist > 2.0f) return;
+
+            nCode   = d.code;
+            nAmount = d.amount;
+            d.active = false;   // ì„ ì 
+            bFound = true;
+            break;
+        }
+    }
+    if (!bFound) return;
+
+    // ì¸ë²¤í† ë¦¬ ë°˜ì˜ (ì„œë²„ ë‹¨ì¼ ì§„ì‹¤)
+    if (nCode == ICODE_GOLD)
+        pPlayer->AddGold(nAmount);
+    else
+        pPlayer->AddItem(nCode, nAmount);
+
+    Broadcast_RemoveDrop(static_cast<int32_t>(nDropId));
+    Send_InvenUpdate(pPlayer);
+}
+
+void CZone::Send_AddDrop(PlayerRef pTo, const FDrop& drop)
+{
+    auto pSession = CSession_Manager::Get_Instance()->Get_Session(pTo->m_nSessionID);
+    if (!pSession) return;
+
+    SC_ADD_DROP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_ADD_DROP;
+    pkt.dropId   = drop.id;
+    pkt.itemCode = drop.code;
+    pkt.amount   = drop.amount;
+    pkt.fX       = drop.x;
+    pkt.fZ       = drop.z;
+    pSession->Send(&pkt, sizeof(pkt));
+}
+
+void CZone::Broadcast_AddDrop(const FDrop& drop)
+{
+    std::lock_guard<std::mutex> lock(m_zoneLock);
+    for (int32_t nID : m_playerIDs)
+    {
+        PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
+        if (pPlayer) Send_AddDrop(pPlayer, drop);
+    }
+}
+
+void CZone::Broadcast_RemoveDrop(int32_t nDropId)
+{
+    SC_REMOVE_DROP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_REMOVE_DROP;
+    pkt.dropId = nDropId;
+
+    std::lock_guard<std::mutex> lock(m_zoneLock);
+    for (int32_t nID : m_playerIDs)
+    {
+        PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
+        if (!pPlayer) continue;
+        auto pSession = CSession_Manager::Get_Instance()->Get_Session(pPlayer->m_nSessionID);
+        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+    }
+}
+
+void CZone::Send_AllDrops(PlayerRef pTo)
+{
+    std::lock_guard<std::mutex> lock(m_dropLock);
+    for (int i = 0; i < MAX_DROPS; ++i)
+        if (m_drops[i].active)
+            Send_AddDrop(pTo, m_drops[i]);
+}
+
+void CZone::Send_InvenUpdate(PlayerRef pPlayer)
+{
+    auto pSession = CSession_Manager::Get_Instance()->Get_Session(pPlayer->m_nSessionID);
+    if (!pSession) return;
+
+    SC_INVEN_UPDATE_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_INVEN_UPDATE;
+    pkt.gold = pPlayer->m_gold;
+    for (int i = 0; i < CPlayer::INVEN_SIZE; ++i)
+    {
+        pkt.codes[i]  = pPlayer->m_invenCode[i];
+        pkt.counts[i] = pPlayer->m_invenCount[i];
+    }
+    for (int i = 0; i < CPlayer::EQUIP_SLOTS; ++i)
+        pkt.equip[i] = pPlayer->m_equipCode[i];
+    pSession->Send(&pkt, sizeof(pkt));
+}
+
+void CZone::Send_PlayerHp(PlayerRef pPlayer)
+{
+    auto pSession = CSession_Manager::Get_Instance()->Get_Session(pPlayer->m_nSessionID);
+    if (!pSession) return;
+
+    SC_PLAYER_HP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_PLAYER_HP;
+    pkt.playerID = pPlayer->m_nPlayerID;
+    pkt.nHp = pPlayer->m_iHp;
+    pkt.nMaxHp = pPlayer->m_iMaxHp;
+    pkt.nMp = pPlayer->m_iMp;
+    pkt.nMaxMp = pPlayer->m_iMaxMp;
+    pSession->Send(&pkt, sizeof(pkt));
 }

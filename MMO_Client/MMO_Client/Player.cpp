@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Player.h"
 #include "Img_Manager.h"
 #include "Input_Manager.h"
@@ -10,6 +10,7 @@
 #include "Network_Manager.h"
 #include "Object_Manager.h"
 #include "Monster.h"
+#include "DropItem.h"
 
 CPlayer::CPlayer()
 {
@@ -167,7 +168,7 @@ void CPlayer::Release(void)
 
 
 // ================================================================
-//  ·»´õ¸µ
+//  ë Œë”ë§
 // ================================================================
 
 void CPlayer::Render_Sprite(ID2D1RenderTarget* pRT, ID2D1Bitmap* pBitmap)
@@ -181,7 +182,7 @@ void CPlayer::Render_Sprite(ID2D1RenderTarget* pRT, ID2D1Bitmap* pBitmap)
 	float fDrawY = tScreen.y - m_tIsoInfo.fCY
 		- m_tIsoInfo.fHeight + TILE_HALF_H;
 
-	// ¸ñÀûÁö Rect
+	// ëª©ì ì§€ Rect
 	D2D1_RECT_F destRect = D2D1::RectF(
 		fDrawX,
 		fDrawY,
@@ -189,7 +190,7 @@ void CPlayer::Render_Sprite(ID2D1RenderTarget* pRT, ID2D1Bitmap* pBitmap)
 		fDrawY + m_tIsoInfo.fCY
 	);
 
-	// ½ºÇÁ¶óÀÌÆ® ½ÃÆ®¿¡¼­ ÇöÀç ÇÁ·¹ÀÓ Àß¶ó³»±â
+	// ìŠ¤í”„ë¼ì´íŠ¸ ì‹œíŠ¸ì—ì„œ í˜„ì¬ í”„ë ˆì„ ì˜ë¼ë‚´ê¸°
 	float fSrcX = m_tIsoInfo.fCX * m_tFrame.iFrameStart;
 	D2D1_RECT_F srcRect = D2D1::RectF(
 		fSrcX,
@@ -313,9 +314,9 @@ void CPlayer::Render_ClickEffect(ID2D1RenderTarget* pRT)
 		fRX, fRY
 	);
 
-	//color¿¡¼­ ¾ËÆÄ¸¸ Scale·Î µ¤¾î¾²±â
+	//colorì—ì„œ ì•ŒíŒŒë§Œ Scaleë¡œ ë®ì–´ì“°ê¸°
 	D2D1_COLOR_F col = m_tClickEffect.color;
-	col.a = m_tClickEffect.fScale; // ÆäÀÌµå¾Æ¿ô
+	col.a = m_tClickEffect.fScale; // í˜ì´ë“œì•„ì›ƒ
 
 	ID2D1SolidColorBrush* pBrush = nullptr;
 	pRT->CreateSolidColorBrush(col, &pBrush);
@@ -331,7 +332,7 @@ void CPlayer::Check_AnimEnd()
 	switch (m_eCurState)
 	{
 	case PLAYER_HIT:
-		m_bHit = false;  // °æÁ÷ ÇØÁ¦
+		m_bHit = false;  // ê²½ì§ í•´ì œ
 		if (m_bMoving)
 			Motion_Change(PLAYER_WALK);
 		else
@@ -352,7 +353,7 @@ void CPlayer::Check_AnimEnd()
 	}
 }
 // ================================================================
-//  »óÅÂ/¹æÇâ ¹ô°Á
+//  ìƒíƒœ/ë°©í–¥ ë±ê±
 // ================================================================
 
 void CPlayer::Motion_Change(PLAYER_STATE eState)
@@ -427,7 +428,7 @@ void CPlayer::Key_Input(float dt)
 
 	CInput_Manager* pInput = CInput_Manager::Get_Instance();
 
-	// ===== ¸Å ÇÁ·¹ÀÓ ¸¶¿ì½º À§Ä¡·Î Å¸ÀÏ Ã¼Å© =====
+	// ===== ë§¤ í”„ë ˆì„ ë§ˆìš°ìŠ¤ ìœ„ì¹˜ë¡œ íƒ€ì¼ ì²´í¬ =====
 	POINT tMouse = pInput->Get_MousePos();
 	float fWorldX, fWorldZ;
 	CCamera::Get_Instance()->ScreenToIsoWorld(tMouse.x, tMouse.y, fWorldX, fWorldZ);
@@ -440,9 +441,18 @@ void CPlayer::Key_Input(float dt)
 	if (!bMovable)
 		pInput->Set_CursorMode(CURSOR_NON_ATTACK);
 
-	// ===== Å¬¸¯ Ã³¸® =====
+	// ===== í´ë¦­ ì²˜ë¦¬ =====
 	if (pInput->Key_Down(VK_LBUTTON))
 	{
+		// ì ‘ì´‰í•œ ë“œë¡­ì´ ìˆìœ¼ë©´ ìš°ì„  íšë“ (ì„œë²„ì— ìš”ì²­)
+		CGameObject* pDrop =
+			CObject_Manager::Get_Instance()->Find_DropInContact(this);
+		if (pDrop)
+		{
+			CNetwork_Manager::Get_Instance()->SendPickup(
+				static_cast<CDropItem*>(pDrop)->Get_DropID());
+			return;
+		}
 
 		CGameObject* pClickedMonster =
 			CObject_Manager::Get_Instance()->Pick_Monster(tMouse);
@@ -453,11 +463,11 @@ void CPlayer::Key_Input(float dt)
 
 			if (pMonster->Get_MonsterState() != MON_DEAD)
 			{
-				// °ø°İ Å¸°Ù ¼³Á¤
+				// ê³µê²© íƒ€ê²Ÿ ì„¤ì •
 				m_nAttackTargetID = pMonster->Get_MonsterID();
 
-				// ±âÁ¸ A* ÀÌµ¿ ÄÚµå ±×´ë·Î Àç»ç¿ë
-				// ¸ó½ºÅÍ À§Ä¡¸¦ ¸ñÀûÁö·Î
+				// ê¸°ì¡´ A* ì´ë™ ì½”ë“œ ê·¸ëŒ€ë¡œ ì¬ì‚¬ìš©
+				// ëª¬ìŠ¤í„° ìœ„ì¹˜ë¥¼ ëª©ì ì§€ë¡œ
 				fWorldX = pMonster->Get_WorldX();
 				fWorldZ = pMonster->Get_WorldZ();
 
@@ -477,7 +487,7 @@ void CPlayer::Key_Input(float dt)
 					fnIsMovable,
 					EPathMode::CornerBased);
 
-				// ¸¶Áö¸· ¿şÀÌÆ÷ÀÎÆ®¸¦ ¸ó½ºÅÍ À§Ä¡·Î
+				// ë§ˆì§€ë§‰ ì›¨ì´í¬ì¸íŠ¸ë¥¼ ëª¬ìŠ¤í„° ìœ„ì¹˜ë¡œ
 				if (!m_waypoints.empty())
 					m_waypoints.back() = { fWorldX, fWorldZ };
 
@@ -494,19 +504,19 @@ void CPlayer::Key_Input(float dt)
 						static_cast<uint32_t>(GetTickCount64()));
 				}
 			}
-			return;  // ¸ó½ºÅÍ Å¬¸¯ÀÌ¸é ÀÌÇÏ Å¸ÀÏ ÀÌµ¿ Ã³¸® ½ºÅµ
+			return;  // ëª¬ìŠ¤í„° í´ë¦­ì´ë©´ ì´í•˜ íƒ€ì¼ ì´ë™ ì²˜ë¦¬ ìŠ¤í‚µ
 		}
 		m_nAttackTargetID = -1;
 
 		if (!bMovable) return;
 
-		// ½ÃÀÛ Å¸ÀÏ
+		// ì‹œì‘ íƒ€ì¼
 		int32_t nStartX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));
 		int32_t nStartZ = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldZ));
 		int32_t nEndX = static_cast<int32_t>(floorf(fWorldX));
 		int32_t nEndZ = static_cast<int32_t>(floorf(fWorldZ));
 
-		// A* °æ·Î °è»ê
+		// A* ê²½ë¡œ ê³„ì‚°
 		IsMovableFunc fnIsMovable = [](int32_t x, int32_t z) -> bool {
 			return CMap_Manager::Get_Instance()->Is_Movable(x, z);
 			};
@@ -518,7 +528,7 @@ void CPlayer::Key_Input(float dt)
 			fnIsMovable,
 			EPathMode::CornerBased);
 
-		// ¸¶Áö¸· ¿şÀÌÆ÷ÀÎÆ®¸¦ Å¬¸¯ÇÑ Á¤È®ÇÑ À§Ä¡·Î ±³Ã¼
+		// ë§ˆì§€ë§‰ ì›¨ì´í¬ì¸íŠ¸ë¥¼ í´ë¦­í•œ ì •í™•í•œ ìœ„ì¹˜ë¡œ êµì²´
 		if (!m_waypoints.empty())
 			m_waypoints.back() = { fWorldX, fWorldZ };
 
@@ -530,7 +540,7 @@ void CPlayer::Key_Input(float dt)
 			m_bMoving = true;
 			Motion_Change(PLAYER_WALK);
 
-			// Ã¹ ¿şÀÌÆ÷ÀÎÆ®¸¸ Àü¼Û
+			// ì²« ì›¨ì´í¬ì¸íŠ¸ë§Œ ì „ì†¡
 			CNetwork_Manager::Get_Instance()->SendMoveDest(
 				m_waypoints[0].first,
 				m_waypoints[0].second,
@@ -574,7 +584,7 @@ void CPlayer::Move_To_Dest(float dt)
 
 		if (m_nCurWaypoint >= (int32_t)m_waypoints.size())
 		{
-			// ÃÖÁ¾ µµÂø
+			// ìµœì¢… ë„ì°©
 			m_bMoving = false;
 			m_waypoints.clear();
 			m_nCurWaypoint = 0;
@@ -586,7 +596,7 @@ void CPlayer::Move_To_Dest(float dt)
 		}
 		else
 		{
-			// ´ÙÀ½ ¿şÀÌÆ÷ÀÎÆ®·Î ¡æ ¼­¹ö¿¡ Àü¼Û
+			// ë‹¤ìŒ ì›¨ì´í¬ì¸íŠ¸ë¡œ â†’ ì„œë²„ì— ì „ì†¡
 			CNetwork_Manager::Get_Instance()->SendMoveDest(
 				m_waypoints[m_nCurWaypoint].first,
 				m_waypoints[m_nCurWaypoint].second,
@@ -602,7 +612,7 @@ void CPlayer::Move_To_Dest(float dt)
 
 	Decide_Direction(fNX, fNZ);
 
-	// Å¸ÀÏ º¯°æ ½Ã ¼­¹ö Àü¼Û
+	// íƒ€ì¼ ë³€ê²½ ì‹œ ì„œë²„ ì „ì†¡
 	int32_t nCurTileX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));
 	int32_t nCurTileZ = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldZ));
 
@@ -619,11 +629,11 @@ void CPlayer::Move_To_Dest(float dt)
 
 void CPlayer::Decide_Direction(float fNX, float fNZ)
 {
-	// ÀÌµ¿ º¤ÅÍÀÇ °¢µµ·Î 8¹æÇâ °áÁ¤
-	float fScreenDX = (fNX - fNZ) * TILE_HALF_W;  // È­¸é X¹æÇâ
-	float fScreenDY = (fNX + fNZ) * TILE_HALF_H;  // È­¸é Y¹æÇâ
+	// ì´ë™ ë²¡í„°ì˜ ê°ë„ë¡œ 8ë°©í–¥ ê²°ì •
+	float fScreenDX = (fNX - fNZ) * TILE_HALF_W;  // í™”ë©´ Xë°©í–¥
+	float fScreenDY = (fNX + fNZ) * TILE_HALF_H;  // í™”ë©´ Yë°©í–¥
 
-	// È­¸é»ó ¹æÇâº¤ÅÍ·Î °¢µµ °è»ê
+	// í™”ë©´ìƒ ë°©í–¥ë²¡í„°ë¡œ ê°ë„ ê³„ì‚°
 	float fAngle = atan2f(fScreenDY, fScreenDX) * 180.f / 3.14159f;
 
 	DIRECTION eNewDir = m_eDir;
@@ -645,7 +655,7 @@ void CPlayer::Update_ClickEffect(float dt)
 {
 	if (!m_tClickEffect.bActive) return;
 
-	m_tClickEffect.fScale -= dt * 2.f;  // ¼Óµµ Á¶Àı
+	m_tClickEffect.fScale -= dt * 2.f;  // ì†ë„ ì¡°ì ˆ
 	if (m_tClickEffect.fScale <= 0.f)
 	{
 		m_tClickEffect.fScale = 0.f;
@@ -655,7 +665,7 @@ void CPlayer::Update_ClickEffect(float dt)
 
 void CPlayer::Update_AttackTarget()
 {
-	// Å¸°Ù Å½»ö
+	// íƒ€ê²Ÿ íƒìƒ‰
 	CGameObject* pObj =
 		CObject_Manager::Get_Instance()->Find_Monster(m_nAttackTargetID);
 
@@ -667,14 +677,14 @@ void CPlayer::Update_AttackTarget()
 
 	CMonster* pMonster = static_cast<CMonster*>(pObj);
 
-	// »ç¸Á ½Ã Å¸°Ù ÇØÁ¦
+	// ì‚¬ë§ ì‹œ íƒ€ê²Ÿ í•´ì œ
 	if (pMonster->Get_MonsterState() == MON_DEAD)
 	{
 		m_nAttackTargetID = -1;
 		return;
 	}
 
-	// °Å¸® Ã¼Å©
+	// ê±°ë¦¬ ì²´í¬
 	float fDX = pMonster->Get_WorldX() - m_tIsoInfo.fWorldX;
 	float fDZ = pMonster->Get_WorldZ() - m_tIsoInfo.fWorldZ;
 	float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
@@ -715,34 +725,25 @@ void CPlayer::Hit()
 
 
 // ================================================================
-//  ¾ÆÀÌÅÛ / ÀÎº¥Åä¸®
+//  ì•„ì´í…œ / ì¸ë²¤í† ë¦¬
 // ================================================================
 void CPlayer::Use_Item(int iSlot)
 {
+	// ì„œë²„ ê¶Œìœ„: ì‚¬ìš© ìš”ì²­ë§Œ ì „ì†¡. íš¨ê³¼(íšŒë³µ/ë²„í”„)Â·ìˆ˜ëŸ‰ ì°¨ê°ì€ ì„œë²„ê°€ ì²˜ë¦¬í•˜ê³ 
+	// SC_INVEN_UPDATE / SC_PLAYER_HP ìŠ¤ëƒ…ìƒ·ìœ¼ë¡œ ëŒë ¤ì¤€ë‹¤.
 	CItemData* pItem = m_pInventory->Get_Item(iSlot);
 	if (!pItem || pItem->Get_Type() != ITEM_USE) return;
 
-	CItemData_UseItem* pUse = dynamic_cast<CItemData_UseItem*>(pItem);
-	pUse->Use_Item(this);   // È¿°ú Àû¿ë
-
-	// ¼ö·® °¨¼Ò or ½½·Ô Á¦°Å
-	if (m_pInventory->Get_StackCount(iSlot) > 1)
-	{
-		m_pInventory->Decrease_Stack(iSlot);
-	}
-	else
-	{
-		CItemData* pRemoved = m_pInventory->Remove_Item(iSlot);
-		delete pRemoved;
-	}
+	CNetwork_Manager::Get_Instance()->SendUseItem(iSlot);
 }
 
-void CPlayer::Use_QuickSlot(int iSlot, CItemData_UseItem* pItem)
+void CPlayer::Use_QuickSlot_ByCode(int iCode)
 {
-
+	// ë“±ë¡ëœ ì½”ë“œì˜ ì•„ì´í…œì„ ì¸ë²¤ì—ì„œ ì°¾ì•„ ì‚¬ìš© ìš”ì²­
 	for (int i = 0; i < INVEN_SIZE; ++i)
 	{
-		if (m_pInventory->Get_Item(i) == pItem)
+		CItemData* pItem = m_pInventory->Get_Item(i);
+		if (pItem && pItem->Get_ItemCode() == iCode)
 		{
 			Use_Item(i);
 			return;
@@ -750,32 +751,46 @@ void CPlayer::Use_QuickSlot(int iSlot, CItemData_UseItem* pItem)
 	}
 }
 
+// ì„œë²„ê°€ ì‚¬ìš©ì„ í™•ì •(ë²„í”„ ì ìš©)í–ˆì„ ë•Œ í˜¸ì¶œ. í´ë¼ê°€ ìì²´ íƒ€ì´ë¨¸ë¡œ í‘œì‹œ.
+void CPlayer::Add_Buff(int iType, DWORD dwDurationMs)
+{
+	DWORD now = (DWORD)GetTickCount64();
+
+	// ê°™ì€ íƒ€ì… ë²„í”„ ìˆìœ¼ë©´ ê°±ì‹ 
+	for (int i = 0; i < MAX_BUFFS; ++i)
+		if (m_buffs[i].type == iType)
+		{
+			m_buffs[i].start = now;
+			m_buffs[i].duration = dwDurationMs;
+			return;
+		}
+
+	// ë¹ˆ ìŠ¬ë¡¯(ë˜ëŠ” ë§Œë£Œëœ ìŠ¬ë¡¯)ì— ì¶”ê°€
+	for (int i = 0; i < MAX_BUFFS; ++i)
+		if (m_buffs[i].type == -1 || now >= m_buffs[i].start + m_buffs[i].duration)
+		{
+			m_buffs[i].type = iType;
+			m_buffs[i].start = now;
+			m_buffs[i].duration = dwDurationMs;
+			return;
+		}
+}
+
 void CPlayer::Equip_Item(int iSlot)
 {
+	// ì„œë²„ ê¶Œìœ„: ì¥ì°© ìš”ì²­ë§Œ ì „ì†¡. ì¸ë²¤/ì¥ë¹„ ë³€ê²½ì€ ì„œë²„ ìŠ¤ëƒ…ìƒ·ìœ¼ë¡œ ë°˜ì˜.
 	CItemData* pItem = m_pInventory->Get_Item(iSlot);
 	if (!pItem || pItem->Get_Type() != ITEM_EQUIPMENT) return;
 
-	CItemData_Equipment* pEquip = dynamic_cast<CItemData_Equipment*>(pItem);
-	EQUIP_SLOT eSlot = pEquip->Get_EquipSlot();
-
-	// ÀÎº¥Åä¸®¿¡¼­ ¼ÒÀ¯±Ç ²¨³¿
-	m_pInventory->Remove_Item(iSlot);
-
-	// ±âÁ¸ ¾ÆÀÌÅÛ ÀÖÀ¸¸é ÀÎº¥Åä¸®·Î ¹İÈ¯
-	CItemData_Equipment* pPrev = m_pEquipment->Equip(eSlot, pEquip);
-	if (pPrev)
-		m_pInventory->Add_Item(pPrev);
+	CNetwork_Manager::Get_Instance()->SendEquip(iSlot);
 }
 
 void CPlayer::UnEquip_Item(EQUIP_SLOT eSlot)
 {
-	CItemData_Equipment* pItem = m_pEquipment->Get_Equipped(eSlot);
-	if (!pItem) return;
+	// ì„œë²„ ê¶Œìœ„: í•´ì œ ìš”ì²­ë§Œ ì „ì†¡.
+	if (!m_pEquipment->Get_Equipped(eSlot)) return;
 
-	if (m_pInventory->Find_EmptySlot() == INVEN_FULL) return;  // ²Ë Â÷ÀÖÀ¸¸é ÇØÁ¦ ºÒ°¡
-
-	pItem = m_pEquipment->UnEquip(eSlot);
-	m_pInventory->Add_Item(pItem);
+	CNetwork_Manager::Get_Instance()->SendUnEquip(eSlot);
 }
 
 
@@ -787,7 +802,7 @@ void CPlayer::Debug_Render(ID2D1RenderTarget* pRT)
 	Debug_DrawClickPoint(pRT);
 	Debug_DrawCollider(pRT);
 	Debug_DrawText(pRT);
-	Debug_DrawPath(pRT);  // ¡ç Ãß°¡
+	Debug_DrawPath(pRT);  // â† ì¶”ê°€
 }
 
 void CPlayer::Debug_DrawClickedTile(ID2D1RenderTarget* pRT)
@@ -818,7 +833,7 @@ void CPlayer::Debug_DrawClickPoint(ID2D1RenderTarget* pRT)
 	pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f), &pBrush);
 
 	float cx = (float)tS.x, cy = (float)tS.y;
-	// ½ÊÀÚ¼±
+	// ì‹­ìì„ 
 	pRT->DrawLine({ cx - 10.f, cy }, { cx + 10.f, cy }, pBrush, 2.f);
 	pRT->DrawLine({ cx,        cy - 10.f }, { cx,        cy + 10.f }, pBrush, 2.f);
 
@@ -854,14 +869,14 @@ void CPlayer::Debug_DrawText(ID2D1RenderTarget* pRT)
 {
 	TCHAR szBuf[256];
 	swprintf_s(szBuf, 256,
-		L"Å¬¸¯Å¸ÀÏ:[%d,%d] ³»ºÎÀ§Ä¡:[%.2f,%.2f] ³í¸®ÁÂÇ¥:[%.2f,%.2f]",
+		L"í´ë¦­íƒ€ì¼:[%d,%d] ë‚´ë¶€ìœ„ì¹˜:[%.2f,%.2f] ë…¼ë¦¬ì¢Œí‘œ:[%.2f,%.2f]",
 		m_iDebugTileX, m_iDebugTileZ,
 		m_fDebugLocalX, m_fDebugLocalZ,
 		m_fDestWorldX, m_fDestWorldZ);
 
 	TCHAR szPlayer[128];
 	swprintf_s(szPlayer, 128,
-		L"ÇÃ·¹ÀÌ¾î ¿ùµå:[%.2f, %.2f]  ¹æÇâ:%d  Äİ¶óÀÌ´õ Áß½É:[%.2f, %.2f]",
+		L"í”Œë ˆì´ì–´ ì›”ë“œ:[%.2f, %.2f]  ë°©í–¥:%d  ì½œë¼ì´ë” ì¤‘ì‹¬:[%.2f, %.2f]",
 		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ, (int)m_eDir,
 		Get_ColliderX(), Get_ColliderZ());
 
@@ -884,8 +899,8 @@ void CPlayer::Debug_DrawText(ID2D1RenderTarget* pRT)
 		Get_TotalAtk(),
 		Get_TotalDef());
 
-	// ÀÎº¥Åä¸® ½½·Ô 0~4 »óÅÂ
-	TCHAR szSlot[256] = L"½½·Ô: ";
+	// ì¸ë²¤í† ë¦¬ ìŠ¬ë¡¯ 0~4 ìƒíƒœ
+	TCHAR szSlot[256] = L"ìŠ¬ë¡¯: ";
 	for (int i = 0; i < 5; ++i)
 	{
 		CItemData* pItem = m_pInventory->Get_Item(i);
@@ -900,18 +915,18 @@ void CPlayer::Debug_DrawText(ID2D1RenderTarget* pRT)
 		else
 		{
 			TCHAR szTemp[16];
-			swprintf_s(szTemp, 16, L"[%d:ºó½½·Ô] ", i);
+			swprintf_s(szTemp, 16, L"[%d:ë¹ˆìŠ¬ë¡¯] ", i);
 			lstrcat(szSlot, szTemp);
 		}
 	}
 
-	// ÀåÂø »óÅÂ
+	// ì¥ì°© ìƒíƒœ
 	TCHAR szEquip[128];
 	CItemData_Equipment* pWeapon = m_pEquipment->Get_Equipped(SLOT_WEAPON);
 	CItemData_Equipment* pArmor = m_pEquipment->Get_Equipped(SLOT_ARMOR);
-	swprintf_s(szEquip, 128, L"¹«±â:%s  °©¿Ê:%s",
-		pWeapon ? pWeapon->Get_Name() : L"¾øÀ½",
-		pArmor ? pArmor->Get_Name() : L"¾øÀ½");
+	swprintf_s(szEquip, 128, L"ë¬´ê¸°:%s  ê°‘ì˜·:%s",
+		pWeapon ? pWeapon->Get_Name() : L"ì—†ìŒ",
+		pArmor ? pArmor->Get_Name() : L"ì—†ìŒ");
 
 
 
@@ -934,15 +949,15 @@ void CPlayer::Debug_DrawPath(ID2D1RenderTarget* pRT)
 	ID2D1SolidColorBrush* pDotBrush = nullptr;
 	ID2D1SolidColorBrush* pStartBrush = nullptr;
 
-	pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f, 0.8f), &pLineBrush);  // ÃÊ·Ï ¼±
-	pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 0.f, 1.f), &pDotBrush);   // ³ë¶õ Á¡
-	pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f, 1.f), &pStartBrush); // »¡°£ ÇöÀçÀ§Ä¡
+	pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f, 0.8f), &pLineBrush);  // ì´ˆë¡ ì„ 
+	pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 0.f, 1.f), &pDotBrush);   // ë…¸ë€ ì 
+	pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f, 1.f), &pStartBrush); // ë¹¨ê°„ í˜„ì¬ìœ„ì¹˜
 
-	// ÇöÀç À§Ä¡
+	// í˜„ì¬ ìœ„ì¹˜
 	POINT tCur = CCamera::Get_Instance()->IsoWorldToScreen(
 		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
 
-	// ÇöÀç À§Ä¡ ¡æ Ã¹ ¿şÀÌÆ÷ÀÎÆ®
+	// í˜„ì¬ ìœ„ì¹˜ â†’ ì²« ì›¨ì´í¬ì¸íŠ¸
 	if (m_nCurWaypoint < (int32_t)m_waypoints.size())
 	{
 		POINT tFirst = CCamera::Get_Instance()->IsoWorldToScreen(
@@ -955,7 +970,7 @@ void CPlayer::Debug_DrawPath(ID2D1RenderTarget* pRT)
 			pLineBrush, 2.f);
 	}
 
-	// ¿şÀÌÆ÷ÀÎÆ® °£ ¼±
+	// ì›¨ì´í¬ì¸íŠ¸ ê°„ ì„ 
 	for (int32_t i = m_nCurWaypoint; i < (int32_t)m_waypoints.size() - 1; ++i)
 	{
 		POINT tA = CCamera::Get_Instance()->IsoWorldToScreen(
@@ -969,13 +984,13 @@ void CPlayer::Debug_DrawPath(ID2D1RenderTarget* pRT)
 			pLineBrush, 2.f);
 	}
 
-	// ¿şÀÌÆ÷ÀÎÆ® Á¡
+	// ì›¨ì´í¬ì¸íŠ¸ ì 
 	for (int32_t i = m_nCurWaypoint; i < (int32_t)m_waypoints.size(); ++i)
 	{
 		POINT tW = CCamera::Get_Instance()->IsoWorldToScreen(
 			m_waypoints[i].first, m_waypoints[i].second);
 
-		// ¸¶Áö¸· ¿şÀÌÆ÷ÀÎÆ®´Â ´Ù¸¥ »ö
+		// ë§ˆì§€ë§‰ ì›¨ì´í¬ì¸íŠ¸ëŠ” ë‹¤ë¥¸ ìƒ‰
 		ID2D1SolidColorBrush* pBrush =
 			(i == (int32_t)m_waypoints.size() - 1) ? pStartBrush : pDotBrush;
 

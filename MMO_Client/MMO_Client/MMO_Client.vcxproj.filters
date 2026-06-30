@@ -91,11 +91,23 @@
     <ClCompile Include="Zone_Town.cpp">
       <Filter>08.Map_Manager\Zone\08_01.Zone_Town</Filter>
     </ClCompile>
+    <ClCompile Include="Zone_Field_E.cpp">
+      <Filter>08.Map_Manager\Zone</Filter>
+    </ClCompile>
+    <ClCompile Include="Zone_Field_S.cpp">
+      <Filter>08.Map_Manager\Zone</Filter>
+    </ClCompile>
+    <ClCompile Include="Zone_Field_W.cpp">
+      <Filter>08.Map_Manager\Zone</Filter>
+    </ClCompile>
     <ClCompile Include="ActiveObject.cpp">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects</Filter>
     </ClCompile>
     <ClCompile Include="Portal.cpp">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects\01.Portal</Filter>
+    </ClCompile>
+    <ClCompile Include="DropItem.cpp">
+      <Filter>05.Object_Manager\GameObjects</Filter>
     </ClCompile>
     <ClCompile Include="Monster.cpp">
       <Filter>05.Object_Manager\GameObjects\05_02.Monster</Filter>
@@ -398,11 +410,23 @@
     <ClInclude Include="Zone_Town.h">
       <Filter>08.Map_Manager\Zone\08_01.Zone_Town</Filter>
     </ClInclude>
+    <ClInclude Include="Zone_Field_E.h">
+      <Filter>08.Map_Manager\Zone</Filter>
+    </ClInclude>
+    <ClInclude Include="Zone_Field_S.h">
+      <Filter>08.Map_Manager\Zone</Filter>
+    </ClInclude>
+    <ClInclude Include="Zone_Field_W.h">
+      <Filter>08.Map_Manager\Zone</Filter>
+    </ClInclude>
     <ClInclude Include="ActiveObject.h">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects</Filter>
     </ClInclude>
     <ClInclude Include="Portal.h">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects\01.Portal</Filter>
+    </ClInclude>
+    <ClInclude Include="DropItem.h">
+      <Filter>05.Object_Manager\GameObjects</Filter>
     </ClInclude>
     <ClInclude Include="Monster.h">
       <Filter>05.Object_Manager\GameObjects\05_02.Monster</Filter>

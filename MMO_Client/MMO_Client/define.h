@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #define WINCX 1280
 #define WINCY 720
@@ -19,13 +19,13 @@
 
 #define ISO_RATIO    (TILE_HALF_W / TILE_HALF_H)  // 90/29.5
 
-// ¸Ê Å©±â
+// ë§µ í¬ê¸°
 #define MAP_TILE_X      20
 #define MAP_TILE_Z      20
 
 
 enum LEVEL_ID {LEVEL_MENU, LEVEL_LOGIN, LEVEL_CHOICE, LEVEL_TEST,LEVEL_END};
-enum OBJ_ID {OBJ_PORTAL,OBJ_PLAYER,OBJ_OTHER_PLAYER,OBJ_NPC,OBJ_MONSTER,OBJ_END};
+enum OBJ_ID {OBJ_PORTAL,OBJ_PLAYER,OBJ_OTHER_PLAYER,OBJ_NPC,OBJ_MONSTER,OBJ_DROP,OBJ_END};
 enum UI_ID {UI_BUTTON, UI_INVENTORY,UI_QUICKSLOT, UI_HUD,UI_BOX ,UI_END};
 enum DIRECTION { DIR_B, DIR_LB, DIR_L, DIR_LT, DIR_T, DIR_RT, DIR_R, DIR_RB, DIR_END };
 enum MOUSE_BUTTON {MBUTTON_L,MBUTTON_R,MBUTTON_WHEEL,MBUTTON_END};
@@ -39,8 +39,8 @@ enum PLAYER_STATE {
 
 enum INPUT_MODE
 {
-	INPUT_MODE_GAME,    // °ÔÀÓ ÁøÇà Áß
-	INPUT_MODE_UI,      // UI Á¶ÀÛ Áß (°ÔÀÓ ÀÔ·Â Â÷´Ü)
+	INPUT_MODE_GAME,    // ê²Œìž„ ì§„í–‰ ì¤‘
+	INPUT_MODE_UI,      // UI ì¡°ìž‘ ì¤‘ (ê²Œìž„ ìž…ë ¥ ì°¨ë‹¨)
 };
 
 enum CURSOR_MODE
@@ -49,7 +49,7 @@ enum CURSOR_MODE
 	CURSOR_QUESTION,
 	CURSOR_NON_ATTACK,
 	CURSOR_UI,
-	CURSOR_ATTACK,      // °ø°Ý °¡´É Ä¿¼­ (¸ó½ºÅÍ À§)
+	CURSOR_ATTACK,      // ê³µê²© ê°€ëŠ¥ ì»¤ì„œ (ëª¬ìŠ¤í„° ìœ„)
 	CURSOR_DOOR,
 	CURSOR_LOADING,
 	CURSOR_END
@@ -71,28 +71,31 @@ enum MONSTER_TYPE : uint8_t
 
 enum ZONE_ID : int
 {
-	ZONE_TEST = 0,
+	ZONE_TEST = 0,   // ë¶ìª½ ëª¬ìŠ¤í„° í•„ë“œ (ê¸°ì¡´)
 	ZONE_TOWN = 1,
+	ZONE_FIELD_E = 2,   // ë™ìª½ í•„ë“œ
+	ZONE_FIELD_S = 3,   // ë‚¨ìª½ í•„ë“œ
+	ZONE_FIELD_W = 4,   // ì„œìª½ í•„ë“œ
 	ZONE_MAX
 };
 
 enum TILE_TYPE : int
 {
-	// ÀÌµ¿ °¡´É
-	TILE_GRASS = 0,    // ±âº» ÀÌµ¿ °¡´É Å¸ÀÏ
-	// ÃßÈÄ: TILE_GRASS_2, TILE_ROAD µî Ãß°¡
+	// ì´ë™ ê°€ëŠ¥
+	TILE_GRASS = 0,    // ê¸°ë³¸ ì´ë™ ê°€ëŠ¥ íƒ€ì¼
+	// ì¶”í›„: TILE_GRASS_2, TILE_ROAD ë“± ì¶”ê°€
 
-	// ÀÌµ¿ ºÒ°¡
-	TILE_BLOCK = 10,   // Àå¾Ö¹°
-	TILE_BORDER_LT = 11,   // Å×µÎ¸® ÄÚ³Ê
+	// ì´ë™ ë¶ˆê°€
+	TILE_BLOCK = 10,   // ìž¥ì• ë¬¼
+	TILE_BORDER_LT = 11,   // í…Œë‘ë¦¬ ì½”ë„ˆ
 	TILE_BORDER_RT = 12,
 	TILE_BORDER_RB = 13,
 	TILE_BORDER_LB = 14,
-	TILE_BORDER_T = 15,   // Å×µÎ¸® ¿§Áö
+	TILE_BORDER_T = 15,   // í…Œë‘ë¦¬ ì—£ì§€
 	TILE_BORDER_R = 16,
 	TILE_BORDER_B = 17,
 	TILE_BORDER_L = 18,
-	TILE_OUTSIDE = 19,   // Å×µÎ¸® ¹Û
+	TILE_OUTSIDE = 19,   // í…Œë‘ë¦¬ ë°–
 
 	TILE_MAX
 };
@@ -132,22 +135,22 @@ typedef struct tagFrame
 
 typedef struct tagInfo
 {
-	float	fX;		// ÁßÁ¡ X
-	float	fY;		// ÁßÁ¡ Y
-	float	fCX;	// °¡·Î »çÀÌÁî
-	float	fCY;	// ¼¼·Î »çÀÌÁî
+	float	fX;		// ì¤‘ì  X
+	float	fY;		// ì¤‘ì  Y
+	float	fCX;	// ê°€ë¡œ ì‚¬ì´ì¦ˆ
+	float	fCY;	// ì„¸ë¡œ ì‚¬ì´ì¦ˆ
 	float   fHeight;
 
 }INFO;
 
 typedef struct tagIosInfo
 {
-	// ¾ÆÀÌ¼Ò¸ÞÆ®¸¯ ³í¸® ¿ùµåÁÂÇ¥ (ÀÌµ¿/Ãæµ¹/¼­¹ö µ¿±âÈ­¿ë)
-	float fWorldX;  // ³í¸® X
-	float fWorldZ;  // ³í¸® Z (¾ÕµÚ)
-	float fHeight;  // ³ôÀÌ (Á¡ÇÁ µî)
+	// ì•„ì´ì†Œë©”íŠ¸ë¦­ ë…¼ë¦¬ ì›”ë“œì¢Œí‘œ (ì´ë™/ì¶©ëŒ/ì„œë²„ ë™ê¸°í™”ìš©)
+	float fWorldX;  // ë…¼ë¦¬ X
+	float fWorldZ;  // ë…¼ë¦¬ Z (ì•žë’¤)
+	float fHeight;  // ë†’ì´ (ì í”„ ë“±)
 
-	// ½ºÇÁ¶óÀÌÆ® Å©±â
+	// ìŠ¤í”„ë¼ì´íŠ¸ í¬ê¸°
 	float fCX;
 	float fCY;
 } ISO_INFO;
@@ -155,25 +158,25 @@ typedef struct tagIosInfo
 
 typedef struct tagCollider
 {
-	float fOffsetX;  // Áß½É¿¡¼­ ¿ÀÇÁ¼Â X
-	float fOffsetZ;  // Áß½É¿¡¼­ ¿ÀÇÁ¼Â Z
-	float fRadiusX;  // Ãæµ¹ ¹Ý°æ X (³í¸®ÁÂÇ¥)
-	float fRadiusZ;  // Ãæµ¹ ¹Ý°æ Z (³í¸®ÁÂÇ¥)
+	float fOffsetX;  // ì¤‘ì‹¬ì—ì„œ ì˜¤í”„ì…‹ X
+	float fOffsetZ;  // ì¤‘ì‹¬ì—ì„œ ì˜¤í”„ì…‹ Z
+	float fRadiusX;  // ì¶©ëŒ ë°˜ê²½ X (ë…¼ë¦¬ì¢Œí‘œ)
+	float fRadiusZ;  // ì¶©ëŒ ë°˜ê²½ Z (ë…¼ë¦¬ì¢Œí‘œ)
 } COLLIDER;
 
 typedef struct tagMouseCollider
 {
-	float fOffsetX;  // ½ºÇÁ¶óÀÌÆ® Áß½É¿¡¼­ X ¿ÀÇÁ¼Â
-	float fOffsetY;  // ½ºÇÁ¶óÀÌÆ® Áß½É¿¡¼­ Y ¿ÀÇÁ¼Â
-	float fWidth;    // Å¬¸¯ ¹Ú½º ³Êºñ
-	float fHeight;   // Å¬¸¯ ¹Ú½º ³ôÀÌ
+	float fOffsetX;  // ìŠ¤í”„ë¼ì´íŠ¸ ì¤‘ì‹¬ì—ì„œ X ì˜¤í”„ì…‹
+	float fOffsetY;  // ìŠ¤í”„ë¼ì´íŠ¸ ì¤‘ì‹¬ì—ì„œ Y ì˜¤í”„ì…‹
+	float fWidth;    // í´ë¦­ ë°•ìŠ¤ ë„ˆë¹„
+	float fHeight;   // í´ë¦­ ë°•ìŠ¤ ë†’ì´
 } MOUSE_COLLIDER;
 
 typedef struct tagTile
 {
-	int         iTileX;    // Å¸ÀÏ ³í¸® X
-	int         iTileZ;    // Å¸ÀÏ ³í¸® Z
-	TILE_TYPE   eType;     // ÀÌµ¿°¡´É ¿©ºÎ (±æÃ£±â¿ë)
+	int         iTileX;    // íƒ€ì¼ ë…¼ë¦¬ X
+	int         iTileZ;    // íƒ€ì¼ ë…¼ë¦¬ Z
+	TILE_TYPE   eType;     // ì´ë™ê°€ëŠ¥ ì—¬ë¶€ (ê¸¸ì°¾ê¸°ìš©)
 } TILE;
 
 template<typename T>
