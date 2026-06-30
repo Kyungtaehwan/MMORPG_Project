@@ -1,10 +1,12 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Object_Manager.h"
 #include "Camera.h"
 #include "Collision_Manager.h"
 #include "Other_Player.h"
 #include "Monster.h"
 #include "Monster_Orc.h"
+#include "DropItem.h"
+#include <cmath>
 CObject_Manager* CObject_Manager::m_pInstance = nullptr;
 
 CObject_Manager::CObject_Manager()
@@ -74,22 +76,21 @@ void CObject_Manager::Render(ID2D1RenderTarget* pRT)
 {
 	std::vector<CGameObject*> vecSortList;
 
-	// OBJ_END Àü±îÁö ¸ðµç ¸®½ºÆ®¸¦ ´Ù ³Ö±â
+	// OBJ_END ì „ê¹Œì§€ ëª¨ë“  ë¦¬ìŠ¤íŠ¸ë¥¼ ë‹¤ ë„£ê¸°
 	for (size_t i = 0; i < OBJ_END; ++i)
 	{
 		for (auto& pObj : m_ObjectList[i])
 			vecSortList.push_back(pObj);
 	}
 
-	// Y¼ÒÆÃ
+	// Yì†ŒíŒ… (ë°œ/ë°”ë‹¥ ê¸°ì¤€ ê¹Šì´. í¬íƒˆ ë“±ì€ Set_SortOffsetìœ¼ë¡œ ë³´ì •)
 	sort(vecSortList.begin(), vecSortList.end(),
 		[](CGameObject* pA, CGameObject* pB)
 		{
-			return (pA->Get_IsoInfo().fWorldX + pA->Get_IsoInfo().fWorldZ)
-				< (pB->Get_IsoInfo().fWorldX + pB->Get_IsoInfo().fWorldZ);
+			return pA->Get_SortDepth() < pB->Get_SortDepth();
 		});
 
-	// ÄÃ¸µ ÈÄ ·»´õ
+	// ì»¬ë§ í›„ ë Œë”
 	for (auto& pObj : vecSortList)
 	{
 		ISO_INFO tInfo = pObj->Get_IsoInfo();
@@ -121,6 +122,47 @@ CGameObject* CObject_Manager::Find_Monster(int32_t nMonsterID)
 			return pObj;
 	}
 	return nullptr;
+}
+
+CGameObject* CObject_Manager::Find_Drop(int32_t nDropID)
+{
+	for (auto& pObj : m_ObjectList[OBJ_DROP])
+	{
+		CDropItem* pDrop = static_cast<CDropItem*>(pObj);
+		if (pDrop->Get_DropID() == nDropID)
+			return pObj;
+	}
+	return nullptr;
+}
+
+// í”Œë ˆì´ì–´ì™€ ì›”ë“œ ì½œë¼ì´ë”ê°€ ê²¹ì¹˜ëŠ” ë“œë¡­ (ê°€ìž¥ ê°€ê¹Œìš´ ê²ƒ)
+CGameObject* CObject_Manager::Find_DropInContact(CGameObject* pPlayer)
+{
+	if (!pPlayer) return nullptr;
+
+	float    fPX = pPlayer->Get_ColliderX();
+	float    fPZ = pPlayer->Get_ColliderZ();
+	COLLIDER tPC = pPlayer->Get_Collider();
+
+	CGameObject* pBest = nullptr;
+	float        fBest = 1e9f;
+
+	for (auto& pObj : m_ObjectList[OBJ_DROP])
+	{
+		float    fDX = pObj->Get_ColliderX();
+		float    fDZ = pObj->Get_ColliderZ();
+		COLLIDER tDC = pObj->Get_Collider();
+
+		float fAbsX = fabsf(fPX - fDX);
+		float fAbsZ = fabsf(fPZ - fDZ);
+		if (fAbsX <= (tPC.fRadiusX + tDC.fRadiusX) &&
+			fAbsZ <= (tPC.fRadiusZ + tDC.fRadiusZ))
+		{
+			float fD = fAbsX + fAbsZ;
+			if (fD < fBest) { fBest = fD; pBest = pObj; }
+		}
+	}
+	return pBest;
 }
 
 void CObject_Manager::Release(void)

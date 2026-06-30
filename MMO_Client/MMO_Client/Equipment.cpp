@@ -1,6 +1,7 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "Equipment.h"
 #include "ItemData_Equipment.h"
+#include "Inventory.h"   // Create_ItemFromCode
 
 CEquipment::~CEquipment()
 {
@@ -49,4 +50,21 @@ int CEquipment::Get_TotalDef() const
         if (m_aSlot[i])
             iTotal += m_aSlot[i]->Get_DefBonus();
     return iTotal;
+}
+
+// 서버 스냅샷(슬롯별 itemCode)으로 장비창 통째 재구성
+void CEquipment::Set_From_Snapshot(const int* pEquipCodes)
+{
+    for (int i = 0; i < SLOT_END; ++i)
+    {
+        if (m_aSlot[i]) { delete m_aSlot[i]; m_aSlot[i] = nullptr; }
+    }
+    for (int i = 0; i < SLOT_END; ++i)
+    {
+        if (pEquipCodes[i] == 0) continue;
+        CItemData* pItem = CInventory::Create_ItemFromCode(pEquipCodes[i]);
+        CItemData_Equipment* pEquip = dynamic_cast<CItemData_Equipment*>(pItem);
+        if (pEquip) m_aSlot[i] = pEquip;
+        else        delete pItem;
+    }
 }

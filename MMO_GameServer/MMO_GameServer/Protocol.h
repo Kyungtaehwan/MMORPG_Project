@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <cstdint>
 
 #pragma pack(push, 1)
@@ -11,25 +11,36 @@ struct PacketHeader
 
 enum PacketID : uint16_t
 {
-    // Client ¡æ Server
+    // Client â†’ Server
     CS_LOGIN = 1000,
-    CS_MOVE_DEST = 1001,  // ¸¶¿ì½º Å¬¸¯  ¸ñÀûÁö Àü¼Û
-    CS_MOVE_POS = 1002,  // ÀÌµ¿ Áß Å¸ÀÏ º¯°æ ½Ã  ÇöÀç À§Ä¡ Àü¼Û
+    CS_MOVE_DEST = 1001,  // ë§ˆìš°ìŠ¤ í´ë¦­  ëª©ì ì§€ ì „ì†¡
+    CS_MOVE_POS = 1002,  // ì´ë™ ì¤‘ íƒ€ì¼ ë³€ê²½ ì‹œ  í˜„ì¬ ìœ„ì¹˜ ì „ì†¡
     CS_ATTACK_MONSTER = 1003,
     CS_RESPAWN = 1004,
+    CS_PORTAL = 1005,   // í¬íƒˆ ì¡´ ì´ë™ ìš”ì²­
+    CS_PICKUP = 1006,   // ì•„ì´í…œ ì¤ê¸° ìš”ì²­
+    CS_EQUIP = 1007,    // ì¸ë²¤ ìŠ¬ë¡¯ ì•„ì´í…œ ì¥ì°©
+    CS_UNEQUIP = 1008,  // ì¥ë¹„ ìŠ¬ë¡¯ í•´ì œ
+    CS_USE_ITEM = 1009, // ì¸ë²¤ ìŠ¬ë¡¯ ì•„ì´í…œ ì‚¬ìš©(í¬ì…˜ ë“±)
 
-    // Server ¡æ Client
-    //¼¼¼Ç, ÇÃ·¹ÀÌ¾î °ü·Ã
+    // Server â†’ Client
+    //ì„¸ì…˜, í”Œë ˆì´ì–´ ê´€ë ¨
     SC_LOGIN_OK = 2000,
     SC_LOGIN_FAIL = 2001,
     SC_ENTER_GAME = 2002,
     SC_ADD_PLAYER = 2003,
     SC_REMOVE_PLAYER = 2004,
-    SC_MOVE_PLAYER = 2005,  // ¸ñÀûÁö + ÇöÀçÀ§Ä¡ Æ÷ÇÔ (º¸°£¿ë)
+    SC_MOVE_PLAYER = 2005,  // ëª©ì ì§€ + í˜„ì¬ìœ„ì¹˜ í¬í•¨ (ë³´ê°„ìš©)
     SC_PLAYER_STATE = 2006,
     SC_PLAYER_HIT = 2007,
     SC_RESPAWN = 2008,
-    //¸ó½ºÅÍ ¿ë
+    SC_CHANGE_ZONE = 2009,  // ì¡´ ì „í™˜ í™•ì • (í´ë¼ê°€ ë§µ ë¡œë“œ + ìœ„ì¹˜ ì´ë™)
+    SC_ADD_DROP = 2010,     // ì›”ë“œì— ì•„ì´í…œ ë“œë¡­ ìƒì„±
+    SC_REMOVE_DROP = 2011,  // ë“œë¡­ ì œê±° (íšë“/ì†Œë©¸)
+    SC_INVEN_UPDATE = 2012, // ì¸ë²¤í† ë¦¬ ì „ì²´ ìŠ¤ëƒ…ìƒ· (ì¥ë¹„ í¬í•¨)
+    SC_PLAYER_HP = 2013,    // HP/MP ë™ê¸°í™” (íšŒë³µ ë“±, í”¼ê²© ì• ë‹ˆ ì—†ìŒ)
+    SC_BUFF = 2014,         // ë²„í”„ ì ìš© ì•Œë¦¼ (í´ë¼ê°€ ìì²´ íƒ€ì´ë¨¸ í‘œì‹œ)
+    //ëª¬ìŠ¤í„° ìš©
     SC_ADD_MONSTER = 2100,
     SC_REMOVE_MONSTER = 2101,
     SC_MOVE_MONSTER = 2102,
@@ -37,7 +48,7 @@ enum PacketID : uint16_t
     SC_MONSTER_HIT = 2104,
 };
 
-// ---- C¡æS ----
+// ---- Câ†’S ----
 
 struct CS_LOGIN_PACKET
 {
@@ -46,8 +57,8 @@ struct CS_LOGIN_PACKET
     char         pw[20];
 };
 
-// ¸¶¿ì½º Å¬¸¯ ½Ã 1¹ø Àü¼Û
-// ¼­¹ö: ¸ñÀûÁö °ËÁõ + ºê·ÎµåÄ³½ºÆ®
+// ë§ˆìš°ìŠ¤ í´ë¦­ ì‹œ 1ë²ˆ ì „ì†¡
+// ì„œë²„: ëª©ì ì§€ ê²€ì¦ + ë¸Œë¡œë“œìºìŠ¤íŠ¸
 struct CS_MOVE_DEST_PACKET
 {
     PacketHeader header;
@@ -56,17 +67,17 @@ struct CS_MOVE_DEST_PACKET
     uint32_t     moveTime;
 };
 
-// ÀÌµ¿ Áß Å¸ÀÏÀÌ ¹Ù²ğ ¶§¸¶´Ù Àü¼Û
-// ¼­¹ö: ÇöÀç À§Ä¡ ¾÷µ¥ÀÌÆ® + ½Ã¾ß Àç°è»ê
+// ì´ë™ ì¤‘ íƒ€ì¼ì´ ë°”ë€” ë•Œë§ˆë‹¤ ì „ì†¡
+// ì„œë²„: í˜„ì¬ ìœ„ì¹˜ ì—…ë°ì´íŠ¸ + ì‹œì•¼ ì¬ê³„ì‚°
 struct CS_MOVE_POS_PACKET
 {
     PacketHeader header;
-    float        fCurX;    // ÇöÀç À§Ä¡
+    float        fCurX;    // í˜„ì¬ ìœ„ì¹˜
     float        fCurZ;
     uint32_t     moveTime;
 };
 
-// ---- S¡æC ----
+// ---- Sâ†’C ----
 
 struct SC_LOGIN_OK_PACKET
 {
@@ -109,15 +120,15 @@ struct SC_REMOVE_PLAYER_PACKET
     uint32_t     playerID;
 };
 
-// ÀÌµ¿ ºê·ÎµåÄ³½ºÆ®
-// ÇöÀçÀ§Ä¡ + ¸ñÀûÁö Æ÷ÇÔ ¡æ Å¬¶óÀÌ¾ğÆ®°¡ º¸°£
+// ì´ë™ ë¸Œë¡œë“œìºìŠ¤íŠ¸
+// í˜„ì¬ìœ„ì¹˜ + ëª©ì ì§€ í¬í•¨ â†’ í´ë¼ì´ì–¸íŠ¸ê°€ ë³´ê°„
 struct SC_MOVE_PLAYER_PACKET
 {
     PacketHeader header;
     uint32_t     playerID;
-    float        fCurX;    // ÇöÀç À§Ä¡ (º¸°£ ½ÃÀÛÁ¡)
+    float        fCurX;    // í˜„ì¬ ìœ„ì¹˜ (ë³´ê°„ ì‹œì‘ì )
     float        fCurZ;
-    float        fDestX;   // ¸ñÀûÁö
+    float        fDestX;   // ëª©ì ì§€
     float        fDestZ;
     float        fSpeed;
     uint32_t     moveTime;
@@ -208,5 +219,95 @@ struct SC_MONSTER_HIT_PACKET
     int32_t      nHp;
     int32_t      nMaxHp;
     uint8_t      dir;
+};
+
+// ---- í¬íƒˆ / ì¡´ ì „í™˜ ----
+struct CS_PORTAL_PACKET
+{
+    PacketHeader header;
+    int32_t      targetZone;
+    float        spawnX;
+    float        spawnZ;
+};
+
+struct SC_CHANGE_ZONE_PACKET
+{
+    PacketHeader header;
+    int32_t      zoneID;
+    float        spawnX;
+    float        spawnZ;
+};
+
+// ---- ì•„ì´í…œ ë“œë¡­ / ì¸ë²¤í† ë¦¬ ----
+// itemCode = category*1000 + subType
+//   1xxx í¬ì…˜, 2xxx ìŠ¤í¬ë¡¤, 3xxx ì¥ë¹„, 4xxx ê¸°íƒ€, 9000 ê³¨ë“œ
+struct CS_PICKUP_PACKET
+{
+    PacketHeader header;
+    uint32_t     dropId;
+};
+
+struct SC_ADD_DROP_PACKET
+{
+    PacketHeader header;
+    int32_t      dropId;
+    int32_t      itemCode;
+    int32_t      amount;   // ê³¨ë“œë©´ ê¸ˆì•¡, ê·¸ ì™¸ ê°œìˆ˜
+    float        fX;
+    float        fZ;
+};
+
+struct SC_REMOVE_DROP_PACKET
+{
+    PacketHeader header;
+    int32_t      dropId;
+};
+
+// ì¸ë²¤í† ë¦¬ ì „ì²´ ìŠ¤ëƒ…ìƒ· (40 = í´ë¼ INVEN_SIZE, 6 = SLOT_END)
+struct SC_INVEN_UPDATE_PACKET
+{
+    PacketHeader header;
+    int32_t      gold;
+    int32_t      codes[40];
+    int32_t      counts[40];
+    int32_t      equip[6];   // ì¥ë¹„ ìŠ¬ë¡¯ë³„ itemCode (0=ë¹ˆì¹¸)
+};
+
+// ---- ì¥ë¹„ / ì‚¬ìš© / ìŠ¤íƒ¯ ----
+struct CS_EQUIP_PACKET
+{
+    PacketHeader header;
+    int32_t      invenSlot;
+};
+
+struct CS_UNEQUIP_PACKET
+{
+    PacketHeader header;
+    int32_t      equipSlot;
+};
+
+struct CS_USE_ITEM_PACKET
+{
+    PacketHeader header;
+    int32_t      invenSlot;
+};
+
+struct SC_PLAYER_HP_PACKET
+{
+    PacketHeader header;
+    uint32_t     playerID;
+    int32_t      nHp;
+    int32_t      nMaxHp;
+    int32_t      nMp;
+    int32_t      nMaxMp;
+};
+
+// ë²„í”„ ì ìš© ì•Œë¦¼. buffType: 0=ê³µê²©ë ¥, 1=ë¬´ì . durationMs ë™ì•ˆ ì§€ì†.
+struct SC_BUFF_PACKET
+{
+    PacketHeader header;
+    uint32_t     playerID;
+    int32_t      buffType;
+    int32_t      durationMs;
 };
 #pragma pack(pop)

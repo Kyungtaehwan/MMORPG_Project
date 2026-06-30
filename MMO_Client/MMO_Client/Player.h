@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "GameObject.h"
 #include "Inventory.h"
 #include "Equipment.h"
@@ -28,7 +28,7 @@ public:
     virtual void Initialize()        override;
     virtual int  Update(float dt)    override;
     virtual void Late_Update(float dt) override;
-    virtual void Render(ID2D1RenderTarget* pRT) override; // HDC �� RT
+    virtual void Render(ID2D1RenderTarget* pRT) override; // HDC → RT
     virtual void Release(void)       override;
 
 
@@ -75,13 +75,20 @@ private:
 
 
 public:
-    // ������ ����
+    // 아이템 관련
     void        Use_Item(int iSlot);
     void        Equip_Item(int iSlot);
     void        UnEquip_Item(EQUIP_SLOT eSlot);
-    void        Use_QuickSlot(int iSlot, CItemData_UseItem* pItem);
+    void        Use_QuickSlot_ByCode(int iCode);   // 코드 기반 퀵슬롯 사용
     CInventory* Get_Inventory() const { return m_pInventory; }
     CEquipment* Get_Equipment() const { return m_pEquipment; }
+
+    // ---- 버프 (서버 사용 확정 시 클라 자체 타이머) ----
+    enum { MAX_BUFFS = 8 };
+    struct FBuff { int type = -1; DWORD start = 0; DWORD duration = 0; };
+    void           Add_Buff(int iType, DWORD dwDurationMs);
+    const FBuff*   Get_Buffs()    const { return m_buffs; }
+    int            Get_MaxBuffs() const { return MAX_BUFFS; }
 
     int         Get_TotalAtk() const { return m_iAttack + m_pEquipment->Get_TotalAtk(); }
     int         Get_TotalDef() const { return m_iDef + m_pEquipment->Get_TotalDef(); }
@@ -90,6 +97,7 @@ private:
 
     CInventory* m_pInventory = nullptr;
     CEquipment* m_pEquipment = nullptr;
+    FBuff       m_buffs[MAX_BUFFS];
 
 private:
     std::vector<std::pair<float, float>> m_waypoints;

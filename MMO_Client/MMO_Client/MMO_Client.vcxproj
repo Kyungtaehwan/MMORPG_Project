@@ -133,6 +133,7 @@
   <ItemGroup>
     <ClCompile Include="ActiveObject.cpp" />
     <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="DropItem.cpp" />
     <ClCompile Include="Equipment.cpp" />
     <ClCompile Include="Inventory.cpp" />
     <ClCompile Include="ItemData_Equipment.cpp" />
@@ -184,10 +185,14 @@
     <ClCompile Include="Zone.cpp" />
     <ClCompile Include="Zone_Test.cpp" />
     <ClCompile Include="Zone_Town.cpp" />
+    <ClCompile Include="Zone_Field_E.cpp" />
+    <ClCompile Include="Zone_Field_S.cpp" />
+    <ClCompile Include="Zone_Field_W.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ActiveObject.h" />
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="DropItem.h" />
     <ClInclude Include="Equipment.h" />
     <ClInclude Include="Inventory.h" />
     <ClInclude Include="ItemData_Equipment.h" />
@@ -237,6 +242,9 @@
     <ClInclude Include="Zone.h" />
     <ClInclude Include="Zone_Test.h" />
     <ClInclude Include="Zone_Town.h" />
+    <ClInclude Include="Zone_Field_E.h" />
+    <ClInclude Include="Zone_Field_S.h" />
+    <ClInclude Include="Zone_Field_W.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="ResourceLink.txt" />

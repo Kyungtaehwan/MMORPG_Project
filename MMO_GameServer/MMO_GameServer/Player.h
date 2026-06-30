@@ -1,4 +1,13 @@
-#pragma once
+ï»¿#pragma once
+#include "ServerItem.h"
+
+// ì•„ì´í…œ ì‚¬ìš© ê²°ê³¼ (ë²„í”„ ì ìš© ì‹œ í´ë¼ì— ì•Œë¦¬ê¸° ìœ„í•¨)
+struct FUseResult
+{
+    bool    used;
+    int32_t buffType;    // -1=ì—†ìŒ, 0=ê³µê²©ë ¥, 1=ë¬´ì 
+    int32_t durationMs;
+};
 
 enum PLAYER_STATE {
     PLAYER_IDLE, PLAYER_WALK, PLAYER_HIT, PLAYER_ATTACK, PLAYER_DEAD, PLAYER_END
@@ -10,60 +19,211 @@ public:
     CPlayer();
     ~CPlayer() = default;
 
-    // ---- ±âº» Á¤º¸ ----
+    // ---- ê¸°ë³¸ ì •ë³´ ----
     int32_t  m_nPlayerID = -1;
     int32_t  m_nSessionID = -1;
     char     m_szName[20] = {};
 
-    // ---- ÇöÀç À§Ä¡ ----
-    // CS_MOVE_·Î ¾÷µ¥ÀÌÆ®µÇ´Â ¸¶Áö¸· È®ÀÎ À§Ä¡
+    // ---- í˜„ì¬ ìœ„ì¹˜ ----
+    // CS_MOVE_ë¡œ ì—…ë°ì´íŠ¸ë˜ëŠ” ë§ˆì§€ë§‰ í™•ì¸ ìœ„ì¹˜
     float    m_fCurX = 0.f;
     float    m_fCurZ = 0.f;
 
-    // ---- ÀÌµ¿ Á¤º¸ ----
-    float    m_fDestX = 0.f;       // ¸ñÀûÁö
+    // ---- ì´ë™ ì •ë³´ ----
+    float    m_fDestX = 0.f;       // ëª©ì ì§€
     float    m_fDestZ = 0.f;
-    float    m_fMoveStartX = 0.f;  // ÀÌµ¿ ½ÃÀÛ À§Ä¡
+    float    m_fMoveStartX = 0.f;  // ì´ë™ ì‹œì‘ ìœ„ì¹˜
     float    m_fMoveStartZ = 0.f;
-    uint32_t m_nMoveStartTime = 0; // ÀÌµ¿ ½ÃÀÛ ½Ã°£ (ms)
+    uint32_t m_nMoveStartTime = 0; // ì´ë™ ì‹œì‘ ì‹œê°„ (ms)
     bool     m_bMoving = false;
     PLAYER_STATE m_eState = PLAYER_IDLE;
-    // ---- ¼Óµµ ----
+    // ---- ì†ë„ ----
     float    m_fSpeed = 1.f;
     uint8_t  m_eDir = 0;
-    // ---- ÀüÅõ -----
+    // ---- ì „íˆ¬ -----
     int32_t       m_iHp = 100;
     int32_t       m_iMaxHp = 100;
 
 
-    // ---- Å¸ÀÏ ÁÂÇ¥ (½Ã¾ß °è»ê¿ë) ----
+    // ---- íƒ€ì¼ ì¢Œí‘œ (ì‹œì•¼ ê³„ì‚°ìš©) ----
     int32_t  m_nTileX = 0;
     int32_t  m_nTileZ = 0;
 
-    // ---- Á¸ Á¤º¸ ----
+    // ---- ì¡´ ì •ë³´ ----
     int32_t  m_nZoneID = 0;
 
-    // ---- ½Ã¾ß ¸®½ºÆ® ----
+    // ---- ì‹œì•¼ ë¦¬ìŠ¤íŠ¸ ----
     std::unordered_set<int32_t> m_viewList;
     std::mutex                  m_viewLock;
 
     std::unordered_set<int32_t> m_monsterViewList;
     std::mutex                  m_monsterViewLock;
-    // ---- ¸¶Áö¸· ÆĞÅ¶ ½Ã°£ ----
+    // ---- ë§ˆì§€ë§‰ íŒ¨í‚· ì‹œê°„ ----
     uint32_t m_nLastMoveTime = 0;
     uint32_t m_nLastAtkTime  = 0;
     uint32_t m_nAtkCoolMs    = 400;
     bool     m_bDead = false;
 
+    // ---- ì¸ë²¤í† ë¦¬ (ì„œë²„ ë‹¨ì¼ ì§„ì‹¤, new ì—†ì´ ê°’ìœ¼ë¡œë§Œ ê´€ë¦¬) ----
+    static constexpr int32_t INVEN_SIZE = 40;
+    int32_t  m_invenCode[INVEN_SIZE]  = {};  // itemCode (0 = ë¹ˆ ìŠ¬ë¡¯)
+    int32_t  m_invenCount[INVEN_SIZE] = {};  // ìŠ¬ë¡¯ë³„ ê°œìˆ˜
+    int32_t  m_gold = 0;
+
+    void AddGold(int32_t nAmount) { m_gold += nAmount; }
+
+    // ì•„ì´í…œ 1ì¢… ì¶”ê°€. ìŠ¤íƒ ê°€ëŠ¥(í¬ì…˜/ìŠ¤í¬ë¡¤/ê¸°íƒ€)ì€ 99ê¹Œì§€ ëˆ„ì ,
+    // ê·¸ ì™¸(ì¥ë¹„)ëŠ” ë¹ˆ ìŠ¬ë¡¯ ì°¨ì§€. ê°€ë“ ì°¨ë©´ false.
+    bool AddItem(int32_t nCode, int32_t nAmount)
+    {
+        if (nCode <= 0 || nAmount <= 0) return false;
+
+        int category = nCode / 1000;
+        bool bStackable = (category == 1 || category == 2 || category == 4);
+
+        if (bStackable)
+        {
+            for (int i = 0; i < INVEN_SIZE; ++i)
+            {
+                if (m_invenCode[i] == nCode && m_invenCount[i] < 99)
+                {
+                    m_invenCount[i] += nAmount;
+                    if (m_invenCount[i] > 99) m_invenCount[i] = 99;
+                    return true;
+                }
+            }
+        }
+
+        for (int i = 0; i < INVEN_SIZE; ++i)
+        {
+            if (m_invenCode[i] == 0)
+            {
+                m_invenCode[i]  = nCode;
+                m_invenCount[i] = nAmount;
+                return true;
+            }
+        }
+        return false;  // ì¸ë²¤ ê°€ë“ ì°¸
+    }
+
+    // ---- ì¥ë¹„ / ìŠ¤íƒ¯ (ì„œë²„ ê¶Œìœ„) ----
+    static constexpr int32_t EQUIP_SLOTS = 6;   // í´ë¼ SLOT_END
+    int32_t  m_equipCode[EQUIP_SLOTS] = {};     // ìŠ¬ë¡¯ë³„ itemCode (0=ë¹ˆì¹¸)
+    int32_t  m_iMp = 100;
+    int32_t  m_iMaxMp = 100;
+    int32_t  m_baseAtk = 10;   // í´ë¼ Player Initialize ì™€ ì¼ì¹˜
+    int32_t  m_baseDef = 5;
+
+    // ë²„í”„ (ì§€ì†ì‹œê°„ ì„œë²„ ê´€ë¦¬)
+    uint32_t m_nAtkBuffEnd = 0;
+    int32_t  m_nAtkBuffAmt = 0;
+    uint32_t m_nInvincibleEnd = 0;
+
+    int32_t Get_Atk() const
+    {
+        int32_t atk = m_baseAtk;
+        for (int i = 0; i < EQUIP_SLOTS; ++i)
+            if (m_equipCode[i]) atk += EquipAtk(m_equipCode[i]);
+        if (static_cast<uint32_t>(GetTickCount64()) < m_nAtkBuffEnd)
+            atk += m_nAtkBuffAmt;
+        return atk;
+    }
+    int32_t Get_Def() const
+    {
+        int32_t def = m_baseDef;
+        for (int i = 0; i < EQUIP_SLOTS; ++i)
+            if (m_equipCode[i]) def += EquipDef(m_equipCode[i]);
+        return def;
+    }
+    bool IsInvincible() const
+    {
+        return static_cast<uint32_t>(GetTickCount64()) < m_nInvincibleEnd;
+    }
+
+    // ì¸ë²¤ ìŠ¬ë¡¯ì˜ ì¥ë¹„ë¥¼ ì¥ì°© (ê¸°ì¡´ ì¥ë¹„ëŠ” ì¸ë²¤ìœ¼ë¡œ ë°˜í™˜)
+    bool Equip(int32_t nInvenSlot)
+    {
+        if (nInvenSlot < 0 || nInvenSlot >= INVEN_SIZE) return false;
+        int32_t code = m_invenCode[nInvenSlot];
+        if (code / 1000 != 3) return false;          // ì¥ë¹„ ì•„ë‹˜
+        int32_t slot = EquipSlotOf(code);
+        if (slot < 0 || slot >= EQUIP_SLOTS) return false;
+
+        int32_t prev = m_equipCode[slot];
+        m_invenCode[nInvenSlot]  = 0;                // ì¸ë²¤ì—ì„œ ì œê±°(ìŠ¬ë¡¯ ë¹„ì›€)
+        m_invenCount[nInvenSlot] = 0;
+        m_equipCode[slot] = code;
+        if (prev) AddItem(prev, 1);                  // ê¸°ì¡´ ì¥ë¹„ ì¸ë²¤ ë°˜í™˜
+        return true;
+    }
+
+    // ì¥ë¹„ ìŠ¬ë¡¯ í•´ì œ (ì¸ë²¤ ë¹ˆì¹¸ ìˆì–´ì•¼ í•¨)
+    bool UnEquip(int32_t nEquipSlot)
+    {
+        if (nEquipSlot < 0 || nEquipSlot >= EQUIP_SLOTS) return false;
+        int32_t code = m_equipCode[nEquipSlot];
+        if (!code) return false;
+        if (!AddItem(code, 1)) return false;         // ì¸ë²¤ ê°€ë“ ì°¸
+        m_equipCode[nEquipSlot] = 0;
+        return true;
+    }
+
+    // ì¸ë²¤ ìŠ¬ë¡¯ ì•„ì´í…œ ì‚¬ìš© (í¬ì…˜). íšŒë³µ/ë²„í”„ ì ìš© í›„ ìˆ˜ëŸ‰ ì°¨ê°.
+    FUseResult UseItem(int32_t nInvenSlot)
+    {
+        FUseResult r{ false, -1, 0 };
+        if (nInvenSlot < 0 || nInvenSlot >= INVEN_SIZE) return r;
+        int32_t code = m_invenCode[nInvenSlot];
+        if (code <= 0) return r;
+
+        int cat = code / 1000;
+        int sub = code % 1000;
+
+        if (cat == 1)  // í¬ì…˜
+        {
+            if (sub < 0 || sub >= 6) return r;
+            const FPotionEffect& e = g_PotionTable[sub];
+            uint32_t now = static_cast<uint32_t>(GetTickCount64());
+            switch (e.kind)
+            {
+            case PK_HP:
+                m_iHp += e.amount; if (m_iHp > m_iMaxHp) m_iHp = m_iMaxHp; break;
+            case PK_MP:
+                m_iMp += e.amount; if (m_iMp > m_iMaxMp) m_iMp = m_iMaxMp; break;
+            case PK_ATK:
+                m_nAtkBuffAmt = e.amount; m_nAtkBuffEnd = now + ATK_BUFF_DURATION_MS;
+                r.buffType = 0; r.durationMs = static_cast<int32_t>(ATK_BUFF_DURATION_MS); break;
+            case PK_INVINCIBLE:
+                m_nInvincibleEnd = now + INVINCIBLE_DURATION_MS;
+                r.buffType = 1; r.durationMs = static_cast<int32_t>(INVINCIBLE_DURATION_MS); break;
+            }
+        }
+        else if (cat == 2)
+        {
+            // ìŠ¤í¬ë¡¤: íš¨ê³¼ëŠ” Phase 3, ì¼ë‹¨ ì†Œë¹„ë§Œ
+        }
+        else
+        {
+            return r;  // ì‚¬ìš© ë¶ˆê°€ ì•„ì´í…œ
+        }
+
+        // ìˆ˜ëŸ‰ ì°¨ê°
+        if (m_invenCount[nInvenSlot] > 1) --m_invenCount[nInvenSlot];
+        else { m_invenCode[nInvenSlot] = 0; m_invenCount[nInvenSlot] = 0; }
+
+        r.used = true;
+        return r;
+    }
+
     // ================================================================
     //  GetCurrentPos 
-    // ÇöÀç ½Ã°£ ±âÁØ ½ÇÁ¦ À§Ä¡ °è»ê
+    // í˜„ì¬ ì‹œê°„ ê¸°ì¤€ ì‹¤ì œ ìœ„ì¹˜ ê³„ì‚°
     //
-    //  CS_MOVE_DEST¸¦ ¹ŞÀº ¼ø°£ºÎÅÍ
-    //  "½ÃÀÛÀ§Ä¡ + ¹æÇâ * ¼Óµµ * °æ°ú½Ã°£" À¸·Î ¿ª»ê
+    //  CS_MOVE_DESTë¥¼ ë°›ì€ ìˆœê°„ë¶€í„°
+    //  "ì‹œì‘ìœ„ì¹˜ + ë°©í–¥ * ì†ë„ * ê²½ê³¼ì‹œê°„" ìœ¼ë¡œ ì—­ì‚°
     //
-    //  ¸ó½ºÅÍ AI, ÀüÅõ »çÁ¤°Å¸® °è»ê¿¡¼­ ÀÌ°É ¾²¸é
-    //  ¼­¹ö°¡ Ç×»ó Á¤È®ÇÑ float À§Ä¡¸¦ ¾Ë ¼ö ÀÖÀ½
+    //  ëª¬ìŠ¤í„° AI, ì „íˆ¬ ì‚¬ì •ê±°ë¦¬ ê³„ì‚°ì—ì„œ ì´ê±¸ ì“°ë©´
+    //  ì„œë²„ê°€ í•­ìƒ ì •í™•í•œ float ìœ„ì¹˜ë¥¼ ì•Œ ìˆ˜ ìˆìŒ
     // ================================================================
     void GetCurrentPos(uint32_t nCurrentTime, float& fOutX, float& fOutZ) const
     {
@@ -85,26 +245,26 @@ public:
             return;
         }
 
-        // °æ°ú ½Ã°£ (ms ¡æ ÃÊ)
+        // ê²½ê³¼ ì‹œê°„ (ms â†’ ì´ˆ)
         float fElapsed = (nCurrentTime - m_nMoveStartTime) / 1000.f;
         float fMoved = m_fSpeed * fElapsed;
 
         if (fMoved >= fDist)
         {
-            // ÀÌ¹Ì ¸ñÀûÁö µµÂø
+            // ì´ë¯¸ ëª©ì ì§€ ë„ì°©
             fOutX = m_fDestX;
             fOutZ = m_fDestZ;
             return;
         }
 
-        // ½ÃÀÛÀ§Ä¡ + ¹æÇâ * ÀÌµ¿°Å¸®
+        // ì‹œì‘ìœ„ì¹˜ + ë°©í–¥ * ì´ë™ê±°ë¦¬
         fOutX = m_fMoveStartX + (fDX / fDist) * fMoved;
         fOutZ = m_fMoveStartZ + (fDZ / fDist) * fMoved;
     }
 
     // ================================================================
-    //  GetDistanceTo  ´Ù¸¥ À§Ä¡±îÁö float °Å¸®
-    //  ¸ó½ºÅÍ »çÁ¤°Å¸® °è»ê¿¡ »ç¿ë
+    //  GetDistanceTo  ë‹¤ë¥¸ ìœ„ì¹˜ê¹Œì§€ float ê±°ë¦¬
+    //  ëª¬ìŠ¤í„° ì‚¬ì •ê±°ë¦¬ ê³„ì‚°ì— ì‚¬ìš©
     // ================================================================
     float GetDistanceTo(float fTargetX, float fTargetZ,
         uint32_t nCurrentTime) const
@@ -117,7 +277,7 @@ public:
         return sqrtf(fDX * fDX + fDZ * fDZ);
     }
 
-    // ---- Å¸ÀÏ ÁÂÇ¥ °»½Å ----
+    // ---- íƒ€ì¼ ì¢Œí‘œ ê°±ì‹  ----
     bool UpdateTilePos()
     {
         int32_t nNewTileX = static_cast<int32_t>(floorf(m_fCurX));
@@ -131,8 +291,8 @@ public:
         return true;
     }
 
-    // ---- µµÂø ¿©ºÎ È®ÀÎ ----
-    // Å¸ÀÌ¸Ó¿¡¼­ ÀÌµ¿ ¿Ï·á Ã¼Å©¿¡ »ç¿ë
+    // ---- ë„ì°© ì—¬ë¶€ í™•ì¸ ----
+    // íƒ€ì´ë¨¸ì—ì„œ ì´ë™ ì™„ë£Œ ì²´í¬ì— ì‚¬ìš©
     bool IsArrived(uint32_t nCurrentTime) const
     {
         if (!m_bMoving) return true;

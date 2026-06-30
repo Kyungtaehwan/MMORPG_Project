@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "GameObject.h"
 
 enum MONSTER_STATE : int
@@ -26,25 +26,25 @@ public:
     virtual void Release()                          override;
 
 public:
-    // ---- ¼ø¼ö °¡»ó - °¢ ¸ó½ºÅÍ°¡ ¹İµå½Ã ±¸Çö ----
+    // ---- ìˆœìˆ˜ ê°€ìƒ - ê° ëª¬ìŠ¤í„°ê°€ ë°˜ë“œì‹œ êµ¬í˜„ ----
     virtual void Motion_Change(MONSTER_STATE eState) PURE;
 
 protected:
-    // ---- ÆĞÅ¶ ¼ö½Å ÈÄ ÇÏÀ§ Å¬·¡½º Ã³¸® - ¹İµå½Ã ±¸Çö ----
+    // ---- íŒ¨í‚· ìˆ˜ì‹  í›„ í•˜ìœ„ í´ë˜ìŠ¤ ì²˜ë¦¬ - ë°˜ë“œì‹œ êµ¬í˜„ ----
     virtual void On_MovePacket(uint8_t nDir)                            PURE;
     virtual void On_StatePacket(MONSTER_STATE eState, int32_t nTargetID) PURE;
 
 public:
     // ================================================================
     //  OnMovePacket
-    //  º£ÀÌ½º: À§Ä¡ º¸Á¤ + ÀÌµ¿ ¼¼ÆÃ (°øÅë)
-    //  ÀÌÈÄ On_MovePacket È£Ãâ ¡æ ÇÏÀ§ Å¬·¡½º ¾Ö´Ï¸ŞÀÌ¼Ç Ã³¸®
+    //  ë² ì´ìŠ¤: ìœ„ì¹˜ ë³´ì • + ì´ë™ ì„¸íŒ… (ê³µí†µ)
+    //  ì´í›„ On_MovePacket í˜¸ì¶œ â†’ í•˜ìœ„ í´ë˜ìŠ¤ ì• ë‹ˆë©”ì´ì…˜ ì²˜ë¦¬
     // ================================================================
     void OnMovePacket(float fCurX, float fCurZ,
         float fDestX, float fDestZ,
         float fSpeed, uint8_t nDir)
     {
-        // À§Ä¡ ¿ÀÂ÷ º¸Á¤
+        // ìœ„ì¹˜ ì˜¤ì°¨ ë³´ì •
         float fDX = fCurX - m_tIsoInfo.fWorldX;
         float fDZ = fCurZ - m_tIsoInfo.fWorldZ;
         float fDiff = sqrtf(fDX * fDX + fDZ * fDZ);
@@ -61,37 +61,44 @@ public:
 
         Direction_Change(static_cast<DIRECTION>(nDir));
 
-        // ÇÏÀ§ Å¬·¡½º Ã³¸®
+        // í•˜ìœ„ í´ë˜ìŠ¤ ì²˜ë¦¬
         On_MovePacket(nDir);
     }
 
     // ================================================================
     //  OnStatePacket
-    //  º£ÀÌ½º: IDLE/DEAD °øÅë Ã³¸®
-    //  ÀÌÈÄ On_StatePacket È£Ãâ ¡æ ÇÏÀ§ Å¬·¡½º »óÅÂº° Ã³¸®
+    //  ë² ì´ìŠ¤: IDLE/DEAD ê³µí†µ ì²˜ë¦¬
+    //  ì´í›„ On_StatePacket í˜¸ì¶œ â†’ í•˜ìœ„ í´ë˜ìŠ¤ ìƒíƒœë³„ ì²˜ë¦¬
     // ================================================================
     void OnStatePacket(MONSTER_STATE eState, int32_t nTargetID)
     {
-        // °øÅë Ã³¸®
+        // ê³µí†µ ì²˜ë¦¬
+        // WALK ì™¸ì˜ ëª¨ë“  ìƒíƒœëŠ” ì´ë™ì„ ë©ˆì¶˜ë‹¤ (í”¼ê²©/ê³µê²© ì¤‘ì—” ì œìë¦¬)
         switch (eState)
         {
-        case MON_IDLE:
         case MON_DEAD:
+            m_bMoving = false;
+            m_iHp = 0;          // ì‚¬ë§ ì‹œ ì²´ë ¥ 0ìœ¼ë¡œ í‘œì‹œ
+            break;
+        case MON_IDLE:
+        case MON_HIT:
+        case MON_ATTACK_0:
+        case MON_ATTACK_1:
             m_bMoving = false;
             break;
         default:
             break;
         }
 
-        // ÇÏÀ§ Å¬·¡½º Ã³¸®
+        // í•˜ìœ„ í´ë˜ìŠ¤ ì²˜ë¦¬
         On_StatePacket(eState, nTargetID);
     }
 
-    // ---- ³×Æ®¿öÅ© ID ----
+    // ---- ë„¤íŠ¸ì›Œí¬ ID ----
     void    Set_MonsterID(int32_t nID) { m_nMonsterID = nID; }
     int32_t Get_MonsterID()      const { return m_nMonsterID; }
 
-    // ---- ÀÌµ¿ ¼¼ÆÃ ----
+    // ---- ì´ë™ ì„¸íŒ… ----
     void Set_Dest(float fX, float fZ) { m_fDestWorldX = fX; m_fDestWorldZ = fZ; }
     void Set_Moving(bool b) { m_bMoving = b; }
     void Set_Speed(float Speed) { m_fSpeed = Speed; }
@@ -99,7 +106,7 @@ public:
         m_eDir = eDir;
         m_tFrame.iFrameStart = 0;
     };
-    // ---- ±âÁ¸ ÇÔ¼ö À¯Áö ----
+    // ---- ê¸°ì¡´ í•¨ìˆ˜ ìœ ì§€ ----
     void Set_ServerPos(float fX, float fZ)
     {
 #ifdef NO_SERVER
@@ -140,11 +147,11 @@ protected:
     MONSTER_STATE  m_eState = MON_IDLE;
     TCHAR          m_szName[64] = {};
     CURSOR_MODE    m_eHoverCursor = CURSOR_ATTACK;
-    // ÀÌµ¿ ¸ñÀûÁö
+    // ì´ë™ ëª©ì ì§€
     float   m_fDestWorldX = 0.f;
     float   m_fDestWorldZ = 0.f;
     bool    m_bMoving = false;
 
-    // ³×Æ®¿öÅ© ID
+    // ë„¤íŠ¸ì›Œí¬ ID
     int32_t m_nMonsterID = -1;
 };

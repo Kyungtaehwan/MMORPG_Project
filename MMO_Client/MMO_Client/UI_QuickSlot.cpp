@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "UI_QuickSlot.h"
 #include "Player.h"
 #include "Inventory.h"
@@ -16,7 +16,7 @@ void CUI_QuickSlot::Initialize()
     CImg_Manager::Get_Instance()->Insert_Png(
         L"../Resource/UI/Quick.png", L"QUICKSLOT_FRAME");
 
-    // È­¸é ¿ìÃø ÇÏ´Ü °íÁ¤
+    // í™”ë©´ ìš°ì¸¡ í•˜ë‹¨ ê³ ì •
     Set_Pos(WINCX - PANEL_W * 0.5f, WINCY - PANEL_H * 0.5f);
     Set_Size(PANEL_W, PANEL_H);
     Update_Rect();
@@ -27,14 +27,14 @@ int CUI_QuickSlot::Update(float dt)
     CInput_Manager* pInput = CInput_Manager::Get_Instance();
     POINT tMouse = pInput->Get_MousePos();
 
-    // µå·¡±× Áß ¸¶¿ì½º ¶À Äü½½·Ô ¿µ¿ª Ã¼Å© ÈÄ µå·Ó
+    // ë“œë˜ê·¸ ì¤‘ ë§ˆìš°ìŠ¤ ë—Œ í€µìŠ¬ë¡¯ ì˜ì—­ ì²´í¬ í›„ ë“œë¡­
     if (pInput->Is_Dragging() && pInput->Mouse_Up(MBUTTON_L))
     {
         On_LButtonUp(tMouse);
         return OBJ_NOEVENT;
     }
 
-    // Äü½½·Ô ¿ìÅ¬¸¯ ½½·Ô ÇØÁ¦ (Äü½½·Ô ¿µ¿ªÀÏ ¶§¸¸)
+    // í€µìŠ¬ë¡¯ ìš°í´ë¦­ ìŠ¬ë¡¯ í•´ì œ (í€µìŠ¬ë¡¯ ì˜ì—­ì¼ ë•Œë§Œ)
     if (pInput->Mouse_Down(MBUTTON_R))
     {
         int iSlot = Get_SlotAt(tMouse);
@@ -45,7 +45,7 @@ int CUI_QuickSlot::Update(float dt)
         }
     }
 
-    // ´ÜÃàÅ° »ç¿ë (1,2,3,4) °ÔÀÓ¸ğµåÀÏ ¶§¸¸
+    // ë‹¨ì¶•í‚¤ ì‚¬ìš© (1,2,3,4) ê²Œì„ëª¨ë“œì¼ ë•Œë§Œ
     if (pInput->Is_GameMode())
     {
         int aKeys[4] = { '1', '2', '3', '4' };
@@ -53,8 +53,8 @@ int CUI_QuickSlot::Update(float dt)
         {
             if (pInput->Key_Down(aKeys[i]))
             {
-                if (m_aSlot[i])
-                    m_pPlayer->Use_QuickSlot(i, m_aSlot[i]);
+                if (m_aSlotCode[i] != 0)
+                    m_pPlayer->Use_QuickSlot_ByCode(m_aSlotCode[i]);
                 break;
             }
         }
@@ -76,7 +76,7 @@ void CUI_QuickSlot::Render(ID2D1RenderTarget* pRT)
 
 void CUI_QuickSlot::Release() {}
 
-// ===================== ·»´õ =====================
+// ===================== ë Œë” =====================
 
 void CUI_QuickSlot::Render_Slots(ID2D1RenderTarget* pRT)
 {
@@ -97,25 +97,32 @@ void CUI_QuickSlot::Render_Slots(ID2D1RenderTarget* pRT)
         float fX = m_tRect.left + i * SLOT_SIZE;
         float fY = (float)m_tRect.top;
 
-        // ¾ÆÀÌÅÛ ·»´õ ½½·Ô¿¡ ¾ÆÀÌÅÛ ÀÖÀ¸¸é
-        if (m_aSlot[i])
+        // ë“±ë¡ëœ ì½”ë“œì˜ ì•„ì´í…œì„ ì¸ë²¤ì—ì„œ ì°¾ì•„ í‘œì‹œ
+        if (m_aSlotCode[i] != 0)
         {
-            ID2D1Bitmap* pBitmap = CImg_Manager::Get_Instance()->Find_Png(
-                m_aSlot[i]->Get_IconKey());
-            if (pBitmap)
-                pRT->DrawBitmap(pBitmap,
-                    D2D1::RectF(
-                        fX + 6.f, fY + 6.f,
-                        fX + SLOT_SIZE - 6.f, fY + SLOT_SIZE - 6.f),
-                    1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            CItemData* pItem = nullptr;
             int iCount = 0;
             for (int j = 0; j < INVEN_SIZE; ++j)
             {
-                if (m_pPlayer->Get_Inventory()->Get_Item(j) == m_aSlot[i])
+                CItemData* pIt = m_pPlayer->Get_Inventory()->Get_Item(j);
+                if (pIt && pIt->Get_ItemCode() == m_aSlotCode[i])
                 {
+                    pItem = pIt;
                     iCount = m_pPlayer->Get_Inventory()->Get_StackCount(j);
                     break;
                 }
+            }
+
+            if (pItem)
+            {
+                ID2D1Bitmap* pBitmap = CImg_Manager::Get_Instance()->Find_Png(
+                    pItem->Get_IconKey());
+                if (pBitmap)
+                    pRT->DrawBitmap(pBitmap,
+                        D2D1::RectF(
+                            fX + 6.f, fY + 6.f,
+                            fX + SLOT_SIZE - 6.f, fY + SLOT_SIZE - 6.f),
+                        1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             }
 
             if (iCount > 0)
@@ -126,16 +133,16 @@ void CUI_QuickSlot::Render_Slots(ID2D1RenderTarget* pRT)
                 ID2D1SolidColorBrush* pBrush = nullptr;
                 pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 1.f), &pBrush);
                 IDWriteTextFormat* pFont = CImg_Manager::Get_Instance()->Get_DebugFont();
-                pFont->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);  // ¿ìÃø Á¤·Ä
+                pFont->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);  // ìš°ì¸¡ ì •ë ¬
                 pRT->DrawText(szCount, lstrlen(szCount),
                     pFont,
                     D2D1::RectF(fX-30.f, fY + SLOT_SIZE - 2
                         ,
-                        fX + SLOT_SIZE - 10.f,   // ¿À¸¥ÂÊ ¿©¹é 2px
+                        fX + SLOT_SIZE - 10.f,   // ì˜¤ë¥¸ìª½ ì—¬ë°± 2px
                         fY + SLOT_SIZE - 15.f),
                     pBrush);
 
-                // ¿ø·¡´ë·Î º¹±¸
+                // ì›ë˜ëŒ€ë¡œ ë³µêµ¬
                 pFont->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 pBrush->Release();
             }
@@ -158,7 +165,7 @@ void CUI_QuickSlot::Render_DragIcon(ID2D1RenderTarget* pRT)
     POINT tMouse = pInput->Get_MousePos();
     float fHalf = INVEN_SLOT_SIZE * 0.5f;
 
-    // ¹İÅõ¸íÀ¸·Î ¸¶¿ì½º µû¶ó´Ù´Ô
+    // ë°˜íˆ¬ëª…ìœ¼ë¡œ ë§ˆìš°ìŠ¤ ë”°ë¼ë‹¤ë‹˜
     pRT->DrawBitmap(pBitmap,
         D2D1::RectF(
             tMouse.x - fHalf, tMouse.y - fHalf,
@@ -166,7 +173,7 @@ void CUI_QuickSlot::Render_DragIcon(ID2D1RenderTarget* pRT)
         0.7f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 }
 
-// ===================== ÀÔ·Â Ã³¸® =====================
+// ===================== ì…ë ¥ ì²˜ë¦¬ =====================
 
 void CUI_QuickSlot::On_LButtonUp(POINT tMouse)
 {
@@ -178,7 +185,8 @@ void CUI_QuickSlot::On_LButtonUp(POINT tMouse)
         CItemData* pItem = pInput->Get_Drag().pItem;
         if (pItem && pItem->Get_Type() == ITEM_USE)
         {
-            m_aSlot[iSlot] = static_cast<CItemData_UseItem*>(pItem);
+            // í¬ì¸í„°ê°€ ì•„ë‹ˆë¼ ì•„ì´í…œ ì½”ë“œë¥¼ ë“±ë¡ (ì¸ë²¤ ì¬êµ¬ì„±ì—ë„ ìœ ì§€)
+            m_aSlotCode[iSlot] = pItem->Get_ItemCode();
         }
     }
 
@@ -190,7 +198,7 @@ void CUI_QuickSlot::On_RClick(POINT tMouse)
     int iSlot = Get_SlotAt(tMouse);
     if (iSlot == -1 || !Is_UseSlot(iSlot)) return;
 
-    m_aSlot[iSlot] = nullptr;
+    m_aSlotCode[iSlot] = 0;
 }
 
 int CUI_QuickSlot::Get_SlotAt(POINT tMouse)
@@ -213,14 +221,16 @@ int CUI_QuickSlot::Get_SlotAt(POINT tMouse)
 
 void CUI_QuickSlot::Update_SlotValidity()
 {
+    // ë“±ë¡í•œ ì½”ë“œì˜ ì•„ì´í…œì´ ì¸ë²¤ì— í•˜ë‚˜ë„ ì—†ìœ¼ë©´ ìŠ¬ë¡¯ ë¹„ì›€
     for (int i = 0; i < 4; ++i)
     {
-        if (!m_aSlot[i]) continue;
+        if (m_aSlotCode[i] == 0) continue;
 
         bool bFound = false;
         for (int j = 0; j < INVEN_SIZE; ++j)
         {
-            if (m_pPlayer->Get_Inventory()->Get_Item(j) == m_aSlot[i])
+            CItemData* pIt = m_pPlayer->Get_Inventory()->Get_Item(j);
+            if (pIt && pIt->Get_ItemCode() == m_aSlotCode[i])
             {
                 bFound = true;
                 break;
@@ -228,7 +238,7 @@ void CUI_QuickSlot::Update_SlotValidity()
         }
 
         if (!bFound)
-            m_aSlot[i] = nullptr;
+            m_aSlotCode[i] = 0;
     }
 }
 
@@ -242,7 +252,7 @@ void CUI_QuickSlot::Debug_Render(ID2D1RenderTarget* pRT)
         float fX = m_tRect.left + i * SLOT_SIZE;
         float fY = (float)m_tRect.top;
 
-        // ¼Òºñ ½½·Ô(0~3)³ë¶õ»ö, ½ºÅ³ ½½·Ô(4~7)ÇÏ´Ã»ö
+        // ì†Œë¹„ ìŠ¬ë¡¯(0~3)ë…¸ë€ìƒ‰, ìŠ¤í‚¬ ìŠ¬ë¡¯(4~7)í•˜ëŠ˜ìƒ‰
         D2D1_COLOR_F color = (i < 4)
             ? D2D1::ColorF(1.f, 1.f, 0.f, 0.8f)
             : D2D1::ColorF(0.4f, 0.8f, 1.f, 0.8f);
@@ -252,7 +262,7 @@ void CUI_QuickSlot::Debug_Render(ID2D1RenderTarget* pRT)
             D2D1::RectF(fX, fY, fX + SLOT_SIZE, fY + SLOT_SIZE),
             pBrush, 1.5f);
 
-        // ½½·Ô ¹øÈ£
+        // ìŠ¬ë¡¯ ë²ˆí˜¸
         TCHAR szNum[4];
         swprintf_s(szNum, 4, L"%d", i);
         pRT->DrawText(szNum, lstrlen(szNum),
@@ -261,8 +271,8 @@ void CUI_QuickSlot::Debug_Render(ID2D1RenderTarget* pRT)
             pBrush);
         pBrush->Release();
 
-        // ¾ÆÀÌÅÛ ÀÖ´Â ½½·ÔÀº ÃÊ·Ï Å×µÎ¸®
-        if (m_aSlot[i])
+        // ì•„ì´í…œ ìˆëŠ” ìŠ¬ë¡¯ì€ ì´ˆë¡ í…Œë‘ë¦¬
+        if (m_aSlotCode[i] != 0)
         {
             pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f, 0.9f), &pBrush);
             pRT->DrawRectangle(
@@ -273,7 +283,7 @@ void CUI_QuickSlot::Debug_Render(ID2D1RenderTarget* pRT)
         }
     }
 
-    // ÀüÃ¼ ÆĞ³Î ¿Ü°û¼± Èò»ö
+    // ì „ì²´ íŒ¨ë„ ì™¸ê³½ì„  í°ìƒ‰
     pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 1.f, 0.6f), &pBrush);
     pRT->DrawRectangle(
         D2D1::RectF(

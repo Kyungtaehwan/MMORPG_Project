@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "GameObject.h"
 class CObject_Manager
 {
@@ -20,6 +20,8 @@ public:
 
 	CGameObject* Find_OtherPlayer(int32_t nPlayerID);
 	CGameObject* Find_Monster(int32_t nMonsterID);
+	CGameObject* Find_Drop(int32_t nDropID);
+	CGameObject* Find_DropInContact(CGameObject* pPlayer);  // 접촉 중인 드롭(획득용)
 
 	std::list<CGameObject*>* Get_List(OBJ_ID eID) {
 		if (!List_Empty(eID))

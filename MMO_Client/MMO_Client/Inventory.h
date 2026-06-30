@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "Item_Define.h"
 
 class CItemData;
@@ -10,10 +10,10 @@ public:
     ~CInventory();
 
 public:
-    // ¾ÆÀÌÅÛ
-    bool            Add_Item(CItemData* pItem);         // ºó ½½·Ô or ½ºÅÃ¿¡ Ãß°¡
-    CItemData*      Remove_Item(int iSlot);             // ½½·Ô¿¡¼­ ²¨³¿ (¼ÒÀ¯±Ç ¹İÈ¯)
-    CItemData*      Get_Item(int iSlot) const;          // ½½·Ô ÂüÁ¶
+    // ì•„ì´í…œ
+    bool            Add_Item(CItemData* pItem);         // ë¹ˆ ìŠ¬ë¡¯ or ìŠ¤íƒì— ì¶”ê°€
+    CItemData*      Remove_Item(int iSlot);             // ìŠ¬ë¡¯ì—ì„œ êº¼ëƒ„ (ì†Œìœ ê¶Œ ë°˜í™˜)
+    CItemData*      Get_Item(int iSlot) const;          // ìŠ¬ë¡¯ ì°¸ì¡°
     bool            Is_Empty(int iSlot) const;
     int             Get_SlotCount() const { return INVEN_SIZE; }
     int             Get_StackCount(int iSlot) const { return m_iStackCount[iSlot]; }
@@ -23,17 +23,24 @@ public:
             --m_iStackCount[iSlot];
     }
 
-    // °ñµå
+    // ê³¨ë“œ
     void            Add_Gold(int iAmount);
-    bool            Spend_Gold(int iAmount);            // µ· ºÎÁ·ÇÏ¸é false
+    bool            Spend_Gold(int iAmount);            // ëˆ ë¶€ì¡±í•˜ë©´ false
     int             Get_Gold() const { return m_iGold; }
 
 public:
-    int             Find_SameItem(CItemData* pItem);    // ½ºÅÃ °¡´ÉÇÑ ½½·Ô Å½»ö
-    int             Find_EmptySlot();                   // ºó ½½·Ô Å½»ö
+    int             Find_SameItem(CItemData* pItem);    // ìŠ¤íƒ ê°€ëŠ¥í•œ ìŠ¬ë¡¯ íƒìƒ‰
+    int             Find_EmptySlot();                   // ë¹ˆ ìŠ¬ë¡¯ íƒìƒ‰
+
+    // ---- ì„œë²„ ë™ê¸°í™” (ì„œë²„ ë‹¨ì¼ ì§„ì‹¤) ----
+    // ê³ ìœ  ì½”ë“œ(category*1000+subType) â†’ CItemData ìƒì„±
+    static CItemData* Create_ItemFromCode(int iCode);
+    // ì„œë²„ ì¸ë²¤ ìŠ¤ëƒ…ìƒ·ìœ¼ë¡œ í†µì§¸ë¡œ ì¬êµ¬ì„± (slot ëŒ€ slot)
+    void            Set_From_Snapshot(const int* pCodes, const int* pCounts, int iGold);
+    void            Set_Gold(int iGold) { m_iGold = iGold; }
 
 private:
     CItemData* m_aSlot[INVEN_SIZE] = {};
-    int             m_iStackCount[INVEN_SIZE] = {};     // ½½·Ôº° ¼ö·®
+    int             m_iStackCount[INVEN_SIZE] = {};     // ìŠ¬ë¡¯ë³„ ìˆ˜ëŸ‰
     int             m_iGold = 0;
 };

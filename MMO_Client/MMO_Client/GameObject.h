@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "Define.h"
 
 class CGameObject
@@ -42,6 +42,15 @@ public:
 	const RECT* Get_Rect() { return &m_tRect; }
 	ISO_INFO    Get_IsoInfo() { return m_tIsoInfo; }
 	bool		Get_Dead() { return m_bDead; }
+
+	// ---- ë Œë” ê¹Šì´ ì •ë ¬ ----
+	// ê¸°ë³¸ì€ ë°œ(ì›”ë“œ ì ) ê¸°ì¤€. í¬íƒˆì²˜ëŸ¼ ìŠ¤í”„ë¼ì´íŠ¸ ë°”ë‹¥ì´ ì›”ë“œ ì ë³´ë‹¤
+	// ë” ì•(ì•„ë˜)ì— ê·¸ë ¤ì§€ëŠ” ì˜¤ë¸Œì íŠ¸ëŠ” Set_SortOffsetìœ¼ë¡œ ë³´ì •í•œë‹¤.
+	void  Set_SortOffset(float fOffset) { m_fSortOffset = fOffset; }
+	float Get_SortDepth() const
+	{
+		return m_tIsoInfo.fWorldX + m_tIsoInfo.fWorldZ + m_fSortOffset;
+	}
 	
 	int			Get_HP() { return m_iHp; }
 	int			Get_MaxHP() { return m_iMaxHp; }
@@ -90,14 +99,14 @@ public:
 	}
 	COLLIDER Get_Collider() { return m_tCollider; }
 
-	// Ãæµ¹ Áß½É ³í¸®ÁÂÇ¥
+	// ì¶©ëŒ ì¤‘ì‹¬ ë…¼ë¦¬ì¢Œí‘œ
 	float Get_ColliderX() { return m_tIsoInfo.fWorldX + m_tCollider.fOffsetX; }
 	float Get_ColliderZ() { return m_tIsoInfo.fWorldZ + m_tCollider.fOffsetZ; }
 
-	virtual void On_Collision(CGameObject* pOther) {}  // ¼ø¼ö°¡»ó ¾Æ´Ô
-	virtual void On_CollisionEnd() {}                  // Ãæµ¹ ³¡³µÀ» ¶§
+	virtual void On_Collision(CGameObject* pOther) {}  // ìˆœìˆ˜ê°€ìƒ ì•„ë‹˜
+	virtual void On_CollisionEnd() {}                  // ì¶©ëŒ ëë‚¬ì„ ë•Œ
 
-	// Ãæµ¹ »óÅÂ ÇÃ·¡±×
+	// ì¶©ëŒ ìƒíƒœ í”Œë˜ê·¸
 	bool Is_Colliding() { return m_bColliding; }
 	void Set_Colliding(bool b) { m_bColliding = b; }
 
@@ -118,9 +127,9 @@ public:
 
 
 protected:
-	bool m_bColliding = false; // ÇöÀç Ãæµ¹ ÁßÀÎÁö
-	MOUSE_COLLIDER  m_tMouseCollider = {}; // ¿ÀÇÁ¼Â/Å©±â ¼³Á¤°ª
-	RECT            m_tMouseRect = {}; // ½ÇÁ¦ ½ºÅ©¸° RECT
+	bool m_bColliding = false; // í˜„ì¬ ì¶©ëŒ ì¤‘ì¸ì§€
+	MOUSE_COLLIDER  m_tMouseCollider = {}; // ì˜¤í”„ì…‹/í¬ê¸° ì„¤ì •ê°’
+	RECT            m_tMouseRect = {}; // ì‹¤ì œ ìŠ¤í¬ë¦° RECT
 
 protected:
 	void		Update_Rect();
@@ -137,6 +146,7 @@ protected:
 	bool		m_bDead;
 	bool		m_bLoopAnim = true;
 	float       m_fScale =1.f;
+	float		m_fSortOffset = 0.f;   // ë Œë” ê¹Šì´ ì •ë ¬ ë³´ì •
 	float		m_fSpeed;
 	float		m_fAngle;
 	int			m_iCurExp;

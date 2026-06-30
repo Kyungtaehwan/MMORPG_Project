@@ -1,15 +1,12 @@
-﻿#pragma once
-#include "pch.h"
-#include "Zone_Test.h"
+﻿#include "pch.h"
+#include "Zone_Field_W.h"
 #include "Img_Manager.h"
 #include "Object_Manager.h"
-#include "NPC_Shop.h"
 #include "Portal.h"
-#include "Monster_Orc.h"
 
-void CZone_Test::Build()
+void CZone_Field_W::Build()
 {
-    // 1. 이 존에서 쓸 이미지 로드
+    // 잔디 타일셋 (테스트 필드와 동일 키 재사용)
     CImg_Manager* pImg = CImg_Manager::Get_Instance();
     pImg->Insert_Png(L"../Resource/Tile/Grassfield/Normal_Grass.png", L"TEST_GRASS");
     pImg->Insert_Png(L"../Resource/Tile/Grassfield/Block_Grass.png", L"TEST_BLOCK");
@@ -23,7 +20,7 @@ void CZone_Test::Build()
     pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"TEST_BORDER_L");
     pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutBlock_Grass.png", L"TEST_OUTSIDE");
 
-    // 2. 타일 배치
+    // 세로 막대 2개 (서버 BLOCK_MAP_FIELD_W와 반드시 동일)
     static const int BLOCK_MAP[30][20] =
     {
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
@@ -36,31 +33,30 @@ void CZone_Test::Build()
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
+        { 0,0,0,0,0,0,0,1,0,0, 0,0,1,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
-        { 0,1,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
-        { 0,1,1,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
-        { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
-        { 0,0,0,0,1,1,0,0,0,0, 0,0,0,0,1,1,0,0,0,0 },
-        { 0,0,0,0,1,1,0,0,0,0, 0,0,0,0,1,1,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
-        { 0,0,0,1,0,0,0,0,0,0, 0,0,0,0,0,0,1,0,0,0 },
-        { 0,0,0,1,1,0,0,0,0,0, 0,0,0,0,0,1,1,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
-        { 0,0,0,0,0,0,0,1,1,0, 0,1,1,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
-        { 0,0,0,0,0,1,1,0,0,0, 0,0,0,1,1,0,0,0,0,0 },
-        { 0,1,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,1,0 },
-        { 0,1,1,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,1,1,0 },
+        { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
         { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
     };
 
     Build_TileGrid(20, 30, &BLOCK_MAP[0][0]);
 
-    // 3. 타입 → ImgKey 매핑 (이 존 전용 키)
     Apply_ImgKeys({
         { TILE_GRASS,     L"TEST_GRASS"     },
         { TILE_BLOCK,     L"TEST_BLOCK"     },
@@ -74,21 +70,19 @@ void CZone_Test::Build()
         { TILE_BORDER_L,  L"TEST_BORDER_L"  },
         { TILE_OUTSIDE,   L"TEST_OUTSIDE"   },
         });
-
-    // NPC는 이제 마을 존에만 존재한다.
 }
 
-void CZone_Test::Spawn_Objects()
+void CZone_Field_W::Spawn_Objects()
 {
-    // 북쪽 필드. 마을로 돌아가는 복귀 포탈은 남쪽(아래)에 둔다.
+    // 마을로 돌아가는 복귀 포탈은 동쪽(오른쪽)에 둔다.
     CPortal* pPortal = new CPortal;
-    pPortal->Set_WorldPos(19.f, 29.f);
-    pPortal->Set_TargetZone(ZONE_TOWN, 9.f, 9.f);  // 마을 북쪽 입구로 복귀
+    pPortal->Set_WorldPos(19.f, 6.f);
+    pPortal->Set_TargetZone(ZONE_TOWN, 9.f, 26.f);  // 마을 서쪽 입구로 복귀
     pPortal->Initialize();
     CObject_Manager::Get_Instance()->Add_Object(OBJ_PORTAL, pPortal);
 }
 
-void CZone_Test::Clear_Objects()
+void CZone_Field_W::Clear_Objects()
 {
     CObject_Manager::Get_Instance()->DeleteID(OBJ_NPC);
     CObject_Manager::Get_Instance()->DeleteID(OBJ_PORTAL);

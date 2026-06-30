@@ -1,9 +1,12 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "Map_Manager.h"
 #include "Object_Manager.h"
 #include "NPC_Shop.h"
 #include "Zone_Test.h"
 #include "Zone_Town.h"
+#include "Zone_Field_E.h"
+#include "Zone_Field_S.h"
+#include "Zone_Field_W.h"
 
 CMap_Manager* CMap_Manager::m_pInstance = nullptr;
 void CMap_Manager::Initialize()
@@ -27,6 +30,11 @@ void CMap_Manager::Update()
     m_pCurZone = m_pPendingZone;
     m_pPendingZone = nullptr;
 
+    // 새 존의 오브젝트(NPC/포탈) 생성. 동기 Change_Zone은 이걸 직접 하지만
+    // 비동기 경로는 swap 이후 여기서 해줘야 함.
+    if (m_pCurZone)
+        m_pCurZone->Spawn_Objects();
+
     if (ePrevID != ZONE_MAX)
         Unload_Zone(ePrevID);
 }
@@ -35,9 +43,12 @@ CZone* CMap_Manager::Create_Zone(ZONE_ID eID)
 {
     switch (eID)
     {
-    case ZONE_TEST: return new CZone_Test;
-    case ZONE_TOWN: return new CZone_Town;
-    default:        return nullptr;
+    case ZONE_TEST:    return new CZone_Test;
+    case ZONE_TOWN:    return new CZone_Town;
+    case ZONE_FIELD_E: return new CZone_Field_E;
+    case ZONE_FIELD_S: return new CZone_Field_S;
+    case ZONE_FIELD_W: return new CZone_Field_W;
+    default:           return nullptr;
     }
 }
 

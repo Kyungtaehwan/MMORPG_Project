@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "Item_Define.h"
 
 class CItemData_Equipment;
@@ -16,6 +16,9 @@ public:
     int     Get_TotalAtk() const;
     int     Get_TotalDef() const;
 
+    // 서버 스냅샷(슬롯별 itemCode)으로 장비창 재구성
+    void    Set_From_Snapshot(const int* pEquipCodes);
+
 private:
-    CItemData_Equipment* m_aSlot[SLOT_END] = {}; 
+    CItemData_Equipment* m_aSlot[SLOT_END] = {};
 };

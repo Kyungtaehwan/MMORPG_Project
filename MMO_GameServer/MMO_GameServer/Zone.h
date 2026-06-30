@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "Player.h"
 #include <vector>
 #include <unordered_set>
@@ -30,6 +30,17 @@ inline bool Is_MovableTile(TILE_TYPE eType)
 
 constexpr int32_t VIEW_RANGE = 5;
 
+// ì›”ë“œì— ë–¨ì–´ì§„ ì•„ì´í…œ (ê°’ íƒ€ì…, new ì—†ì´ í’€ë¡œ ê´€ë¦¬)
+struct FDrop
+{
+    int32_t  id     = 0;
+    int32_t  code   = 0;
+    int32_t  amount = 0;
+    float    x      = 0.f;
+    float    z      = 0.f;
+    bool     active = false;
+};
+
 class CZone
 {
 public:
@@ -37,21 +48,21 @@ public:
         int32_t nInnerX, int32_t nInnerZ, const int* pBlockMap);
     ~CZone();
 
-    // ÀÔ/ÅğÀå
+    // ì…/í‡´ì¥
     void EnterZone(PlayerRef pPlayer, float fSpawnX, float fSpawnZ);
     void LeaveZone(PlayerRef pPlayer);
 
-    // ÀÌµ¿ Ã³¸®
+    // ì´ë™ ì²˜ë¦¬
 
-    // ¸¶¿ì½º Å¬¸¯ ½Ã È£Ãâ ¸ñÀûÁö °ËÁõ + ºê·ÎµåÄ³½ºÆ®
+    // ë§ˆìš°ìŠ¤ í´ë¦­ ì‹œ í˜¸ì¶œ ëª©ì ì§€ ê²€ì¦ + ë¸Œë¡œë“œìºìŠ¤íŠ¸
     void OnMoveDest(PlayerRef pPlayer,
         float fDestX, float fDestZ, uint32_t nMoveTime);
 
-    // Å¬¶óÀÌ¾ğÆ® Å¸ÀÏ º¯°æ ½Ã È£Ãâ À§Ä¡ ¾÷µ¥ÀÌÆ® + ½Ã¾ß Àç°è»ê
+    // í´ë¼ì´ì–¸íŠ¸ íƒ€ì¼ ë³€ê²½ ì‹œ í˜¸ì¶œ ìœ„ì¹˜ ì—…ë°ì´íŠ¸ + ì‹œì•¼ ì¬ê³„ì‚°
     void OnMovePos(PlayerRef pPlayer,
         float fCurX, float fCurZ, uint32_t nMoveTime);
 
-    // À¯Æ¿
+    // ìœ í‹¸
     bool IsMovable(int32_t nTileX, int32_t nTileZ) const;
     int32_t GetZoneID() { return m_nZoneID; }
 
@@ -64,17 +75,28 @@ public:
     void OnMonsterRespawn(int32_t nMonsterID);
     void OnMonsterAttackHit(int32_t nMonsterID);
     void OnPlayerRespawn(PlayerRef pPlayer);
+
+    // ---- ì•„ì´í…œ ë“œë¡­ / íšë“ / ì¸ë²¤Â·ìŠ¤íƒ¯ ë™ê¸°í™” ----
+    void OnPlayerPickup(PlayerRef pPlayer, uint32_t nDropId);
+    void Send_InvenUpdate(PlayerRef pPlayer);   // ì¸ë²¤+ì¥ë¹„ ìŠ¤ëƒ…ìƒ·
+    void Send_PlayerHp(PlayerRef pPlayer);      // HP/MP ë™ê¸°í™”
 private:
-    // AI »óÅÂº° ÇÔ¼ö
+    void SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ);
+    void Send_AllDrops(PlayerRef pTo);
+    void Send_AddDrop(PlayerRef pTo, const FDrop& drop);
+    void Broadcast_AddDrop(const FDrop& drop);
+    void Broadcast_RemoveDrop(int32_t nDropId);
+private:
+    // AI ìƒíƒœë³„ í•¨ìˆ˜
     void Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ);
     void Monster_Attack(MonsterRef pMonster);
     void Monster_Patrol(MonsterRef pMonster);
 
-    // ÇïÆÛ
+    // í—¬í¼
     PlayerRef FindNearestPlayer(MonsterRef pMonster);
     bool      PlayerExistNear(MonsterRef pMonster);
 
-    // ÆĞÅ¶ Àü¼Û
+    // íŒ¨í‚· ì „ì†¡
     void Broadcast_PlayerState(PlayerRef pPlayer, PLAYER_STATE eState);
     void Broadcast_PlayerHit(PlayerRef pPlayer);
     
@@ -85,12 +107,12 @@ private:
     void Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID = -1);
     void Broadcast_MonsterHit(MonsterRef pMonster);
 
-    // ¸ó½ºÅÍ ID ¸ñ·Ï
+    // ëª¬ìŠ¤í„° ID ëª©ë¡
     std::unordered_set<int32_t> m_monsterIDs;
     std::mutex                  m_monsterLock;
 
 private:
-    //½Ã¾ß
+    //ì‹œì•¼
     std::vector<int32_t> GetNearPlayers(PlayerRef pPlayer);
     bool CanSee(PlayerRef pA, PlayerRef pB);
     void UpdateViewAndBroadcast(PlayerRef pPlayer,
@@ -99,7 +121,7 @@ private:
         uint32_t nMoveTime);
 
 
-    // ---- ÆĞÅ¶ Àü¼Û ÇïÆÛ ----
+    // ---- íŒ¨í‚· ì „ì†¡ í—¬í¼ ----
     void Send_AddPlayer(PlayerRef pTo, PlayerRef pTarget);
     void Send_RemovePlayer(PlayerRef pTo, int32_t nTargetID);
     void Send_MovePlayer(PlayerRef pTo, PlayerRef pMoved, uint32_t nMoveTime);
@@ -114,4 +136,9 @@ private:
 
     std::unordered_set<int32_t> m_playerIDs;
     std::mutex                  m_zoneLock;
+
+    // ---- ë“œë¡­ í’€ (ê³ ì • ë°°ì—´, new ì—†ìŒ) ----
+    static constexpr int32_t MAX_DROPS = 256;
+    FDrop      m_drops[MAX_DROPS];
+    std::mutex m_dropLock;
 };

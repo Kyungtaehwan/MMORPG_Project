@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "UI.h"
 
 class CPlayer;
@@ -23,17 +23,19 @@ public:
 private:
     void    Render_Bar(ID2D1RenderTarget* pRT, const TCHAR* szKey,
         float fX, float fY, float fW, float fH, float fRatio);
+    // ë²„í”„ ì•„ì´ì½˜ ë°•ìŠ¤ (ê²½ê³¼ ì‹œê°„ë§Œí¼ ê²€ì€ìƒ‰ìœ¼ë¡œ ë®ì„)
+    void    Render_Buffs(ID2D1RenderTarget* pRT, float fBaseX, float fBaseY);
 
 private:
     CPlayer* m_pPlayer = nullptr;
 
-    // ¸®¼Ò½º ¿øº» »çÀÌÁî¿¡ ¸Â°Ô Á¶Á¤
+    // ë¦¬ì†ŒìŠ¤ ì›ë³¸ ì‚¬ì´ì¦ˆì— ë§ê²Œ ì¡°ì •
     static constexpr float PANEL_W = 537.f;
     static constexpr float PANEL_H = 172.f;
-    static constexpr float BAR_W = 315.f;  // ½ÇÁ¦ ¹Ù ±æÀÌ
+    static constexpr float BAR_W = 315.f;  // ì‹¤ì œ ë°” ê¸¸ì´
     static constexpr float BAR_H = 9.f;
 
-    // ÇÁ·¹ÀÓ ³» ¹Ù À§Ä¡ (ÀÌ¹ÌÁö º¸°í Á¶Á¤)
+    // í”„ë ˆì„ ë‚´ ë°” ìœ„ì¹˜ (ì´ë¯¸ì§€ ë³´ê³  ì¡°ì •)
     static constexpr float EXP_X = 128.f;
     static constexpr float EXP_Y = 56.f;
     static constexpr float HP_X = 204.f;
