@@ -154,9 +154,29 @@ void CPlayer::Render(ID2D1RenderTarget* pRT)
 	}
 
 	Render_ClickEffect(pRT);
+	Render_NameTag(pRT);
 #ifdef GAME_DEBUG
 	Debug_Render(pRT);
 #endif
+}
+
+void CPlayer::Render_NameTag(ID2D1RenderTarget* pRT)
+{
+	const char* pName = CNetwork_Manager::Get_Instance()->GetMyName();
+	if (!pName || pName[0] == '\0') return;
+
+	POINT tScreen = CCamera::Get_Instance()->IsoWorldToScreen(
+		m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
+
+	TCHAR szName[20] = {};
+	MultiByteToWideChar(CP_ACP, 0, pName, -1, szName, 20);
+
+	float fY = tScreen.y - m_tIsoInfo.fCY - m_tIsoInfo.fHeight + TILE_HALF_H - 6.f;
+
+	// 내 캐릭터 = 연노랑, 박스 rect 정중앙
+	CImg_Manager::Get_Instance()->Draw_Text_Center(pRT, szName,
+		D2D1::RectF((float)tScreen.x - 50.f, fY, (float)tScreen.x + 50.f, fY + 20.f),
+		D2D1::ColorF(1.f, 0.95f, 0.5f));
 }
 
 void CPlayer::Release(void)
@@ -415,7 +435,26 @@ void CPlayer::Direction_Change(DIRECTION eDir)
 
 void CPlayer::Key_Input(float dt)
 {
-	if (!CInput_Manager::Get_Instance()->Is_GameMode()) return;
+	if (!CInput_Manager::Get_Instance()->Is_GameMode())
+	{
+		// UI 진입 순간 하던 동작(이동/자동공격)을 한 번 멈추고 IDLE로.
+		// (제자리 걷기 모션 버그 수정. 이후엔 키 입력만 무시하고
+		//  플레이어는 월드에 정상 존재 → 몬스터가 와서 때리면 맞음)
+		if (m_bMoving)
+		{
+			m_bMoving = false;
+			m_waypoints.clear();
+			m_nCurWaypoint = 0;
+			Motion_Change(PLAYER_IDLE);
+
+			// 정지 위치를 서버에 한 번 통보 → 서버가 옛 목적지로 오버슈트하지
+			// 않고 실제 위치를 알게 됨(몬스터가 제 위치를 정확히 때림)
+			CNetwork_Manager::Get_Instance()->SendMoveStop(
+				m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
+		}
+		m_nAttackTargetID = -1;  // 자동 공격도 중단
+		return;
+	}
 
 	if (m_eCurState == PLAYER_DEAD)
 	{
@@ -441,10 +480,11 @@ void CPlayer::Key_Input(float dt)
 	if (!bMovable)
 		pInput->Set_CursorMode(CURSOR_NON_ATTACK);
 
-	// ===== 클릭 처리 =====
+	// ===== 좌클릭: 상호작용(드롭 획득) / 몬스터 공격 =====
+	//  NPC/포탈 상호작용은 각 오브젝트(NPC/ActiveObject)가 좌클릭으로 처리.
 	if (pInput->Key_Down(VK_LBUTTON))
 	{
-		// 접촉한 드롭이 있으면 우선 획득 (서버에 요청)
+		// 1) 접촉한 드롭 획득
 		CGameObject* pDrop =
 			CObject_Manager::Get_Instance()->Find_DropInContact(this);
 		if (pDrop)
@@ -454,9 +494,9 @@ void CPlayer::Key_Input(float dt)
 			return;
 		}
 
+		// 2) 몬스터 공격 (클릭한 몬스터로 접근 + 공격 타겟 설정)
 		CGameObject* pClickedMonster =
 			CObject_Manager::Get_Instance()->Pick_Monster(tMouse);
-
 		if (pClickedMonster)
 		{
 			CMonster* pMonster = static_cast<CMonster*>(pClickedMonster);
@@ -466,8 +506,7 @@ void CPlayer::Key_Input(float dt)
 				// 공격 타겟 설정
 				m_nAttackTargetID = pMonster->Get_MonsterID();
 
-				// 기존 A* 이동 코드 그대로 재사용
-				// 몬스터 위치를 목적지로
+				// 몬스터 위치를 목적지로 A* 접근
 				fWorldX = pMonster->Get_WorldX();
 				fWorldZ = pMonster->Get_WorldZ();
 
@@ -504,11 +543,23 @@ void CPlayer::Key_Input(float dt)
 						static_cast<uint32_t>(GetTickCount64()));
 				}
 			}
-			return;  // 몬스터 클릭이면 이하 타일 이동 처리 스킵
+			return;  // 몬스터 클릭이면 이동 처리 스킵
 		}
-		m_nAttackTargetID = -1;
+	}
+
+	// ===== 우클릭: 이동 전용 =====
+	if (pInput->Key_Down(VK_RBUTTON))
+	{
+		m_nAttackTargetID = -1;   // 이동은 자동공격 취소
 
 		if (!bMovable) return;
+
+		// 이동 목적지에 클릭 이펙트(원) — 즉각 피드백
+		m_tClickEffect.fWorldX = fWorldX;
+		m_tClickEffect.fWorldZ = fWorldZ;
+		m_tClickEffect.fScale = 1.f;
+		m_tClickEffect.bActive = true;
+		m_tClickEffect.color = D2D1::ColorF(0.3f, 1.f, 0.3f);
 
 		// 시작 타일
 		int32_t nStartX = static_cast<int32_t>(floorf(m_tIsoInfo.fWorldX));

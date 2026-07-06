@@ -1,9 +1,10 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Npc_Shop.h"
 #include "Img_Manager.h"
 #include "Camera.h"
+#include "UI_Manager.h"
 
-// Æ®·¹ÀÌ´õº° ½ºÇÁ¶óÀÌÆ® Á¤º¸
+// íŠ¸ë ˆì´ë”ë³„ ìŠ¤í”„ë¼ì´íŠ¸ ì •ë³´
 // TRADER_0: Idle 107x71x6ea / Talk 107x71x9ea
 // TRADER_1: Idle 108x68x6ea / Talk 108x68x9ea
 
@@ -17,18 +18,18 @@ void CNPC_Shop::Initialize()
     m_eType = NPC_SHOP;
     m_eShopState = SHOP_IDLE;
     m_fScale = 1.3f;
-    // Æ®·¹ÀÌ´õ Å¸ÀÔ¿¡ µû¶ó ½ºÇÁ¶óÀÌÆ® Å©±â ¼³Á¤
+    // íŠ¸ë ˆì´ë” íƒ€ìž…ì— ë”°ë¼ ìŠ¤í”„ë¼ì´íŠ¸ í¬ê¸° ì„¤ì •
     switch (m_eShopType)
     {
     case SHOP_TRADER_0:
-        Set_NpcName(L"»óÀÎ");
+        Set_NpcName(L"ìƒì¸");
         m_tIsoInfo.fCX = 107.f;
         m_tIsoInfo.fCY = 71.f;
         m_tIsoInfo.fHeight = 20.f;
         break;
 
     case SHOP_TRADER_1:
-        Set_NpcName(L"»óÀÎ 1");
+        Set_NpcName(L"ìƒì¸ 1");
         m_tIsoInfo.fCX = 108.f;
         m_tIsoInfo.fCY = 68.f;
         m_tIsoInfo.fHeight = 20.f;
@@ -61,10 +62,10 @@ void CNPC_Shop::Motion_Change(SHOP_STATE eState)
                 Set_Frame(5, 120);
                 m_bLoopAnim = true;
             }
-                break;  // 6ea ¡æ 0~5
+                break;  // 6ea â†’ 0~5
             case SHOP_TALK:
             {
-                Set_Frame(8, 100);  // 9ea ¡æ 0~8
+                Set_Frame(8, 100);  // 9ea â†’ 0~8
                 m_bLoopAnim = false;
                 
             }
@@ -75,8 +76,8 @@ void CNPC_Shop::Motion_Change(SHOP_STATE eState)
     case SHOP_TRADER_1:
         switch (eState)
         {
-        case SHOP_IDLE: Set_Frame(5, 120); break;  // 6ea ¡æ 0~5
-        case SHOP_TALK: Set_Frame(8, 100); break;  // 9ea ¡æ 0~8
+        case SHOP_IDLE: Set_Frame(5, 120); break;  // 6ea â†’ 0~5
+        case SHOP_TALK: Set_Frame(8, 100); break;  // 9ea â†’ 0~8
         }
         break;
     }
@@ -122,7 +123,7 @@ void CNPC_Shop::Late_Update(float dt)
 
 void CNPC_Shop::Render(ID2D1RenderTarget* pRT)
 {
-    // ÇöÀç »óÅÂ¿¡ µû¶ó ½ºÇÁ¶óÀÌÆ® ¼±ÅÃ
+    // í˜„ìž¬ ìƒíƒœì— ë”°ë¼ ìŠ¤í”„ë¼ì´íŠ¸ ì„ íƒ
     ID2D1Bitmap* pBitmap = nullptr;
     switch (m_eShopState)
     {
@@ -134,8 +135,8 @@ void CNPC_Shop::Render(ID2D1RenderTarget* pRT)
         break;
     }
 
-    Render_Sprite(pRT, pBitmap);  // ½ºÇÁ¶óÀÌÆ® Ãâ·Â
-    __super::Render(pRT);         // ÀÌ¸§Ç¥, ÀÎµðÄÉÀÌÅÍ, µð¹ö±×
+    Render_Sprite(pRT, pBitmap);  // ìŠ¤í”„ë¼ì´íŠ¸ ì¶œë ¥
+    __super::Render(pRT);         // ì´ë¦„í‘œ, ì¸ë””ì¼€ì´í„°, ë””ë²„ê·¸
 
 #ifdef GAME_DEBUG
     Debug_Render(pRT);
@@ -144,15 +145,16 @@ void CNPC_Shop::Render(ID2D1RenderTarget* pRT)
 
 void CNPC_Shop::On_Click()
 {
-    // Talk »óÅÂ·Î ÀüÈ¯
+    // Talk ìƒíƒœë¡œ ì „í™˜
     Motion_Change(SHOP_TALK);
     m_bClick = true;
-    // ¸»Ç³¼±
+    // ë§í’ì„ 
     m_bShowBubble = true;
     m_fBubbleTimer = 3.f;
-    lstrcpy(m_szBubbleText, L"¾î¼­¿À¼¼¿ä!");
+    lstrcpy(m_szBubbleText, L"ì–´ì„œì˜¤ì„¸ìš”!");
 
-    // ÃßÈÄ: CUI_Manager::Get_Instance()->Open_Shop(m_eShopType);
+    // ìƒì  UI ì—´ê¸° (INPUT_MODE_UI ì „í™˜ â†’ í”Œë ˆì´ì–´ ì •ì§€)
+    CUI_Manager::Get_Instance()->Open_Shop(m_eShopType);
 }
 
 
@@ -160,12 +162,12 @@ void CNPC_Shop::On_Click()
 
 void CNPC_Shop::On_Interact()
 {
-    // ÃßÈÄ: »óÁ¡ UI Ç¥½Ã
+    // ì¶”í›„: ìƒì  UI í‘œì‹œ
 }
 
 void CNPC_Shop::Release() {}
 
-// ===================== µð¹ö±× =====================
+// ===================== ë””ë²„ê·¸ =====================
 #ifdef GAME_DEBUG
 void CNPC_Shop::Debug_Render(ID2D1RenderTarget* pRT)
 {
@@ -174,8 +176,8 @@ void CNPC_Shop::Debug_Render(ID2D1RenderTarget* pRT)
     Debug_DrawText(pRT);
 }
 
-// »óÈ£ÀÛ¿ë ¹üÀ§ - ¾ÆÀÌ¼Ò¸ÞÆ®¸¯ ¸¶¸§¸ð
-// Æò¼Ò ÃÊ·Ï, ÀÎÅÍ·ºÆ¼ºíÀÌ¸é »¡°­
+// ìƒí˜¸ìž‘ìš© ë²”ìœ„ - ì•„ì´ì†Œë©”íŠ¸ë¦­ ë§ˆë¦„ëª¨
+// í‰ì†Œ ì´ˆë¡, ì¸í„°ë ‰í‹°ë¸”ì´ë©´ ë¹¨ê°•
 void CNPC_Shop::Debug_DrawCollider(ID2D1RenderTarget* pRT)
 {
     float fCX = Get_ColliderX();
@@ -190,9 +192,9 @@ void CNPC_Shop::Debug_DrawCollider(ID2D1RenderTarget* pRT)
 
     ID2D1SolidColorBrush* pBrush = nullptr;
     if (m_bInteractable)
-        pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f), &pBrush); // »¡°­
+        pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f), &pBrush); // ë¹¨ê°•
     else
-        pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f), &pBrush); // ÃÊ·Ï
+        pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f), &pBrush); // ì´ˆë¡
 
     auto P = [](POINT p) { return D2D1::Point2F((float)p.x, (float)p.y); };
 
@@ -204,14 +206,14 @@ void CNPC_Shop::Debug_DrawCollider(ID2D1RenderTarget* pRT)
     pBrush->Release();
 }
 
-// ¸¶¿ì½º Å¬¸¯ ¹Ú½º - Á÷±³ »ç°¢Çü (³ë¶õ»ö)
+// ë§ˆìš°ìŠ¤ í´ë¦­ ë°•ìŠ¤ - ì§êµ ì‚¬ê°í˜• (ë…¸ëž€ìƒ‰)
 void CNPC_Shop::Debug_DrawMouseCollider(ID2D1RenderTarget* pRT)
 {
     ID2D1SolidColorBrush* pBrush = nullptr;
     if (m_bClick)
-        pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f), &pBrush); // »¡°­
+        pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f), &pBrush); // ë¹¨ê°•
     else
-        pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f), &pBrush); // ÃÊ·Ï
+        pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f), &pBrush); // ì´ˆë¡
 
 
     pRT->DrawRectangle(
@@ -231,7 +233,7 @@ void CNPC_Shop::Debug_DrawText(ID2D1RenderTarget* pRT)
 {
     TCHAR szBuf[256];
     swprintf_s(szBuf, 256,
-        L"NPC[%s] ¿ùµå:[%.2f, %.2f] »óÅÂ:%s ÀÎÅÍ·ºÆ¼ºí:%s",
+        L"NPC[%s] ì›”ë“œ:[%.2f, %.2f] ìƒíƒœ:%s ì¸í„°ë ‰í‹°ë¸”:%s",
         m_szName,
         m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
         m_eShopState == SHOP_IDLE ? L"IDLE" : L"TALK",
@@ -239,7 +241,7 @@ void CNPC_Shop::Debug_DrawText(ID2D1RenderTarget* pRT)
     );
 
     ID2D1SolidColorBrush* pBrush = nullptr;
-    pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.5f, 0.f), &pBrush); // ÁÖÈ²
+    pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.5f, 0.f), &pBrush); // ì£¼í™©
 
     pRT->DrawText(szBuf, wcslen(szBuf),
         CImg_Manager::Get_Instance()->Get_DebugFont(),

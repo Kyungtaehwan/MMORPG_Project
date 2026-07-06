@@ -82,6 +82,18 @@
     <ClCompile Include="NPC_Shop.cpp">
       <Filter>05.Object_Manager\GameObjects\05_01.NPC\01.NPC_Shop</Filter>
     </ClCompile>
+    <ClCompile Include="NPC_OldMan.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClCompile>
+    <ClCompile Include="NPC_Knight.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClCompile>
+    <ClCompile Include="NPC_Angel.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClCompile>
+    <ClCompile Include="NPC_Market.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClCompile>
     <ClCompile Include="Zone.cpp">
       <Filter>08.Map_Manager\Zone</Filter>
     </ClCompile>
@@ -106,6 +118,39 @@
     <ClCompile Include="Portal.cpp">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects\01.Portal</Filter>
     </ClCompile>
+    <ClCompile Include="StaticObject.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="BigTent.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="SmallTent.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="Smithy.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="TreeGreen.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="TreeBare.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonDrink.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonFood.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonShop.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonEtc.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="WoodWagon.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClCompile>
     <ClCompile Include="DropItem.cpp">
       <Filter>05.Object_Manager\GameObjects</Filter>
     </ClCompile>
@@ -114,6 +159,9 @@
     </ClCompile>
     <ClCompile Include="Monster_Orc.cpp">
       <Filter>05.Object_Manager\GameObjects\05_02.Monster\01.Orc</Filter>
+    </ClCompile>
+    <ClCompile Include="Monster_Wing.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_02.Monster</Filter>
     </ClCompile>
     <ClCompile Include="ItemData.cpp">
       <Filter>05.Object_Manager\GameObjects\05_06.Item\ItemData</Filter>
@@ -145,6 +193,18 @@
     <ClCompile Include="UI_QuickSlot.cpp">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_QuickSlot</Filter>
     </ClCompile>
+    <ClCompile Include="UI_Shop.cpp">
+      <Filter>06.UI_Manager\UIs\PlayerUI\UI_Shop</Filter>
+    </ClCompile>
+    <ClCompile Include="UI_InvenGrid.cpp">
+      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
+    </ClCompile>
+    <ClCompile Include="UI_QtyDialog.cpp">
+      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
+    </ClCompile>
+    <ClCompile Include="UI_Auction.cpp">
+      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
+    </ClCompile>
     <ClCompile Include="UI_HUD.cpp">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_HUD</Filter>
     </ClCompile>
@@ -161,6 +221,9 @@
   <ItemGroup>
     <Filter Include="01.MainApp">
       <UniqueIdentifier>{591d997c-02d0-489f-9c6d-57f41932093a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="05.Object_Manager\GameObjects\05_04.StaticObjects">
+      <UniqueIdentifier>{a1b2c3d4-0004-4004-8004-000000000044}</UniqueIdentifier>
     </Filter>
     <Filter Include="99.Utility">
       <UniqueIdentifier>{10a2e126-e2c2-468a-a58d-13fadb5edda2}</UniqueIdentifier>
@@ -303,6 +366,9 @@
     <Filter Include="05.Object_Manager\GameObjects\05_06.Item\ItemData\ItemData_Etc">
       <UniqueIdentifier>{ed31cb61-5e68-4f18-8472-feb97bbb9855}</UniqueIdentifier>
     </Filter>
+    <Filter Include="06.UI_Manager\UIs\PlayerUI\UI_Shop">
+      <UniqueIdentifier>{a1c4e2f7-3b6d-4e91-8c2a-9f7b1d5e0a63}</UniqueIdentifier>
+    </Filter>
     <Filter Include="06.UI_Manager\UIs\PlayerUI\UI_QuickSlot">
       <UniqueIdentifier>{5ee5e65c-67d7-4f16-b35e-80861e401d89}</UniqueIdentifier>
     </Filter>
@@ -401,6 +467,18 @@
     <ClInclude Include="NPC_Shop.h">
       <Filter>05.Object_Manager\GameObjects\05_01.NPC\01.NPC_Shop</Filter>
     </ClInclude>
+    <ClInclude Include="NPC_OldMan.h">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClInclude>
+    <ClInclude Include="NPC_Knight.h">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClInclude>
+    <ClInclude Include="NPC_Angel.h">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClInclude>
+    <ClInclude Include="NPC_Market.h">
+      <Filter>05.Object_Manager\GameObjects\05_01.NPC</Filter>
+    </ClInclude>
     <ClInclude Include="Zone.h">
       <Filter>08.Map_Manager\Zone</Filter>
     </ClInclude>
@@ -425,6 +503,39 @@
     <ClInclude Include="Portal.h">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects\01.Portal</Filter>
     </ClInclude>
+    <ClInclude Include="StaticObject.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="BigTent.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="SmallTent.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="Smithy.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="TreeGreen.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="TreeBare.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonDrink.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonFood.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonShop.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonEtc.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
+    <ClInclude Include="WoodWagon.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
+    </ClInclude>
     <ClInclude Include="DropItem.h">
       <Filter>05.Object_Manager\GameObjects</Filter>
     </ClInclude>
@@ -433,6 +544,9 @@
     </ClInclude>
     <ClInclude Include="Monster_Orc.h">
       <Filter>05.Object_Manager\GameObjects\05_02.Monster\01.Orc</Filter>
+    </ClInclude>
+    <ClInclude Include="Monster_Wing.h">
+      <Filter>05.Object_Manager\GameObjects\05_02.Monster</Filter>
     </ClInclude>
     <ClInclude Include="ItemData.h">
       <Filter>05.Object_Manager\GameObjects\05_06.Item\ItemData</Filter>
@@ -467,6 +581,21 @@
     </ClInclude>
     <ClInclude Include="UI_QuickSlot.h">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_QuickSlot</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_Shop.h">
+      <Filter>06.UI_Manager\UIs\PlayerUI\UI_Shop</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_InvenGrid.h">
+      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_QtyDialog.h">
+      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_Auction.h">
+      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_ConfirmDialog.h">
+      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
     </ClInclude>
     <ClInclude Include="UI_HUD.h">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_HUD</Filter>

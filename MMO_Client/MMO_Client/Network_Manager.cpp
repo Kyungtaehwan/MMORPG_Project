@@ -7,6 +7,7 @@
 #include "Level_Manager.h"
 #include "Monster.h"
 #include "Monster_Orc.h"
+#include "Monster_Wing.h"
 #include "Map_Manager.h"     // 존 전환
 #include "DropItem.h"        // 아이템 드롭
 #include "Inventory.h"       // 인벤 스냅샷
@@ -238,6 +239,11 @@ void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
             Handle_SC_BUFF(
                 vData.data(), static_cast<int32_t>(vData.size()));
             }); break;
+    case SC_AUCTION_LIST:
+        PushTask([this, vData]() mutable {
+            Handle_SC_AUCTION_LIST(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
     default:
         std::cout << "[Network] 알 수 없는 패킷: " << pHeader->id << std::endl;
         break;
@@ -285,7 +291,7 @@ void CNetwork_Manager::Handle_SC_LOGIN_FAIL(uint8_t* pBuffer, int32_t nSize)
     SC_LOGIN_FAIL_PACKET* pPkt = reinterpret_cast<SC_LOGIN_FAIL_PACKET*>(pBuffer);
     std::cout << "[Network] 로그인 실패. reason=" << (int)pPkt->reason << std::endl;
 
-    // TODO: 실패 메시지 UI 표시
+    m_bLoginFailed = true;   // 로그인 박스가 폴링해 "로그인 실패" 표시
 }
 
 void CNetwork_Manager::Handle_SC_ENTER_GAME(uint8_t* pBuffer, int32_t nSize)
@@ -295,6 +301,8 @@ void CNetwork_Manager::Handle_SC_ENTER_GAME(uint8_t* pBuffer, int32_t nSize)
 
     m_fSpawnX = pPkt->fCurX;
     m_fSpawnZ = pPkt->fCurZ;
+    m_nStartZone = pPkt->zoneID;   // 서버가 지정한 시작 존 (계정별)
+    strncpy_s(m_szMyName, pPkt->name, sizeof(m_szMyName) - 1);
     m_bSpawnReady = true;
 
     CLevel_Manager::Get_Instance()->Level_Change(LEVEL_TEST);
@@ -385,6 +393,9 @@ void CNetwork_Manager::Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize)
     {
     case MONSTER_ORC:
         pMonster = new CMonster_Orc;
+        break;
+    case MONSTER_WING:
+        pMonster = new CMonster_Wing;
         break;
     default:
         std::cout << "[Network] 알 수 없는 몬스터 타입: "
@@ -477,6 +488,7 @@ bool CNetwork_Manager::SendRaw(const void* pData, int32_t nSize)
 
 void CNetwork_Manager::SendLogin(const char* pszID, const char* pszPW)
 {
+    m_bLoginFailed = false;   // 새 시도 → 이전 실패 표시 제거
     CS_LOGIN_PACKET pkt = {};
     pkt.header.size = sizeof(pkt);
     pkt.header.id = CS_LOGIN;
@@ -763,4 +775,97 @@ void CNetwork_Manager::SendUseItem(int32_t nInvenSlot)
     pkt.header.id = CS_USE_ITEM;
     pkt.invenSlot = nInvenSlot;
     SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendMoveStop(float fCurX, float fCurZ)
+{
+    CS_MOVE_STOP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_MOVE_STOP;
+    pkt.fCurX = fCurX;
+    pkt.fCurZ = fCurZ;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendBuy(int32_t nItemCode, int32_t nCount)
+{
+    CS_BUY_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_BUY;
+    pkt.itemCode = nItemCode;
+    pkt.count = nCount;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendSell(int32_t nInvenSlot, int32_t nCount)
+{
+    CS_SELL_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_SELL;
+    pkt.invenSlot = nInvenSlot;
+    pkt.count = nCount;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+// ===================== 경매장 =====================
+void CNetwork_Manager::SendAuctionList()
+{
+    CS_AUCTION_LIST_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_AUCTION_LIST;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendAuctionRegister(int32_t nInvenSlot, int32_t nCount, int32_t nUnitPrice)
+{
+    CS_AUCTION_REGISTER_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_AUCTION_REGISTER;
+    pkt.invenSlot = nInvenSlot;
+    pkt.count = nCount;
+    pkt.unitPrice = nUnitPrice;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendAuctionBuy(int32_t nListingID, int32_t nCount)
+{
+    CS_AUCTION_BUY_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_AUCTION_BUY;
+    pkt.listingID = nListingID;
+    pkt.count = nCount;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendAuctionCollect(int32_t nListingID)
+{
+    CS_AUCTION_COLLECT_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_AUCTION_COLLECT;
+    pkt.listingID = nListingID;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendAuctionCancel(int32_t nListingID)
+{
+    CS_AUCTION_CANCEL_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_AUCTION_CANCEL;
+    pkt.listingID = nListingID;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::Handle_SC_AUCTION_LIST(uint8_t* pBuffer, int32_t nSize)
+{
+    if (nSize < static_cast<int32_t>(sizeof(SC_AUCTION_LIST_PACKET))) return;
+    SC_AUCTION_LIST_PACKET* pPkt = reinterpret_cast<SC_AUCTION_LIST_PACKET*>(pBuffer);
+
+    int32_t n = pPkt->count;
+    if (n < 0) n = 0;
+    if (n > AUCTION_MAX) n = AUCTION_MAX;
+
+    for (int32_t i = 0; i < n; ++i)
+        m_auctionEntries[i] = pPkt->entries[i];
+    m_auctionCount = n;
+    ++m_auctionVersion;
 }

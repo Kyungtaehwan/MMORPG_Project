@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Level_Test.h"
 #include "Img_Manager.h"
 #include "Object_Manager.h"
@@ -12,6 +12,8 @@
 #include "UI_Inventory.h"
 #include "UI_QuickSlot.h"
 #include "UI_HUD.h"
+#include "UI_Shop.h"
+#include "UI_Auction.h"
 
 
 CLevel_Test::CLevel_Test()
@@ -88,12 +90,12 @@ void CLevel_Test::Render_Loading(ID2D1RenderTarget* pRT)
 
 	ID2D1SolidColorBrush* pBrush = nullptr;
 
-	// ¹è°æ ¹Ù
+	// ë°°ê²½ ë°”
 	pRT->CreateSolidColorBrush(D2D1::ColorF(0.3f, 0.3f, 0.3f), &pBrush);
 	pRT->FillRectangle(D2D1::RectF(barX, barY, barX + barW, barY + barH), pBrush);
 	pBrush->Release();
 
-	// ÁøÇà ¹Ù
+	// ì§„í–‰ ë°”
 	pRT->CreateSolidColorBrush(D2D1::ColorF(0.2f, 0.8f, 0.2f), &pBrush);
 	pRT->FillRectangle(D2D1::RectF(barX, barY, barX + barW * fProgress, barY + barH), pBrush);
 	pBrush->Release();
@@ -105,7 +107,7 @@ void CLevel_Test::Release(void)
 
 void CLevel_Test::Ready_Player()
 {
-	float fX = 5.f, fZ = 5.f;  // ±âº»°ª
+	float fX = 5.f, fZ = 5.f;  // ê¸°ë³¸ê°’
 
 	CNetwork_Manager* pNet = CNetwork_Manager::Get_Instance();
 	if (pNet->IsSpawnReady())
@@ -138,6 +140,16 @@ void CLevel_Test::Ready_Player()
 	pQuick->Set_Player(pPlayer);
 	pQuick->Initialize();
 	CUI_Manager::Get_Instance()->Add_UI(UI_QUICKSLOT, pQuick);
+
+	CUI_Shop* pShop = new CUI_Shop;
+	pShop->Set_References(pPlayer, pPlayer->Get_Inventory());
+	pShop->Initialize();
+	CUI_Manager::Get_Instance()->Add_UI(UI_SHOP, pShop);
+
+	CUI_Auction* pAuction = new CUI_Auction;
+	pAuction->Set_References(pPlayer, pPlayer->Get_Inventory());
+	pAuction->Initialize();
+	CUI_Manager::Get_Instance()->Add_UI(UI_AUCTION, pAuction);
 }
 
 void CLevel_Test::Ready_Item_Resource()

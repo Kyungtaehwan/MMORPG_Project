@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Npc.h"
 #include "Camera.h"
 #include "Input_Manager.h"
@@ -24,7 +24,7 @@ int CNPC::Update(float dt)
             POINT tMouse = CInput_Manager::Get_Instance()->Get_MousePos();
             if (Is_MouseCollide(tMouse))
             {
-                if (CInput_Manager::Get_Instance()->Mouse_Down_Snap(MBUTTON_L))
+                if (CInput_Manager::Get_Instance()->Mouse_Down_Snap(MBUTTON_L))  // ì¢Œí´ë¦­ ìƒí˜¸ì‘ìš©
                     On_Click();
             }
         }
@@ -96,7 +96,7 @@ void CNPC::Render_NameTag(ID2D1RenderTarget* pRT)
         m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
     
     int len = lstrlen(m_szName);
-    float fWidth = max(60.f, len * 14.f);  // ±ÛÀÚ´ç ´ë·« 14px
+    float fWidth = max(60.f, len * 14.f);  // ê¸€ìë‹¹ ëŒ€ëµ 14px
     float fHeight = 20.f;
 
     float fNameX = tScreen.x - fWidth / 2.f;
@@ -133,7 +133,7 @@ void CNPC::Render_Bubble(ID2D1RenderTarget* pRT)
     float fWidth = 140.f;
     float fHeight = 30.f;
 
-    //¹è°æ
+    //ë°°ê²½
     ID2D1SolidColorBrush* pBg = nullptr;
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 0.f, 0.f, 0.7f), &pBg);
 
@@ -144,7 +144,7 @@ void CNPC::Render_Bubble(ID2D1RenderTarget* pRT)
         pBg
     );
 
-    // ÅØ½ºÆ®
+    // í…ìŠ¤íŠ¸
     ID2D1SolidColorBrush* pText = nullptr;
     pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 1.f), &pText);
 
@@ -162,7 +162,7 @@ void CNPC::Render_Bubble(ID2D1RenderTarget* pRT)
 
 void CNPC::Render_Indicator(ID2D1RenderTarget* pRT)
 {
-    // ÃßÈÄ ±¸Çö
+    // ì¶”í›„ êµ¬í˜„
 }
 
 void CNPC::On_Collision(CGameObject* pOther)
@@ -181,7 +181,7 @@ void CNPC::Update_Cursor()
 
     if (Is_MouseCollide(tMouse))
         CInput_Manager::Get_Instance()->Set_CursorMode(CURSOR_QUESTION);
-    // NORMALÀº Input_Manager::Update()¿¡¼­ ¸Å ÇÁ·¹ÀÓ ÃÊ±âÈ­ÇÏ¹Ç·Î else ºÒÇÊ¿ä
+    // NORMALì€ Input_Manager::Update()ì—ì„œ ë§¤ í”„ë ˆì„ ì´ˆê¸°í™”í•˜ë¯€ë¡œ else ë¶ˆí•„ìš”
 }
 
 #ifdef GAME_DEBUG
@@ -191,8 +191,8 @@ void CNPC::Debug_Render(ID2D1RenderTarget* pRT)
     Debug_DrawMouseCollider(pRT);
 }
 
-// »óÈ£ÀÛ¿ë ¹üÀ§ - ¾ÆÀÌ¼Ò¸ŞÆ®¸¯ ¸¶¸§¸ğ
-// Æò¼Ò ÃÊ·Ï, ÀÎÅÍ·ºÆ¼ºí »óÅÂ¸é »¡°­
+// ìƒí˜¸ì‘ìš© ë²”ìœ„ - ì•„ì´ì†Œë©”íŠ¸ë¦­ ë§ˆë¦„ëª¨
+// í‰ì†Œ ì´ˆë¡, ì¸í„°ë ‰í‹°ë¸” ìƒíƒœë©´ ë¹¨ê°•
 void CNPC::Debug_DrawCollider(ID2D1RenderTarget* pRT)
 {
     float fCX = Get_ColliderX();
@@ -206,7 +206,7 @@ void CNPC::Debug_DrawCollider(ID2D1RenderTarget* pRT)
     POINT tBL = CCamera::Get_Instance()->IsoWorldToScreen(fCX - fRX, fCZ + fRZ);
 
     ID2D1SolidColorBrush* pBrush = nullptr;
-    // ÀÎÅÍ·ºÆ¼ºí »óÅÂ¸é »¡°­, ¾Æ´Ï¸é ÃÊ·Ï
+    // ì¸í„°ë ‰í‹°ë¸” ìƒíƒœë©´ ë¹¨ê°•, ì•„ë‹ˆë©´ ì´ˆë¡
     if (m_bInteractable)
         pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f), &pBrush);
     else
@@ -222,7 +222,7 @@ void CNPC::Debug_DrawCollider(ID2D1RenderTarget* pRT)
     pBrush->Release();
 }
 
-//¸¶¿ì½º Å¬¸¯ ¹Ú½º - Á÷±³ »ç°¢Çü (³ë¶õ»ö)
+//ë§ˆìš°ìŠ¤ í´ë¦­ ë°•ìŠ¤ - ì§êµ ì‚¬ê°í˜• (ë…¸ë€ìƒ‰)
 void CNPC::Debug_DrawMouseCollider(ID2D1RenderTarget* pRT)
 {
     ID2D1SolidColorBrush* pBrush = nullptr;

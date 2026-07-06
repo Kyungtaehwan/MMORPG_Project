@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <atomic>
 #include <memory>
 #include <cstdint>
@@ -17,6 +17,7 @@ enum MONSTER_STATE : uint8_t
 enum MONSTER_TYPE : uint8_t
 {
     MONSTER_ORC = 0,
+    MONSTER_WING = 1,   // ë¶€ìœ  ëª¬ìŠ¤í„°(ë°•ì¥í˜•) - ê¸¸ì°¾ê¸° ì—†ì´ ì§ì„  ì¶”ì 
 };
 
 enum MONSTER_DIR : uint8_t
@@ -34,14 +35,14 @@ enum MONSTER_DIR : uint8_t
 class CMonster
 {
 public:
-    // ---- ±âº» Á¤º¸ ----
+    // ---- ê¸°ë³¸ ì •ë³´ ----
     int32_t       m_nMonsterID = -1;
     int32_t       m_nZoneID = -1;
     MONSTER_TYPE  m_eType = MONSTER_ORC;
     MONSTER_STATE m_eState = MON_IDLE;
     MONSTER_DIR   m_eDir = MON_DIR_B;
 
-    // ---- À§Ä¡ ----
+    // ---- ìœ„ì¹˜ ----
     float    m_fCurX = 0.f;
     float    m_fCurZ = 0.f;
     float    m_fDestX = 0.f;
@@ -50,31 +51,31 @@ public:
     float    m_fSpawnZ = 0.f;
     float    m_fSpeed = 0.7f;
 
-    // ---- Å¸ÀÏ ÁÂÇ¥ (³í¸® ÁÂÇ¥°è ±âÁØ) ----
+    // ---- íƒ€ì¼ ì¢Œí‘œ (ë…¼ë¦¬ ì¢Œí‘œê³„ ê¸°ì¤€) ----
     int32_t  m_nTileX = 0;
     int32_t  m_nTileZ = 0;
 
-    // ---- ½ºÅÈ ----
+    // ---- ìŠ¤íƒ¯ ----
     int32_t             m_nHp = 100;
     int32_t             m_nMaxHp = 100;
     int32_t             m_nAtk = 10;
-    float               m_fAtkRange = 1.0f;   // °ø°İ ¹üÀ§a
-    float               m_fAggroRange = 3.f;    // ¾î±×·Î ½ÃÀÛ ¹üÀ§
-    float               m_fDeAggroRange = 4.f;   // ¾î±×·Î ÇØÁ¦ ¹üÀ§
-    uint32_t            m_nLastAtkTime = 0;    // ¸¶Áö¸· °ø°İ ½Ã°£
-    uint32_t            m_nAtkCoolMs = 2000; // °ø°İ ÄğÅ¸ÀÓ (ms)
-    uint32_t            m_nHitStunEndTime = 100; //½ºÅÏ ½Ã°£
+    float               m_fAtkRange = 1.0f;   // ê³µê²© ë²”ìœ„a
+    float               m_fAggroRange = 3.f;    // ì–´ê·¸ë¡œ ì‹œì‘ ë²”ìœ„
+    float               m_fDeAggroRange = 4.f;   // ì–´ê·¸ë¡œ í•´ì œ ë²”ìœ„
+    uint32_t            m_nLastAtkTime = 0;    // ë§ˆì§€ë§‰ ê³µê²© ì‹œê°„
+    uint32_t            m_nAtkCoolMs = 2000; // ê³µê²© ì¿¨íƒ€ì„ (ms)
+    uint32_t            m_nHitStunEndTime = 100; //ìŠ¤í„´ ì‹œê°„
 
     uint32_t m_nAtkHitDelayMs_0 = 350;
     uint32_t m_nAtkHitDelayMs_1 = 400;
 
-    int32_t  m_nPendingHitTargetID = -1;  // Å¸°İ ´ë±â ÁßÀÎ Å¸°Ù
+    int32_t  m_nPendingHitTargetID = -1;  // íƒ€ê²© ëŒ€ê¸° ì¤‘ì¸ íƒ€ê²Ÿ
 
     // ---- AI ----
     int32_t            m_nTargetID = -1;
     std::atomic<bool>  m_bActive{ false };
 
-    // ---- ÇïÆÛ ----
+    // ---- í—¬í¼ ----
     bool IsDead() const { return m_eState == MON_DEAD; }
 
     bool UpdateTilePos()
@@ -87,7 +88,7 @@ public:
         return true;
     }
 
-    // Å¬¶óÀÌ¾ğÆ® Decide_Direction°ú µ¿ÀÏÇÑ ·ÎÁ÷
+    // í´ë¼ì´ì–¸íŠ¸ Decide_Directionê³¼ ë™ì¼í•œ ë¡œì§
     MONSTER_DIR CalcDirection(float fNX, float fNZ) const
     {
         constexpr float TILE_HALF_W = 64.f;

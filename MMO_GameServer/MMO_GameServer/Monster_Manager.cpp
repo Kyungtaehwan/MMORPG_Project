@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Monster_Manager.h"
 
 CMonster_Manager* CMonster_Manager::m_pInstance = nullptr;
@@ -10,7 +10,7 @@ MonsterRef CMonster_Manager::Create(int32_t nID, MONSTER_TYPE eType,
 
     std::lock_guard<std::mutex> lock(m_lock);
 
-    // ÀÌ¹Ì Á¸ÀçÇÏ¸é ½ÇÆĞ
+    // ì´ë¯¸ ì¡´ì¬í•˜ë©´ ì‹¤íŒ¨
     if (m_monsters[nID]) return nullptr;
 
     auto pMonster = std::make_shared<CMonster>();
@@ -18,7 +18,20 @@ MonsterRef CMonster_Manager::Create(int32_t nID, MONSTER_TYPE eType,
     pMonster->m_eType = eType;
     pMonster->m_nZoneID = nZoneID;
 
-    // ÇöÀç À§Ä¡ = ¸ñÀûÁö = ½ºÆù À§Ä¡·Î ÃÊ±âÈ­
+    // íƒ€ì…ë³„ ìŠ¤íƒ¯ (í´ë¼ ì„œë¸Œí´ë˜ìŠ¤ Initializeì˜ ê°’ê³¼ ë°˜ë“œì‹œ ì¼ì¹˜í•´ì•¼ í•¨)
+    // íŠ¹íˆ ìµœëŒ€ ì²´ë ¥ì´ ë‹¤ë¥´ë©´ í´ë¼ HPë°”(m_iHp>=m_iMaxHpë©´ ìˆ¨ê¹€)ê°€ ì–´ê¸‹ë‚œë‹¤
+    switch (eType)
+    {
+    case MONSTER_WING:
+        pMonster->m_nHp = pMonster->m_nMaxHp = 80;   // í´ë¼ CMonster_Wingê³¼ ë™ì¼
+        break;
+    case MONSTER_ORC:
+    default:
+        pMonster->m_nHp = pMonster->m_nMaxHp = 100;
+        break;
+    }
+
+    // í˜„ì¬ ìœ„ì¹˜ = ëª©ì ì§€ = ìŠ¤í° ìœ„ì¹˜ë¡œ ì´ˆê¸°í™”
     pMonster->m_fCurX = fX;
     pMonster->m_fCurZ = fZ;
     pMonster->m_fDestX = fX;
@@ -30,7 +43,7 @@ MonsterRef CMonster_Manager::Create(int32_t nID, MONSTER_TYPE eType,
 
     m_monsters[nID] = pMonster;
 
-    std::cout << "[Monster_Manager] ¸ó½ºÅÍ »ı¼º. ID=" << nID
+    std::cout << "[Monster_Manager] ëª¬ìŠ¤í„° ìƒì„±. ID=" << nID
         << " Type=" << (int)eType
         << " pos=(" << fX << ", " << fZ << ")" << std::endl;
 
@@ -52,5 +65,5 @@ void CMonster_Manager::Remove(int32_t nID)
     std::lock_guard<std::mutex> lock(m_lock);
     m_monsters[nID] = nullptr;
 
-    std::cout << "[Monster_Manager] ¸ó½ºÅÍ Á¦°Å. ID=" << nID << std::endl;
+    std::cout << "[Monster_Manager] ëª¬ìŠ¤í„° ì œê±°. ID=" << nID << std::endl;
 }

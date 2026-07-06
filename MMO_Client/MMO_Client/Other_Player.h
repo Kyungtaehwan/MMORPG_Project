@@ -1,5 +1,5 @@
-#pragma once
-#include "GameObject.h"  // CPlayer°¡ »ó¼Ó¹Ş´Â º£ÀÌ½º Å¬·¡½º
+ï»¿#pragma once
+#include "GameObject.h"  // CPlayerê°€ ìƒì†ë°›ëŠ” ë² ì´ìŠ¤ í´ë˜ìŠ¤
 
 enum PLAYER_STATE;
 enum DIRECTION;
@@ -33,7 +33,7 @@ public:
 
 
 private:
-    void    Check_AnimEnd();  // ¾Ö´Ï¸ŞÀÌ¼Ç ¿Ï·á Ã¼Å©
+    void    Check_AnimEnd();  // ì• ë‹ˆë©”ì´ì…˜ ì™„ë£Œ ì²´í¬
 
     void Move_To_Dest(float dt);
     void Decide_Direction(float fNX, float fNZ);
@@ -45,6 +45,7 @@ private:
     void RenderATTACK(ID2D1RenderTarget* pRT);
     void RenderHIT(ID2D1RenderTarget* pRT);
     void RenderDEAD(ID2D1RenderTarget* pRT);
+    void Render_NameTag(ID2D1RenderTarget* pRT);   // ë¨¸ë¦¬ ìœ„ ì´ë¦„í‘œ
 
 private:
     int32_t      m_nPlayerID = -1;

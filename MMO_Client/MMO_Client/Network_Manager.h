@@ -67,12 +67,26 @@ public:
     void SendEquip(int32_t nInvenSlot);
     void SendUnEquip(int32_t nEquipSlot);
     void SendUseItem(int32_t nInvenSlot);
+    void SendMoveStop(float fCurX, float fCurZ);     // UI 진입 등 이동 정지 통보
+    void SendBuy(int32_t nItemCode, int32_t nCount); // 상점 구매
+    void SendSell(int32_t nInvenSlot, int32_t nCount); // 상점 판매
+
+    // 경매장
+    void SendAuctionList();                                             // 목록 요청
+    void SendAuctionRegister(int32_t nInvenSlot, int32_t nCount, int32_t nUnitPrice);
+    void SendAuctionBuy(int32_t nListingID, int32_t nCount);
+    void SendAuctionCollect(int32_t nListingID);
+    void SendAuctionCancel(int32_t nListingID);
     // ---- 메인 스레드에서 매 프레임 호출 ----
     // 큐에 쌓인 패킷 핸들러를 전부 처리
     void Dispatch();
 
     // ---- 게임 데이터 ----
     uint32_t GetMyPlayerID() const { return m_nMyPlayerID; }
+
+    // ---- 로그인 실패 표시 (로그인 박스가 폴링) ----
+    bool Is_LoginFailed() const { return m_bLoginFailed; }
+    void Clear_LoginFailed() { m_bLoginFailed = false; }
 
 private:
     // ---- 수신 스레드 ----
@@ -97,6 +111,7 @@ private:
     void Handle_SC_INVEN_UPDATE(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_PLAYER_HP(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_BUFF(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_AUCTION_LIST(uint8_t* pBuffer, int32_t nSize);
 public:
     
 
@@ -140,11 +155,26 @@ public:
     bool  IsSpawnReady() const { return m_bSpawnReady; }
     float GetSpawnX()    const { return m_fSpawnX; }
     float GetSpawnZ()    const { return m_fSpawnZ; }
+    int32_t GetStartZone() const { return m_nStartZone; }   // 로그인 시작 존(서버 지정)
+    const char* GetMyName() const { return m_szMyName; }    // 내 캐릭터 이름(머리 위 표시)
+
+    // 경매장 스냅샷 접근 (경매장 UI가 매 프레임 참조)
+    const FAuctionEntry* GetAuctionEntries() const { return m_auctionEntries; }
+    int32_t              GetAuctionCount()   const { return m_auctionCount; }
+    uint32_t             GetAuctionVersion() const { return m_auctionVersion; } // 갱신 감지용
     void  ClearSpawn()     { m_bSpawnReady = false; }
 
 private:
     uint32_t             m_nMyPlayerID = 0;
+    bool  m_bLoginFailed = false;
     bool  m_bSpawnReady = false;
     float m_fSpawnX = 0.f;
     float m_fSpawnZ = 0.f;
+    int32_t m_nStartZone = 1;   // 기본 ZONE_TOWN(=1). SC_ENTER_GAME에서 서버 값으로 갱신
+    char  m_szMyName[20] = {};  // SC_ENTER_GAME에서 서버가 준 내 이름
+
+    // 경매장 스냅샷(SC_AUCTION_LIST 수신 시 갱신)
+    FAuctionEntry m_auctionEntries[AUCTION_MAX] = {};
+    int32_t       m_auctionCount = 0;
+    uint32_t      m_auctionVersion = 0;   // 수신할 때마다 +1
 };

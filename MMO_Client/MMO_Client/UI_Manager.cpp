@@ -1,7 +1,9 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "UI_Manager.h"
 #include "Img_Manager.h"
 #include "UI_LoginBox.h"
+#include "UI_Shop.h"
+#include "UI_Auction.h"
 
 CUI_Manager* CUI_Manager::m_pInstance = nullptr;
 
@@ -84,6 +86,17 @@ void CUI_Manager::On_Char(wchar_t ch)
 			break;
 		}
 	}
+
+	// 경매장 검색/숫자 입력
+	for (auto* pUI : m_UIList[UI_AUCTION])
+	{
+		auto* pAuc = dynamic_cast<CUI_Auction*>(pUI);
+		if (pAuc && pAuc->Is_Open())
+		{
+			pAuc->On_Char(ch);
+			break;
+		}
+	}
 }
 
 void CUI_Manager::Release(void)
@@ -93,6 +106,32 @@ void CUI_Manager::Release(void)
 	{
 		for_each(m_UIList[i].begin(), m_UIList[i].end(), Safe_Delete<CUI*>);
 		m_UIList[i].clear();
+	}
+}
+
+void CUI_Manager::Open_Shop(int iShopType)
+{
+	for (auto* pUI : m_UIList[UI_SHOP])
+	{
+		auto* pShop = dynamic_cast<CUI_Shop*>(pUI);
+		if (pShop)
+		{
+			pShop->Open(iShopType);
+			break;
+		}
+	}
+}
+
+void CUI_Manager::Open_Auction()
+{
+	for (auto* pUI : m_UIList[UI_AUCTION])
+	{
+		auto* pAuc = dynamic_cast<CUI_Auction*>(pUI);
+		if (pAuc)
+		{
+			pAuc->Open();
+			break;
+		}
 	}
 }
 

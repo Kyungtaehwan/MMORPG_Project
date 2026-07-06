@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "UI.h"
 
 class CUI_Manager
@@ -33,6 +33,8 @@ public:
 
 	void		DeleteID(UI_ID eID);
 	void		On_Char(wchar_t ch);
+	void		Open_Shop(int iShopType);   // NPC_Shop 클릭 시 상점 UI 열기
+	void		Open_Auction();             // NPC_Market 클릭 시 경매장 UI 열기
 
 private:
 

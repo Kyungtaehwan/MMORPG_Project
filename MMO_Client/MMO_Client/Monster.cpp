@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "Monster.h"
 #include "Camera.h"
 #include "Img_Manager.h"
@@ -73,7 +73,8 @@ void CMonster::Render_HpBar(ID2D1RenderTarget* pRT)
     float fBarW = 60.f;
     float fBarH = 6.f;
     float fBarX = tScreen.x - fBarW / 2.f;
-    float fBarY = tScreen.y - m_tIsoInfo.fCY - m_tIsoInfo.fHeight - 10.f + TILE_HALF_H;
+    // 이름표(-20) 아래로 내려 겹침 방지
+    float fBarY = tScreen.y - m_tIsoInfo.fCY - m_tIsoInfo.fHeight + 4.f + TILE_HALF_H;
     float fRatio = (float)m_iHp / (float)m_iMaxHp;
 
     ID2D1SolidColorBrush* pBrush = nullptr;
@@ -99,15 +100,9 @@ void CMonster::Render_NameTag(ID2D1RenderTarget* pRT)
     float fNameY = tScreen.y - m_tIsoInfo.fCY
         - m_tIsoInfo.fHeight - 20.f + TILE_HALF_H;
 
-    ID2D1SolidColorBrush* pBrush = nullptr;
-    pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.3f, 0.3f), &pBrush);
-    pRT->DrawText(m_szName, lstrlen(m_szName),
-        CImg_Manager::Get_Instance()->Get_DebugFont(),
-        D2D1::RectF(
-            (float)tScreen.x - 40.f, fNameY,
-            (float)tScreen.x + 40.f, fNameY + 20.f),
-        pBrush);
-    pBrush->Release();
+    CImg_Manager::Get_Instance()->Draw_Text_Center(pRT, m_szName,
+        D2D1::RectF((float)tScreen.x - 40.f, fNameY, (float)tScreen.x + 40.f, fNameY + 20.f),
+        D2D1::ColorF(1.f, 0.3f, 0.3f));
 }
 
 void CMonster::Update_Cursor()

@@ -41,6 +41,7 @@ private:
     void RenderDEAD(ID2D1RenderTarget* pRT);
     void Check_AnimEnd();
     void Render_ClickEffect(ID2D1RenderTarget* pRT);
+    void Render_NameTag(ID2D1RenderTarget* pRT);   // 머리 위 이름표(내 캐릭터)
 
     void Motion_Change(PLAYER_STATE eState);
     void Direction_Change(DIRECTION eDir);

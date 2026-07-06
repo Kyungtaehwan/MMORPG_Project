@@ -1,4 +1,4 @@
-#include "pch.h"
+Ôªø#include "pch.h"
 #include "Other_Player.h"
 #include "Img_Manager.h"
 #include "Camera.h"
@@ -64,8 +64,8 @@ void COther_Player::Render(ID2D1RenderTarget* pRT)
     default: break;
     }
 
-    // ¿Ã∏ß«• ∑ª¥ı∏µ
-    //Render_NameTag(pRT);
+    // Ïù¥Î¶ÑÌëú Î†åÎçîÎßÅ
+    Render_NameTag(pRT);
 }
 
 void COther_Player::Release()
@@ -74,19 +74,19 @@ void COther_Player::Release()
 }
 
 // ================================================================
-//  º≠πˆ ∆–≈∂ ºˆΩ≈
+//  ÏÑúÎ≤Ñ Ìå®ÌÇ∑ ÏàòÏã†
 // ================================================================
 void COther_Player::OnMoveDestPacket(float fCurX, float fCurZ,
     float fDestX, float fDestZ,
     float fSpeed, uint32_t moveTime)
 {
-    // «ˆ¿Á ¿ßƒ° ∫∏¡§
-    // ø¿¬˜∞° ≥ π´ ≈©∏È º¯∞£¿Ãµø, ¿€¿∏∏È ∫ŒµÂ∑¥∞‘ ∫∏∞£
+    // ÌòÑÏû¨ ÏúÑÏπò Î≥¥Ï†ï
+    // Ïò§Ï∞®Í∞Ä ÎÑàÎ¨¥ ÌÅ¨Î©¥ ÏàúÍ∞ÑÏù¥Îèô, ÏûëÏúºÎ©¥ Î∂ÄÎìúÎüΩÍ≤å Î≥¥Í∞Ñ
     float fDX = fCurX - m_tIsoInfo.fWorldX;
     float fDZ = fCurZ - m_tIsoInfo.fWorldZ;
     float fDiff = sqrtf(fDX * fDX + fDZ * fDZ);
 
-    constexpr float TELEPORT_THRESHOLD = 3.f;  // ¿Ã ¿ÃªÛ ø¿¬˜∏È º¯∞£¿Ãµø
+    constexpr float TELEPORT_THRESHOLD = 3.f;  // Ïù¥ Ïù¥ÏÉÅ Ïò§Ï∞®Î©¥ ÏàúÍ∞ÑÏù¥Îèô
     if (fDiff > TELEPORT_THRESHOLD)
     {
         m_tIsoInfo.fWorldX = fCurX;
@@ -105,7 +105,7 @@ void COther_Player::OnMoveDestPacket(float fCurX, float fCurZ,
 void COther_Player::OnMovePosPacket(float fCurX, float fCurZ,
     uint32_t moveTime)
 {
-    // ≈∏¿œ ∫Ø∞Ê Ω√ ¿ßƒ° ∫∏¡§
+    // ÌÉÄÏùº Î≥ÄÍ≤Ω Ïãú ÏúÑÏπò Î≥¥Ï†ï
     float fDX = fCurX - m_tIsoInfo.fWorldX;
     float fDZ = fCurZ - m_tIsoInfo.fWorldZ;
     float fDiff = sqrtf(fDX * fDX + fDZ * fDZ);
@@ -116,7 +116,7 @@ void COther_Player::OnMovePosPacket(float fCurX, float fCurZ,
         m_tIsoInfo.fWorldX = fCurX;
         m_tIsoInfo.fWorldZ = fCurZ;
     }
-    // ¿€¿∫ ø¿¬˜¥¬ ∫∏∞£¿∏∑Œ ¿⁄ø¨Ω∫∑¥∞‘ ºˆ∑≈
+    // ÏûëÏùÄ Ïò§Ï∞®Îäî Î≥¥Í∞ÑÏúºÎ°ú ÏûêÏó∞Ïä§ÎüΩÍ≤å ÏàòÎ†¥
 }
 
 
@@ -133,7 +133,7 @@ void COther_Player::OnHitPacket(int32_t iHp)
 }
 
 // ================================================================
-//  ∑ª¥ı∏µ
+//  Î†åÎçîÎßÅ
 // ================================================================
 
 
@@ -252,34 +252,27 @@ void COther_Player::Render_Sprite(ID2D1RenderTarget* pRT,
     pRT->DrawBitmap(pBitmap, destRect, 1.0f,
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, srcRect);
 }
-//
-//void COther_Player::Render_NameTag(ID2D1RenderTarget* pRT)
-//{
-//    POINT tScreen = CCamera::Get_Instance()->IsoWorldToScreen(
-//        m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
-//
-//    TCHAR szName[20];
-//    MultiByteToWideChar(CP_ACP, 0, m_szName, -1, szName, 20);
-//
-//    ID2D1SolidColorBrush* pBrush = nullptr;
-//    pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 1.f), &pBrush);
-//
-//    IDWriteTextFormat* pFont =
-//        CImg_Manager::Get_Instance()->Get_DebugFont();
-//
-//    float fNameX = tScreen.x - 40.f;
-//    float fNameY = tScreen.y - m_tIsoInfo.fCY - m_tIsoInfo.fHeight;
-//
-//    pRT->DrawText(szName, wcslen(szName), pFont,
-//        D2D1::RectF(fNameX, fNameY, fNameX + 80.f, fNameY + 20.f),
-//        pBrush);
-//
-//    pBrush->Release();
-//}
+void COther_Player::Render_NameTag(ID2D1RenderTarget* pRT)
+{
+    if (m_szName[0] == '\0') return;
+
+    POINT tScreen = CCamera::Get_Instance()->IsoWorldToScreen(
+        m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
+
+    TCHAR szName[20] = {};
+    MultiByteToWideChar(CP_ACP, 0, m_szName, -1, szName, 20);
+
+    float fY = tScreen.y - m_tIsoInfo.fCY - m_tIsoInfo.fHeight + TILE_HALF_H - 6.f;
+
+    // Îã§Î•∏ ÌîåÎ†àÏù¥Ïñ¥ = ÌïòÎäòÏÉâ, Î∞ïÏä§ rect Ï†ïÏ§ëÏïô
+    CImg_Manager::Get_Instance()->Draw_Text_Center(pRT, szName,
+        D2D1::RectF((float)tScreen.x - 50.f, fY, (float)tScreen.x + 50.f, fY + 20.f),
+        D2D1::ColorF(0.6f, 0.9f, 1.f));
+}
 
 
 // ================================================================
-//  ¿Ãµø
+//  Ïù¥Îèô
 // ================================================================
 void COther_Player::Move_To_Dest(float dt)
 {
@@ -327,7 +320,7 @@ void COther_Player::Decide_Direction(float fNX, float fNZ)
 }
 
 // ================================================================
-//  ªÛ≈¬/πÊ«‚ ºº∆√
+//  ÏÉÅÌÉú/Î∞©Ìñ• ÏÑ∏ÌåÖ
 // ================================================================
 void COther_Player::Motion_Change(PLAYER_STATE eState)
 {

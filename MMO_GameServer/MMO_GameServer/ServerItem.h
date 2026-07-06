@@ -71,6 +71,46 @@ static const FPotionEffect g_PotionTable[6] =
 constexpr uint32_t ATK_BUFF_DURATION_MS   = 15000;
 constexpr uint32_t INVINCIBLE_DURATION_MS = 8000;
 
+// ================================================================
+//  상점 가격 (포션). 인덱스 = code%1000 (아이콘/배열 순서 기준)
+//   [0]HP30 [1]HP50 [2]MP30 [3]MP50 [4]ATK버프 [5]무적
+//  클라 UI_Shop.cpp s_ShopPotions 의 price 와 값이 동일해야 함.
+//  판매가 = 구매가 / 2.
+// ================================================================
+static const int32_t g_PotionBuyPrice[6] =
+{
+    30, 50,    // HP 중 / 대
+    30, 50,    // MP 중 / 대
+    120,       // 공격력 버프
+    200,       // 무적
+};
+
+// 포션 구매가. 포션이 아니거나 범위 밖이면 0(구매 불가).
+inline int32_t PotionBuyPrice(int32_t code)
+{
+    if (code / 1000 != 1) return 0;
+    int s = code % 1000;
+    return (s >= 0 && s < 6) ? g_PotionBuyPrice[s] : 0;
+}
+
+// 판매가(전 아이템). 클라 UI_Shop.cpp Shop_SellPrice 와 값이 반드시 동일해야 함.
+//   포션 : 구매가/2
+//   장비 : (공격+방어)*5   (g_EquipTable 스탯 기반)
+//   스크롤: 20 고정
+//   기타 : 5 고정
+//   그 외(골드 등): 0 = 판매 불가
+inline int32_t ItemSellPrice(int32_t code)
+{
+    switch (code / 1000)
+    {
+    case 1:  return PotionBuyPrice(code) / 2;
+    case 2:  return 20;
+    case 3:  return (EquipAtk(code) + EquipDef(code)) * 5;
+    case 4:  return 5;
+    default: return 0;
+    }
+}
+
 struct FDropRoll
 {
     bool    bDrop;

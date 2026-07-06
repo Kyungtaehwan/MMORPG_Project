@@ -77,7 +77,7 @@ void CZone_Field_W::Spawn_Objects()
     // 마을로 돌아가는 복귀 포탈은 동쪽(오른쪽)에 둔다.
     CPortal* pPortal = new CPortal;
     pPortal->Set_WorldPos(19.f, 6.f);
-    pPortal->Set_TargetZone(ZONE_TOWN, 9.f, 26.f);  // 마을 서쪽 입구로 복귀
+    pPortal->Set_TargetZone(ZONE_TOWN, 9.f, 26.f);  // 마을 남서(서쪽 필드) 입구로 복귀
     pPortal->Initialize();
     CObject_Manager::Get_Instance()->Add_Object(OBJ_PORTAL, pPortal);
 }

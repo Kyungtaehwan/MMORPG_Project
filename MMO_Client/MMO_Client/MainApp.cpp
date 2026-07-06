@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "MainApp.h"
 #include "Img_Manager.h"
 #include "Level_Manager.h"
@@ -21,7 +21,7 @@ void CMainApp::Initialize(void)
 {
     D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &m_pFactory);
 
-    //2. ·»´õÅ¸°Ù »ı¼º (BackBuffer ¿ªÇÒÀ» D2D°¡ ´ëÃ¼)
+    //2. ë Œë”íƒ€ê²Ÿ ìƒì„± (BackBuffer ì—­í• ì„ D2Dê°€ ëŒ€ì²´)
     RECT rc;
     GetClientRect(g_hWnd, &rc);
     m_pFactory->CreateHwndRenderTarget(
@@ -33,14 +33,14 @@ void CMainApp::Initialize(void)
         &m_pRenderTarget
     );
 
-    //3. DirectWrite ÆÑÅä¸® »ı¼º (ÅØ½ºÆ®¿ë)
+    //3. DirectWrite íŒ©í† ë¦¬ ìƒì„± (í…ìŠ¤íŠ¸ìš©)
     DWriteCreateFactory(
         DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(&m_pDWriteFactory)
     );
 
-    //4. FPS ÅØ½ºÆ® Æ÷¸Ë »ı¼º
+    //4. FPS í…ìŠ¤íŠ¸ í¬ë§· ìƒì„±
     m_pDWriteFactory->CreateTextFormat(
         L"Arial", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL,
@@ -51,12 +51,11 @@ void CMainApp::Initialize(void)
     );
     CNetwork_Manager::Get_Instance()->Connect(L"127.0.0.1", 7777);
 
-    //5. Img_Manager¿¡ RenderTarget Àü´Ş ÈÄ ÀÌ¹ÌÁö ·Îµå
+    //5. Img_Managerì— RenderTarget ì „ë‹¬ í›„ ì´ë¯¸ì§€ ë¡œë“œ
     CImg_Manager::Get_Instance()->Set_RenderTarget(m_pRenderTarget);
     CImg_Manager::Get_Instance()->Create_DebugFont(m_pDWriteFactory);
-    //6. ·¹º§ ÃÊ±âÈ­ (±×´ë·Î)
-    CLevel_Manager::Get_Instance()->Level_Change(LEVEL_TEST);
-    CNetwork_Manager::Get_Instance()->SendLogin("asd", "asd");
+    //6. ë¡œê·¸ì¸ í™”ë©´ìœ¼ë¡œ ì‹œì‘ (ID/PW ì…ë ¥ â†’ ë¡œê·¸ì¸ ì„±ê³µ ì‹œ ê²Œì„ ì§„ì…)
+    CLevel_Manager::Get_Instance()->Level_Change(LEVEL_LOGIN);
 }
 
 void CMainApp::Update(float dt)
@@ -96,7 +95,7 @@ void CMainApp::Render(void)
     m_pRenderTarget->BeginDraw();
     m_pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::Black));
 
-    // ·¹º§ ·»´õ (ÀÎÀÚ¸¸ RT·Î º¯°æ)
+    // ë ˆë²¨ ë Œë” (ì¸ìë§Œ RTë¡œ ë³€ê²½)
     CLevel_Manager::Get_Instance()->Render(m_pRenderTarget);
 
     m_pRenderTarget->EndDraw();
@@ -106,7 +105,7 @@ void CMainApp::Render(void)
 void CMainApp::Release(void)
 {
 
-    //COM °´Ã¼ ¼ø¼­´ë·Î ÇØÁ¦(»ı¼º ¿ª¼ø)
+    //COM ê°ì²´ ìˆœì„œëŒ€ë¡œ í•´ì œ(ìƒì„± ì—­ìˆœ)
     if (m_pTextFormat) { m_pTextFormat->Release();     m_pTextFormat = nullptr; }
     if (m_pDWriteFactory) { m_pDWriteFactory->Release();  m_pDWriteFactory = nullptr; }
     if (m_pRenderTarget) { m_pRenderTarget->Release();   m_pRenderTarget = nullptr; }

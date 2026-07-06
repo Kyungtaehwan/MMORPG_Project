@@ -22,6 +22,14 @@ enum PacketID : uint16_t
     CS_EQUIP = 1007,    // 인벤 슬롯 아이템 장착
     CS_UNEQUIP = 1008,  // 장비 슬롯 해제
     CS_USE_ITEM = 1009, // 인벤 슬롯 아이템 사용(포션 등)
+    CS_MOVE_STOP = 1010, // UI 진입 등으로 이동 강제 정지(현재 위치 커밋)
+    CS_BUY = 1011,      // 상점 구매 (itemCode를 count개)
+    CS_SELL = 1012,     // 상점 판매 (인벤 슬롯의 아이템 count개)
+    CS_AUCTION_LIST = 1013,      // 경매장 목록 요청
+    CS_AUCTION_REGISTER = 1014,  // 경매장 등록 (인벤슬롯 count개, 개당가격)
+    CS_AUCTION_BUY = 1015,       // 경매장 구매 (listingID count개)
+    CS_AUCTION_COLLECT = 1016,   // 판매대금 수령 (listingID)
+    CS_AUCTION_CANCEL = 1017,    // 등록 취소 (남은수량 반환 + 미수령골드 지급)
 
     // Server → Client
     //세션, 플레이어 관련
@@ -40,6 +48,7 @@ enum PacketID : uint16_t
     SC_INVEN_UPDATE = 2012, // 인벤토리 전체 스냅샷 (장비 포함)
     SC_PLAYER_HP = 2013,    // HP/MP 동기화 (회복 등, 피격 애니 없음)
     SC_BUFF = 2014,         // 버프 적용 알림 (클라가 자체 타이머 표시)
+    SC_AUCTION_LIST = 2015, // 경매장 매물 전체 스냅샷
     //몬스터 용
     SC_ADD_MONSTER = 2100,
     SC_REMOVE_MONSTER = 2101,
@@ -98,6 +107,7 @@ struct SC_ENTER_GAME_PACKET
     float        fCurX;
     float        fCurZ;
     int32_t      zoneID;
+    char         name[20];   // 내 캐릭터 이름(계정 id) — 머리 위 표시용
 };
 
 struct SC_ADD_PLAYER_PACKET
@@ -292,6 +302,30 @@ struct CS_USE_ITEM_PACKET
     int32_t      invenSlot;
 };
 
+// UI 진입 등으로 이동 중단. 서버: 현재 위치 커밋 + m_bMoving=false.
+struct CS_MOVE_STOP_PACKET
+{
+    PacketHeader header;
+    float        fCurX;
+    float        fCurZ;
+};
+
+// 상점 구매. 서버가 골드 검증 후 인벤 추가 → SC_INVEN_UPDATE 응답.
+struct CS_BUY_PACKET
+{
+    PacketHeader header;
+    int32_t      itemCode;
+    int32_t      count;
+};
+
+// 상점 판매. 서버가 인벤 차감 후 골드 지급 → SC_INVEN_UPDATE 응답.
+struct CS_SELL_PACKET
+{
+    PacketHeader header;
+    int32_t      invenSlot;
+    int32_t      count;
+};
+
 struct SC_PLAYER_HP_PACKET
 {
     PacketHeader header;
@@ -309,5 +343,33 @@ struct SC_BUFF_PACKET
     uint32_t     playerID;
     int32_t      buffType;
     int32_t      durationMs;
+};
+
+// ================= 경매장 =================
+constexpr int32_t AUCTION_MAX = 64;   // 스냅샷 최대 매물 수
+
+// 매물 1건. 인스턴스ID 없이 (코드,개수) 모델. 개당 가격/부분 구매.
+struct FAuctionEntry
+{
+    int32_t listingID;
+    int32_t itemCode;
+    int32_t count;        // 남은 수량
+    int32_t unitPrice;    // 개당 가격
+    int32_t pendingGold;  // 판매되어 미수령한 골드(소유자에게만 의미)
+    char    sellerName[20];
+};
+
+struct CS_AUCTION_LIST_PACKET     { PacketHeader header; };
+struct CS_AUCTION_REGISTER_PACKET { PacketHeader header; int32_t invenSlot; int32_t count; int32_t unitPrice; };
+struct CS_AUCTION_BUY_PACKET      { PacketHeader header; int32_t listingID; int32_t count; };
+struct CS_AUCTION_COLLECT_PACKET  { PacketHeader header; int32_t listingID; };
+struct CS_AUCTION_CANCEL_PACKET   { PacketHeader header; int32_t listingID; };
+
+// 경매장 전체 스냅샷(변경 시마다 갱신 전송).
+struct SC_AUCTION_LIST_PACKET
+{
+    PacketHeader  header;
+    int32_t       count;               // 유효 매물 수
+    FAuctionEntry entries[AUCTION_MAX];
 };
 #pragma pack(pop)

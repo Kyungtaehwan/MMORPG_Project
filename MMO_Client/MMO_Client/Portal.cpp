@@ -147,7 +147,7 @@ void CPortal::Render_Indicator(ID2D1RenderTarget* pRT)
     POINT tScreen = CCamera::Get_Instance()->IsoWorldToScreen(
         m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ);
 
-    TCHAR szText[] = L"[클릭] 이동";
+    TCHAR szText[] = L"[좌클릭] 이동";
     ID2D1SolidColorBrush* pBrush = nullptr;
     pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 0.f), &pBrush);
     pRT->DrawText(szText, lstrlen(szText),
