@@ -152,6 +152,7 @@
     <ClCompile Include="Zone_Manager.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AccountDB.h" />
     <ClInclude Include="Monster.h" />
     <ClInclude Include="Monster_Manager.h" />
     <ClInclude Include="Packet_Handler.h" />

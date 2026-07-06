@@ -1,8 +1,6 @@
 ﻿#pragma once
 #include "GameObject.h"
 
-// 월드에 떨어진 아이템. 서버가 SC_ADD_DROP 으로 생성/SC_REMOVE_DROP 으로 제거.
-// 플레이어가 접촉한 상태로 클릭하면 CS_PICKUP 전송 → 획득.
 class CDropItem : public CGameObject
 {
 public:
@@ -22,7 +20,7 @@ public:
     int32_t Get_ItemCode() const { return m_nItemCode; }
 
 private:
-    void    Render_Hitbox(ID2D1RenderTarget* pRT);   // 디버그 히트박스
+    void    Render_Hitbox(ID2D1RenderTarget* pRT); 
     void    Render_HoverName(ID2D1RenderTarget* pRT, float fIconX, float fIconY);
 
 private:

@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "UI_Inventory.h"
 #include "Inventory.h"
 #include "Equipment.h"
@@ -11,10 +11,10 @@
 
 static const EQUIP_SLOT_INFO s_SlotLayout[SLOT_END] =
 {
-    {18.f * INVEN_RATE, 76.f * INVEN_RATE, 56.f * INVEN_RATE, 84.f * INVEN_RATE },   // SLOT_WEAPON  - ¹«±â    28x84
-    {133.f * INVEN_RATE, 76.f * INVEN_RATE, 56.f * INVEN_RATE, 84.f * INVEN_RATE},    // SLOT_ARMOR   - ¹æ¾î±¸  56x84
-    {249.f * INVEN_RATE, 76.f * INVEN_RATE,56.f * INVEN_RATE, 84.f * INVEN_RATE},      //SLOT_SHIELD   - ½¯µå    56x84
-    {133.f * INVEN_RATE, 4.f* INVEN_RATE,56.f * INVEN_RATE, 56.f * INVEN_RATE},            //SLOT_HELMAT   - Çï¸ä    56X56
+    {18.f * INVEN_RATE, 76.f * INVEN_RATE, 56.f * INVEN_RATE, 84.f * INVEN_RATE },   // SLOT_WEAPON  - ë¬´ê¸°    28x84
+    {133.f * INVEN_RATE, 76.f * INVEN_RATE, 56.f * INVEN_RATE, 84.f * INVEN_RATE},    // SLOT_ARMOR   - ë°©ì–´êµ¬  56x84
+    {249.f * INVEN_RATE, 76.f * INVEN_RATE,56.f * INVEN_RATE, 84.f * INVEN_RATE},      //SLOT_SHIELD   - ì‰´ë“œ    56x84
+    {133.f * INVEN_RATE, 4.f* INVEN_RATE,56.f * INVEN_RATE, 56.f * INVEN_RATE},            //SLOT_HELMAT   - í—¬ë©§    56X56
     {205.f * INVEN_RATE, 32.f * INVEN_RATE, INVEN_SLOT_SIZE, INVEN_SLOT_SIZE},            //SLOT_PENDANT - INVEN_SLOT_SIZE
     {248.f * INVEN_RATE, 177.f * INVEN_RATE, INVEN_SLOT_SIZE, INVEN_SLOT_SIZE}             //SLOT_RING   - INVEN_SLOT_SIZE
 };
@@ -23,31 +23,42 @@ void CUI_Inventory::Initialize()
 {
     CImg_Manager::Get_Instance()->Insert_Png(L"../Resource/UI/Inventory.png", L"INVENTORY_FRAME");
 
-    Set_Pos(WINCX/2.f-300.f, WINCY/2.f-50.f); 
+    Set_Pos(WINCX/2.f-300.f, WINCY/2.f-50.f);
     Set_Size(PANEL_W, PANEL_H);
     Update_Rect();
+
+    m_closeBtn.Set_ByPanelCorner((float)m_tRect.right, (float)m_tRect.top);
+}
+
+void CUI_Inventory::Close_Panel()
+{
+    m_bVisible = false;
+    m_iHoverInvenSlot = -1;
+    m_iHoverEquipSlot = -1;
+    CInput_Manager::Get_Instance()->Set_InputMode(INPUT_MODE_GAME);
+    CInput_Manager::Get_Instance()->Set_CursorMode(CURSOR_NORMAL);
 }
 
 int CUI_Inventory::Update(float dt)
 {
-    if (CInput_Manager::Get_Instance()->Key_Down('I'))
-    {
-        m_bVisible = !m_bVisible;
-        CInput_Manager::Get_Instance()->Set_InputMode(
-            m_bVisible ? INPUT_MODE_UI : INPUT_MODE_GAME);
+    CInput_Manager* pInput = CInput_Manager::Get_Instance();
 
-        if (!m_bVisible) {
-            m_iHoverInvenSlot = -1;
-            m_iHoverEquipSlot = -1;
-            CInput_Manager::Get_Instance()->Set_CursorMode(CURSOR_NORMAL);
-        }
+    if (pInput->Key_Down('I'))
+    {
+        if (m_bVisible) { Close_Panel(); return OBJ_NOEVENT; }
+        m_bVisible = true;
+        pInput->Set_InputMode(INPUT_MODE_UI);
     }
 
     if (!m_bVisible) return OBJ_NOEVENT;
 
-    CInput_Manager::Get_Instance()->Set_CursorMode(CURSOR_UI);
-    POINT tMouse = CInput_Manager::Get_Instance()->Get_MousePos();
+    pInput->Set_CursorMode(CURSOR_UI);
+    POINT tMouse = pInput->Get_MousePos();
+    bool  bClick = pInput->Key_Down(VK_LBUTTON);
 
+    // ë‹«ê¸°: ESC / ìš°ìƒë‹¨ X ë²„íŠ¼ (íŒ¨ë„ ë°– í´ë¦­ì€ ë¬´ë™ìž‘)
+    if (pInput->Key_Down(VK_ESCAPE)) { Close_Panel(); return OBJ_NOEVENT; }
+    if (m_closeBtn.Update(tMouse, bClick)) { Close_Panel(); return OBJ_NOEVENT; }
 
     if (CInput_Manager::Get_Instance()->Mouse_Down(MBUTTON_L))
     {
@@ -97,6 +108,7 @@ void CUI_Inventory::Render(ID2D1RenderTarget* pRT)
     Render_EquipSlots(pRT);
     Render_InvenSlots(pRT);
     Render_Gold(pRT);
+    m_closeBtn.Render(pRT);
     Render_Tooltip(pRT);
 #ifdef GAME_DEBUG
     Debug_Render(pRT);
@@ -105,7 +117,7 @@ void CUI_Inventory::Render(ID2D1RenderTarget* pRT)
 
 void CUI_Inventory::Release() {}
 
-// ===================== ·»´õ =====================
+// ===================== ë Œë” =====================
 
 void CUI_Inventory::Render_Background(ID2D1RenderTarget* pRT)
 {
@@ -136,7 +148,7 @@ void CUI_Inventory::Render_EquipSlots(ID2D1RenderTarget* pRT)
         float fX = fPanelL  + info.fX;
         float fY = fPanelT  + info.fY;
 
-        // ÀåÂø ¾ÆÀÌÅÛ -ÀåºñÃ¢ »çÀÌÁî ±×´ë·Î
+        // ìž¥ì°© ì•„ì´í…œ -ìž¥ë¹„ì°½ ì‚¬ì´ì¦ˆ ê·¸ëŒ€ë¡œ
         CItemData_Equipment* pEquip = m_pEquip->Get_Equipped((EQUIP_SLOT)i);
         if (pEquip)
             Render_Item(pRT, pEquip, fX, fY, info.fW, info.fH);
@@ -163,7 +175,7 @@ void CUI_Inventory::Render_InvenSlots(ID2D1RenderTarget* pRT)
 
         Render_Item(pRT, pItem, fX, fY, INVEN_SLOT_SIZE, INVEN_SLOT_SIZE);
 
-        // ½ºÅÃ ¼ö·®
+        // ìŠ¤íƒ ìˆ˜ëŸ‰
         if (m_pInven->Get_StackCount(i) > 1)
         {
             TCHAR szCount[8];
@@ -174,7 +186,7 @@ void CUI_Inventory::Render_InvenSlots(ID2D1RenderTarget* pRT)
                 CImg_Manager::Get_Instance()->Get_DebugFont(),
                 D2D1::RectF(
                     fX,
-                    fY + INVEN_SLOT_SIZE - 14.f,    // ½½·Ô ÇÏ´Ü¿¡ °íÁ¤
+                    fY + INVEN_SLOT_SIZE - 14.f,    // ìŠ¬ë¡¯ í•˜ë‹¨ì— ê³ ì •
                     fX + INVEN_SLOT_SIZE,
                     fY + INVEN_SLOT_SIZE),
                 pBrush);
@@ -190,7 +202,7 @@ void CUI_Inventory::Render_BackPanel(ID2D1RenderTarget* pRT)
     float padding = 20.f;
 
     pRT->CreateSolidColorBrush(
-        D2D1::ColorF(0.f, 0.f, 0.f, 0.1f), // ¹ÝÅõ¸í °ËÁ¤
+        D2D1::ColorF(0.f, 0.f, 0.f, 0.1f), // ë°˜íˆ¬ëª… ê²€ì •
         &pBrush);
 
     pRT->FillRoundedRectangle(
@@ -267,7 +279,7 @@ void CUI_Inventory::Render_Item(ID2D1RenderTarget* pRT, CItemData* pItem,
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 }
 
-// ===================== ÀÔ·Â Ã³¸® =====================
+// ===================== ìž…ë ¥ ì²˜ë¦¬ =====================
 
 void CUI_Inventory::On_InvenRClick(int iSlot)
 {
@@ -282,7 +294,7 @@ void CUI_Inventory::On_InvenRClick(int iSlot)
 
 void CUI_Inventory::On_EquipRClick(EQUIP_SLOT eSlot)
 {
-    // ÀÎº¥Åä¸®¿¡ ºó ½½·Ô ÀÖÀ» ¶§¸¸ ÇØÁ¦
+    // ì¸ë²¤í† ë¦¬ì— ë¹ˆ ìŠ¬ë¡¯ ìžˆì„ ë•Œë§Œ í•´ì œ
     CItemData_Equipment* pEquip = m_pEquip->Get_Equipped(eSlot);
     if (!pEquip) return;
 
@@ -349,21 +361,21 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
 
     if (!pItem) return;
 
-    // ÅøÆÁ ÅØ½ºÆ® ±¸¼º
+    // íˆ´íŒ í…ìŠ¤íŠ¸ êµ¬ì„±
     TCHAR szTooltip[256] = {};
 
     if (pItem->Get_Type() == ITEM_EQUIPMENT)
     {
         CItemData_Equipment* pEquip = static_cast<CItemData_Equipment*>(pItem);
         swprintf_s(szTooltip, 256,
-            L"%s\n°ø°Ý·Â +%d\n¹æ¾î·Â +%d",
+            L"%s\nê³µê²©ë ¥ +%d\në°©ì–´ë ¥ +%d",
             pItem->Get_Name(),
             pEquip->Get_AtkBonus(),
             pEquip->Get_DefBonus());
     }
     else if (pItem->Get_Type() == ITEM_USE)
     {
-        swprintf_s(szTooltip, 256, L"%s\n¿ìÅ¬¸¯À¸·Î »ç¿ë",
+        swprintf_s(szTooltip, 256, L"%s\nìš°í´ë¦­ìœ¼ë¡œ ì‚¬ìš©",
             pItem->Get_Name());
     }
     else
@@ -371,14 +383,14 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
         swprintf_s(szTooltip, 256, L"%s", pItem->Get_Name());
     }
 
-    // ¸¶¿ì½º À§Ä¡ ±âÁØÀ¸·Î ÅøÆÁ À§Ä¡ °áÁ¤
+    // ë§ˆìš°ìŠ¤ ìœ„ì¹˜ ê¸°ì¤€ìœ¼ë¡œ íˆ´íŒ ìœ„ì¹˜ ê²°ì •
     POINT tMouse = CInput_Manager::Get_Instance()->Get_MousePos();
     float fTipX = (float)tMouse.x + 30.f;
     float fTipY = (float)tMouse.y + 30.f;
     float fTipW = 140.f;
     float fTipH = 60.f;
 
-    // È­¸é ¹ÛÀ¸·Î ³ª°¡¸é ¿ÞÂÊ¿¡ Ç¥½Ã
+    // í™”ë©´ ë°–ìœ¼ë¡œ ë‚˜ê°€ë©´ ì™¼ìª½ì— í‘œì‹œ
     if (fTipX + fTipW > WINCX)
         fTipX = tMouse.x - fTipW - 4.f;
     if (fTipY + fTipH > WINCY)
@@ -386,7 +398,7 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
 
     ID2D1SolidColorBrush* pBrush = nullptr;
 
-    // ¹è°æ ¹ÝÅõ¸í °ËÁ¤
+    // ë°°ê²½ ë°˜íˆ¬ëª… ê²€ì •
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 0.f, 0.f, 0.75f), &pBrush);
     pRT->FillRoundedRectangle(
         D2D1::RoundedRect(
@@ -395,7 +407,7 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
         pBrush);
     pBrush->Release();
 
-    // Å×µÎ¸® °ñµå
+    // í…Œë‘ë¦¬ ê³¨ë“œ
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.7f, 0.6f, 0.1f, 0.9f), &pBrush);
     pRT->DrawRoundedRectangle(
         D2D1::RoundedRect(
@@ -404,7 +416,7 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
         pBrush, 1.f);
     pBrush->Release();
 
-    // ¾ÆÀÌÅÛ ÀÌ¸§ Èò»ö
+    // ì•„ì´í…œ ì´ë¦„ í°ìƒ‰
     pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 1.f), &pBrush);
     pRT->DrawText(pItem->Get_Name(), lstrlen(pItem->Get_Name()),
         CImg_Manager::Get_Instance()->Get_DebugFont(),
@@ -412,17 +424,17 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
         pBrush);
     pBrush->Release();
 
-    // ½ºÅÈ ÅØ½ºÆ® ¾ÆÀÌÅÛ Å¸ÀÔº° »ö»ó
+    // ìŠ¤íƒ¯ í…ìŠ¤íŠ¸ ì•„ì´í…œ íƒ€ìž…ë³„ ìƒ‰ìƒ
     if (pItem->Get_Type() == ITEM_EQUIPMENT)
     {
         CItemData_Equipment* pEquip = static_cast<CItemData_Equipment*>(pItem);
 
-        // °ø°Ý·Â
+        // ê³µê²©ë ¥
         if (pEquip->Get_AtkBonus() > 0)
         {
             TCHAR szAtk[32];
-            swprintf_s(szAtk, 32, L"°ø°Ý·Â  +%d", pEquip->Get_AtkBonus());
-            pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.4f, 0.4f), &pBrush);  // »¡°­
+            swprintf_s(szAtk, 32, L"ê³µê²©ë ¥  +%d", pEquip->Get_AtkBonus());
+            pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.4f, 0.4f), &pBrush);  // ë¹¨ê°•
             pRT->DrawText(szAtk, lstrlen(szAtk),
                 CImg_Manager::Get_Instance()->Get_DebugFont(),
                 D2D1::RectF(fTipX + 6.f, fTipY + 22.f, fTipX + fTipW, fTipY + 36.f),
@@ -430,12 +442,12 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
             pBrush->Release();
         }
 
-        // ¹æ¾î·Â
+        // ë°©ì–´ë ¥
         if (pEquip->Get_DefBonus() > 0)
         {
             TCHAR szDef[32];
-            swprintf_s(szDef, 32, L"¹æ¾î·Â  +%d", pEquip->Get_DefBonus());
-            pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.7f, 1.f), &pBrush);  // ÆÄ¶û
+            swprintf_s(szDef, 32, L"ë°©ì–´ë ¥  +%d", pEquip->Get_DefBonus());
+            pRT->CreateSolidColorBrush(D2D1::ColorF(0.4f, 0.7f, 1.f), &pBrush);  // íŒŒëž‘
             pRT->DrawText(szDef, lstrlen(szDef),
                 CImg_Manager::Get_Instance()->Get_DebugFont(),
                 D2D1::RectF(fTipX + 6.f, fTipY + 38.f, fTipX + fTipW, fTipY + 52.f),
@@ -445,8 +457,8 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
     }
     else if (pItem->Get_Type() == ITEM_USE)
     {
-        pRT->CreateSolidColorBrush(D2D1::ColorF(0.6f, 1.f, 0.6f), &pBrush);  // ¿¬µÎ
-        pRT->DrawText(L"¿ìÅ¬¸¯À¸·Î »ç¿ë", 8,
+        pRT->CreateSolidColorBrush(D2D1::ColorF(0.6f, 1.f, 0.6f), &pBrush);  // ì—°ë‘
+        pRT->DrawText(L"ìš°í´ë¦­ìœ¼ë¡œ ì‚¬ìš©", 8,
             CImg_Manager::Get_Instance()->Get_DebugFont(),
             D2D1::RectF(fTipX + 6.f, fTipY + 22.f, fTipX + fTipW, fTipY + 36.f),
             pBrush);
@@ -454,8 +466,8 @@ void CUI_Inventory::Render_Tooltip(ID2D1RenderTarget* pRT)
     }
     else
     {
-        pRT->CreateSolidColorBrush(D2D1::ColorF(0.8f, 0.8f, 0.8f), &pBrush);  // È¸»ö
-        pRT->DrawText(L"±âÅ¸ ¾ÆÀÌÅÛ", 6,
+        pRT->CreateSolidColorBrush(D2D1::ColorF(0.8f, 0.8f, 0.8f), &pBrush);  // íšŒìƒ‰
+        pRT->DrawText(L"ê¸°íƒ€ ì•„ì´í…œ", 6,
             CImg_Manager::Get_Instance()->Get_DebugFont(),
             D2D1::RectF(fTipX + 6.f, fTipY + 22.f, fTipX + fTipW, fTipY + 36.f),
             pBrush);
@@ -471,7 +483,7 @@ void CUI_Inventory::Debug_Render(ID2D1RenderTarget* pRT)
 
     ID2D1SolidColorBrush* pBrush = nullptr;
 
-    // ===== Àåºñ ½½·Ô »¡°£»ö =====
+    // ===== ìž¥ë¹„ ìŠ¬ë¡¯ ë¹¨ê°„ìƒ‰ =====
     pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.f, 0.f, 0.8f), &pBrush);
     for (int i = 0; i < SLOT_END; ++i)
     {
@@ -483,7 +495,7 @@ void CUI_Inventory::Debug_Render(ID2D1RenderTarget* pRT)
             D2D1::RectF(fX, fY, fX + info.fW, fY + info.fH),
             pBrush, 1.5f);
 
-        // ½½·Ô ÀÌ¸§ Ç¥½Ã
+        // ìŠ¬ë¡¯ ì´ë¦„ í‘œì‹œ
         static const TCHAR* s_SlotName[SLOT_END] = {
             L"WEAPON", L"ARMOR", L"SHIELD", L"HELMET", L"PENDANT", L"RING"
         };
@@ -494,7 +506,7 @@ void CUI_Inventory::Debug_Render(ID2D1RenderTarget* pRT)
     }
     pBrush->Release();
 
-    // ===== ÀÎº¥Åä¸® ½½·Ô ÃÊ·Ï»ö =====
+    // ===== ì¸ë²¤í† ë¦¬ ìŠ¬ë¡¯ ì´ˆë¡ìƒ‰ =====
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 1.f, 0.f, 0.8f), &pBrush);
     for (int i = 0; i < INVEN_SIZE; ++i)
     {
@@ -508,7 +520,7 @@ void CUI_Inventory::Debug_Render(ID2D1RenderTarget* pRT)
             D2D1::RectF(fX, fY, fX + INVEN_SLOT_SIZE, fY + INVEN_SLOT_SIZE),
             pBrush, 1.5f);
 
-        // ½½·Ô ¹øÈ£
+        // ìŠ¬ë¡¯ ë²ˆí˜¸
         TCHAR szNum[4];
         swprintf_s(szNum, 4, L"%d", i);
         pRT->DrawText(szNum, lstrlen(szNum),
@@ -518,7 +530,7 @@ void CUI_Inventory::Debug_Render(ID2D1RenderTarget* pRT)
     }
     pBrush->Release();
 
-    // ===== ÆÐ³Î ÀüÃ¼ ¿Ü°û¼± ³ë¶õ»ö =====
+    // ===== íŒ¨ë„ ì „ì²´ ì™¸ê³½ì„  ë…¸ëž€ìƒ‰ =====
     pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 0.f, 0.8f), &pBrush);
     pRT->DrawRectangle(
         D2D1::RectF(fPanelL, fPanelT, fPanelL + PANEL_W, fPanelT + PANEL_H),

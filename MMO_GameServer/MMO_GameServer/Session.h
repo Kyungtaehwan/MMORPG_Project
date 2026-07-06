@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #define WIN32_LEAN_AND_MEAN
 #include <WinSock2.h>
 #include <MSWSock.h>
@@ -8,6 +8,8 @@
 #include <atomic>
 #include <mutex>
 #include <memory>
+#include <queue>
+#include <vector>
 
 enum class IOType : uint8_t
 {
@@ -22,8 +24,8 @@ enum class IOType : uint8_t
 
 class CSession;
 // ----------------------------------------------------------------
-//  CIOEvent WSAOVERLAPPED Ȯ��ü
-//  WSAOVERLAPPED�� �ݵ�� ù ��° ������� ��
+//  CIOEvent WSAOVERLAPPED 확장체
+//  WSAOVERLAPPED가 반드시 첫 번째 멤버여야 함
 // ----------------------------------------------------------------
 struct CIOEvent
 {
@@ -57,7 +59,7 @@ public:
     CSession();
     ~CSession();
 
-    // ---- �ܺο��� ȣ�� ----
+    // ---- 외부에서 호출 ----
     void        Initialize();
     void        SetSocket(SOCKET socket) { m_socket = socket; }
     SOCKET      GetSocket() { return m_socket; }
@@ -77,6 +79,7 @@ public:
 private:
     void        ProcessRecvData(int32_t nNewBytes);
     void        HandlePacket(uint8_t* pData, int32_t nSize);
+    void        StartSend_Locked();   // m_sendLock 보유 상태에서 큐 앞 패킷 1개 전송
 
 private:
     SOCKET               m_socket = INVALID_SOCKET;
@@ -88,10 +91,12 @@ private:
     uint8_t              m_recvBuf[RECV_BUF_SIZE] = {};
     int32_t              m_prevRemain = 0;
 
-    // send
+    // send (세션당 순차 전송: 앞 패킷 완료 후 다음 전송 — 버퍼/오버랩 재사용 안전)
     CIOEvent             m_sendEvent{ IOType::Send };
     uint8_t              m_sendBuf[SEND_BUF_SIZE] = {};
     std::mutex           m_sendLock;
+    std::queue<std::vector<uint8_t>> m_sendQueue;
+    bool                 m_sending = false;
 
     // accept
     CIOEvent             m_acceptEvent{ IOType::Accept };

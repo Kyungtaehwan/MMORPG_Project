@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "ActiveObject.h"
 #include "Input_Manager.h"
 
@@ -14,13 +14,13 @@ int CActiveObject::Update(float dt)
 {
     if (m_bInteractable)
     {
-        if (CInput_Manager::Get_Instance()->Is_GameMode())  // �߰�
+        if (CInput_Manager::Get_Instance()->Is_GameMode())  // 추가
         {
             POINT tMouse = CInput_Manager::Get_Instance()->Get_MousePos();
             if (Is_MouseCollide(tMouse))
             {
                 CInput_Manager::Get_Instance()->Set_CursorMode(CURSOR_DOOR);
-                if (CInput_Manager::Get_Instance()->Mouse_Down_Snap(MBUTTON_L))
+                if (CInput_Manager::Get_Instance()->Mouse_Down_Snap(MBUTTON_L))  // 좌클릭 상호작용
                     On_Click();
             }
         }

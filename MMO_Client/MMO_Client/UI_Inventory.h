@@ -1,6 +1,7 @@
-#pragma once
+ï»¿#pragma once
 #include "UI.h"
 #include "Item_Define.h"
+#include "UI_CloseButton.h"
 
 class CInventory;
 class CEquipment;
@@ -33,7 +34,7 @@ public:
     }
 
 private:
-    // ·»´õ
+    // ë Œë”
     void    Render_Background(ID2D1RenderTarget* pRT);
     void    Render_InvenSlots(ID2D1RenderTarget* pRT);
     void    Render_BackPanel(ID2D1RenderTarget* pRT);
@@ -43,11 +44,11 @@ private:
     void    Render_Item(ID2D1RenderTarget* pRT, CItemData* pItem,
         float fX, float fY, float fW, float fH);
 
-    // ÀÔ·Â
+    // ì…ë ¥
     void    On_InvenRClick(int iSlot);
     void    On_EquipRClick(EQUIP_SLOT eSlot);
 
-    // ½½·Ô hit test
+    // ìŠ¬ë¡¯ hit test
     int         Get_InvenSlotAt(POINT tMouse);
     EQUIP_SLOT  Get_EquipSlotAt(POINT tMouse);
 
@@ -56,17 +57,20 @@ private:
     CInventory* m_pInven = nullptr;
     CEquipment* m_pEquip = nullptr;
     bool        m_bVisible = false;
+    CUI_CloseButton m_closeBtn;   // ìš°ìƒë‹¨ X ë²„íŠ¼
+
+    void Close_Panel();           // ì¸ë²¤ ë‹«ê¸°(ESC/X ê³µí†µ)
 
 private:
     void    Render_Tooltip(ID2D1RenderTarget* pRT);
     int     m_iHoverInvenSlot = -1;
-    int     m_iHoverEquipSlot = -1;  // EQUIP_SLOT ´ë½Å int·Î
+    int     m_iHoverEquipSlot = -1;  // EQUIP_SLOT ëŒ€ì‹  intë¡œ
 
-    // ·¹ÀÌ¾Æ¿ô »ó¼ö
+    // ë ˆì´ì•„ì›ƒ ìƒìˆ˜
     static constexpr float PANEL_W = 320.f * INVEN_RATE;
     static constexpr float PANEL_H = 352.f * INVEN_RATE;
     static constexpr float INVEN_OFF_X = 18.f * INVEN_RATE;
-    static constexpr float INVEN_OFF_Y = 222.5f * INVEN_RATE;  // ÀåºñÃ¢ ¾Æ·¡
+    static constexpr float INVEN_OFF_Y = 222.5f * INVEN_RATE;  // ì¥ë¹„ì°½ ì•„ë˜
     static constexpr int   INVEN_COLS = 10;
     static constexpr float SLOT_GAP = 1.5f;
 #ifdef GAME_DEBUG

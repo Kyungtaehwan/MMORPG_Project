@@ -44,7 +44,7 @@ static const int BLOCK_MAP_TEST[30][20] =
 
 // 마을 맵: 테두리만 있고 가운데 장애물 없음 (전부 잔디).
 // 클라이언트 CZone_Town::Build()의 블록맵(20x30 전부 0)과 일치해야 함.
-static const int BLOCK_MAP_TOWN[30][20] = { 0 };
+static const int BLOCK_MAP_TOWN[30][30] = { 0 };
 
 // 동쪽 필드: 가로 막대 2개 (클라 CZone_Field_E::Build()와 동일해야 함)
 static const int BLOCK_MAP_FIELD_E[30][20] =
@@ -152,7 +152,8 @@ static const int BLOCK_MAP_FIELD_W[30][20] =
 };
 
 // 필드 안 이동 가능한 타일에 몬스터를 랜덤 배치
-static void SpawnRandomMonsters(CZone* pZone, int32_t& nNextId, int nCount)
+static void SpawnRandomMonsters(CZone* pZone, int32_t& nNextId, int nCount,
+    MONSTER_TYPE eType = MONSTER_ORC)
 {
     if (!pZone) return;
     int nPlaced = 0, nAttempts = 0;
@@ -162,7 +163,7 @@ static void SpawnRandomMonsters(CZone* pZone, int32_t& nNextId, int nCount)
         int x = 3 + rand() % 20;  // 내부 grass X 범위 3..22
         int z = 3 + rand() % 30;  // 내부 grass Z 범위 3..32
         if (!pZone->IsMovable(x, z)) continue;
-        pZone->SpawnMonster(nNextId++, MONSTER_ORC,
+        pZone->SpawnMonster(nNextId++, eType,
             static_cast<float>(x) + 0.5f, static_cast<float>(z) + 0.5f);
         ++nPlaced;
     }
@@ -175,17 +176,39 @@ CZone_Manager::CZone_Manager()
     // 클라이언트 Build_TileGrid(20, 30, ...) 와 동일한 인자
     // 북쪽 필드(기존) + 동/남/서 필드, 그리고 허브인 마을
     m_zones[ZONE_TEST]    = new CZone(ZONE_TEST,    "FieldN", 20, 30, &BLOCK_MAP_TEST[0][0]);
-    m_zones[ZONE_TOWN]    = new CZone(ZONE_TOWN,    "Town",   20, 30, &BLOCK_MAP_TOWN[0][0]);
+    m_zones[ZONE_TOWN]    = new CZone(ZONE_TOWN,    "Town",   30, 30, &BLOCK_MAP_TOWN[0][0]);
     m_zones[ZONE_FIELD_E] = new CZone(ZONE_FIELD_E, "FieldE", 20, 30, &BLOCK_MAP_FIELD_E[0][0]);
     m_zones[ZONE_FIELD_S] = new CZone(ZONE_FIELD_S, "FieldS", 20, 30, &BLOCK_MAP_FIELD_S[0][0]);
     m_zones[ZONE_FIELD_W] = new CZone(ZONE_FIELD_W, "FieldW", 20, 30, &BLOCK_MAP_FIELD_W[0][0]);
 
     // 각 필드에 몬스터를 랜덤 배치 (마을은 없음). ID는 전역 고유.
     int32_t nNextId = 1;
-    SpawnRandomMonsters(m_zones[ZONE_TEST],    nNextId, 5);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_E], nNextId, 5);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_S], nNextId, 5);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 5);
+    // 각 필드: 오크(길찾기) + 윙(부유·직선추적) 혼합 배치
+    SpawnRandomMonsters(m_zones[ZONE_TEST],    nNextId, 3, MONSTER_ORC);
+    SpawnRandomMonsters(m_zones[ZONE_TEST],    nNextId, 2, MONSTER_WING);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_E], nNextId, 3, MONSTER_ORC);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_E], nNextId, 2, MONSTER_WING);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_S], nNextId, 3, MONSTER_ORC);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_S], nNextId, 2, MONSTER_WING);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 3, MONSTER_ORC);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 2, MONSTER_WING);
+
+    // 마을 오브젝트 블락 (클라 Zone_Town::Build 의 s_block 목록과 반드시 동일)
+    {
+        CZone* pTown = m_zones[ZONE_TOWN];
+        static const int townBlock[][2] = {
+            { 7,21},{ 7,20},{ 7,19},{ 7,18},{ 7,17},{ 6,19},{ 6,18},{ 6,17},
+            { 7,15},{ 7,14},{ 7,13},{ 8,15},{ 8,14},{ 8,13},{ 8,12},
+            {12,10},{13,10},{14,10},{12, 9},{13, 9},
+            {17,18},{17,17},
+            {13,22},{14,22},{15,22},
+            {14, 3},{15, 3},{16, 3},{14, 4},{15, 4},{16, 4},{14, 5},{15, 5},{16, 5},
+        };
+        for (auto& b : townBlock) pTown->SetBlock(b[0], b[1]);
+        for (int x = 18; x <= 27; ++x)      // 병사 큰 텐트 영역
+            for (int z = 3; z <= 6; ++z)
+                pTown->SetBlock(x, z);
+    }
 }
 
 CZone_Manager::~CZone_Manager()

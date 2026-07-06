@@ -72,6 +72,25 @@ public:
 
     void AddGold(int32_t nAmount) { m_gold += nAmount; }
 
+    // 골드 소비. 부족하면 false (변경 없음).
+    bool SpendGold(int32_t nAmount)
+    {
+        if (nAmount < 0 || m_gold < nAmount) return false;
+        m_gold -= nAmount;
+        return true;
+    }
+
+    // 슬롯에서 nCount개 제거. 부족하면 false (변경 없음). 0이 되면 슬롯 비움.
+    bool RemoveItemSlot(int32_t nSlot, int32_t nCount)
+    {
+        if (nSlot < 0 || nSlot >= INVEN_SIZE) return false;
+        if (m_invenCode[nSlot] <= 0 || nCount <= 0) return false;
+        if (m_invenCount[nSlot] < nCount) return false;
+        m_invenCount[nSlot] -= nCount;
+        if (m_invenCount[nSlot] <= 0) { m_invenCode[nSlot] = 0; m_invenCount[nSlot] = 0; }
+        return true;
+    }
+
     // 아이템 1종 추가. 스택 가능(포션/스크롤/기타)은 99까지 누적,
     // 그 외(장비)는 빈 슬롯 차지. 가득 차면 false.
     bool AddItem(int32_t nCode, int32_t nAmount)

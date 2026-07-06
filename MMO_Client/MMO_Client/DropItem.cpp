@@ -90,30 +90,26 @@ void CDropItem::Render_HoverName(ID2D1RenderTarget* pRT, float fIconX, float fIc
          tMouse.y >= fIconY && tMouse.y <= fIconY + fH);
     if (!bHover) return;
 
-    IDWriteTextFormat* pFont = CImg_Manager::Get_Instance()->Get_DebugFont();
-    if (!pFont) return;
-
-    float fBoxW = 120.f, fBoxH = 22.f;
+    // 이름 길이에 맞춰 박스 폭 결정(좌우 패딩 14px)
+    float fTextW = CImg_Manager::Get_Instance()->Measure_TextWidth(m_szName);
+    float fBoxW = fTextW + 14.f;
+    if (fBoxW < 28.f) fBoxW = 28.f;   // 최소 폭
+    float fBoxH = 22.f;
     float fBoxX = fIconX + fW / 2.f - fBoxW / 2.f;
     float fBoxY = fIconY - fBoxH - 2.f;
+    D2D1_RECT_F rcBox = D2D1::RectF(fBoxX, fBoxY, fBoxX + fBoxW, fBoxY + fBoxH);
 
     ID2D1SolidColorBrush* pBg = nullptr;
     pRT->CreateSolidColorBrush(D2D1::ColorF(0.f, 0.f, 0.f, 0.6f), &pBg);
     if (pBg)
     {
-        pRT->FillRectangle(
-            D2D1::RectF(fBoxX, fBoxY, fBoxX + fBoxW, fBoxY + fBoxH), pBg);
+        pRT->FillRectangle(rcBox, pBg);
         pBg->Release();
     }
 
-    ID2D1SolidColorBrush* pText = nullptr;
-    pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 0.4f), &pText);
-    if (pText)
-    {
-        pRT->DrawText(m_szName, lstrlen(m_szName), pFont,
-            D2D1::RectF(fBoxX, fBoxY, fBoxX + fBoxW, fBoxY + fBoxH), pText);
-        pText->Release();
-    }
+    // 이름(박스 정중앙)
+    CImg_Manager::Get_Instance()->Draw_Text_Center(pRT, m_szName, rcBox,
+        D2D1::ColorF(1.f, 1.f, 0.4f));
 }
 
 // 디버그: 바닥 콜라이더(획득 판정 영역) 표시

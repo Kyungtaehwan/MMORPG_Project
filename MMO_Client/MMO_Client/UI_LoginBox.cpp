@@ -1,7 +1,17 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "UI_LoginBox.h"
 #include "Img_Manager.h"
 #include "Input_Manager.h"
+#include "Network_Manager.h"
+
+// ë¡œê·¸ì¸ ì…ë ¥ì€ ASCII(ê³„ì • id/pw) â†’ wide ë¬¸ìì—´ì„ char ë²„í¼ë¡œ ë‹¨ìˆœ ë³µì‚¬
+static void WideToNarrow(const std::wstring& src, char* out, int cap)
+{
+    int i = 0;
+    for (; i < (int)src.size() && i < cap - 1; ++i)
+        out[i] = (char)src[i];
+    out[i] = '\0';
+}
 
 CUI_LoginBox::CUI_LoginBox()
 {
@@ -35,29 +45,43 @@ int CUI_LoginBox::Update(float dt)
     float fL = (float)m_tRect.left;
     float fT = (float)m_tRect.top;
 
-    // ¦¡¦¡ ¸¶¿ì½º Å¬¸¯À¸·Î Æ÷Ä¿½º ÀÌµ¿ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ ë§ˆìš°ìŠ¤ í´ë¦­ìœ¼ë¡œ í¬ì»¤ìŠ¤ ì´ë™ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (inp->Mouse_Down(MBUTTON_L))
     {
-        // ID Ä­ Å¬¸¯?
+        // ID ì¹¸ í´ë¦­?
         if (mp.x >= fL + FIELD_X && mp.x <= fL + FIELD_X + FIELD_W &&
             mp.y >= fT + ID_Y && mp.y <= fT + ID_Y + FIELD_H)
             m_iFocus = 0;
 
-        // PW Ä­ Å¬¸¯?
+        // PW ì¹¸ í´ë¦­?
         else if (mp.x >= fL + FIELD_X && mp.x <= fL + FIELD_X + FIELD_W &&
             mp.y >= fT + PW_Y && mp.y <= fT + PW_Y + FIELD_H)
             m_iFocus = 1;
     }
 
-    // ¦¡¦¡ TabÀ¸·Î Æ÷Ä¿½º ÀüÈ¯ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ Tabìœ¼ë¡œ í¬ì»¤ìŠ¤ ì „í™˜ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (inp->Key_Down(VK_TAB))
         m_iFocus = (m_iFocus + 1) % 2;
 
-    // ¦¡¦¡ Backspace ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ Backspace â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (inp->Key_Down(VK_BACK))
     {
         std::wstring& str = (m_iFocus == 0) ? m_strID : m_strPW;
         if (!str.empty()) str.pop_back();
+    }
+
+    // â”€â”€ Enter â†’ ë¡œê·¸ì¸ ìš”ì²­ (ì„œë²„ê°€ AccountDBë¡œ ì¸ì¦) â”€â”€
+    if (inp->Key_Down(VK_RETURN))
+    {
+        if (!m_strID.empty() && !m_strPW.empty())
+        {
+            char szID[20] = {}, szPW[20] = {};
+            WideToNarrow(m_strID, szID, 20);
+            WideToNarrow(m_strPW, szPW, 20);
+            CNetwork_Manager::Get_Instance()->SendLogin(szID, szPW);
+            // ì„±ê³µí•˜ë©´ ì„œë²„ SC_ENTER_GAME ì²˜ë¦¬ì—ì„œ LEVEL_TESTë¡œ ì „í™˜ë¨.
+            // ì‹¤íŒ¨í•˜ë©´ SC_LOGIN_FAIL â†’ Is_LoginFailed()ê°€ true (Renderì—ì„œ í‘œì‹œ).
+        }
     }
 
     return UI_NOEVENT;
@@ -76,11 +100,11 @@ void CUI_LoginBox::Render(ID2D1RenderTarget* pRT)
         pRT->CreateSolidColorBrush(
             D2D1::ColorF(0.9f, 0.9f, 0.9f), &m_pBrushText);
         pRT->CreateSolidColorBrush(
-            D2D1::ColorF(0.f, 0.f, 0.f, 0.45f), &m_pBrushFocus);   // ¹İÅõ¸í °ËÁ¤À¸·Î º¯°æ
+            D2D1::ColorF(0.f, 0.f, 0.f, 0.45f), &m_pBrushFocus);   // ë°˜íˆ¬ëª… ê²€ì •ìœ¼ë¡œ ë³€ê²½
         pRT->CreateSolidColorBrush(
-            D2D1::ColorF(0.f, 0.f, 0.f, 0.45f), &m_pBrushNormal);  // µ¿ÀÏÇÏ°Ô ¸ÂÃã
+            D2D1::ColorF(0.f, 0.f, 0.f, 0.45f), &m_pBrushNormal);  // ë™ì¼í•˜ê²Œ ë§ì¶¤
         pRT->CreateSolidColorBrush(
-            D2D1::ColorF(0.6f, 0.6f, 0.6f, 0.7f), &m_pBrushHint);  // Èå¸° È¸»ö
+            D2D1::ColorF(0.6f, 0.6f, 0.6f, 0.7f), &m_pBrushHint);  // íë¦° íšŒìƒ‰
     }
     if (!m_pDWFactory)
     {
@@ -89,7 +113,7 @@ void CUI_LoginBox::Render(ID2D1RenderTarget* pRT)
             reinterpret_cast<IUnknown**>(&m_pDWFactory));
 
         m_pDWFactory->CreateTextFormat(
-            L"¸¼Àº °íµñ", nullptr,
+            L"ë§‘ì€ ê³ ë”•", nullptr,
             DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL,
             15.f, L"ko-KR", &m_pFmtInput);
@@ -101,14 +125,14 @@ void CUI_LoginBox::Render(ID2D1RenderTarget* pRT)
     float fL = (float)m_tRect.left;
     float fT = (float)m_tRect.top;
 
-    // ¦¡¦¡ ¹è°æ ÀÌ¹ÌÁö ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ ë°°ê²½ ì´ë¯¸ì§€ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     ID2D1Bitmap* pFrame = CImg_Manager::Get_Instance()->Find_Png(L"LOGIN_BOX");
     if (pFrame)
         pRT->DrawBitmap(pFrame,
             D2D1::RectF(fL, fT, fL + PANEL_W, fT + PANEL_H),
             0.8f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 
-    // ¦¡¦¡ ID ÀÔ·Â Ä­ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ ID ì…ë ¥ ì¹¸ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     {
         D2D1_RECT_F rc = D2D1::RectF(
             fL + FIELD_X, fT + ID_Y,
@@ -118,7 +142,7 @@ void CUI_LoginBox::Render(ID2D1RenderTarget* pRT)
 
         D2D1_RECT_F rcText = D2D1::RectF(rc.left + 8.f, rc.top, rc.right - 4.f, rc.bottom);
 
-        // ºñ¾îÀÖ°í Æ÷Ä¿½º ¾øÀ¸¸é ÈùÆ® ÅØ½ºÆ®
+        // ë¹„ì–´ìˆê³  í¬ì»¤ìŠ¤ ì—†ìœ¼ë©´ íŒíŠ¸ í…ìŠ¤íŠ¸
         if (m_strID.empty() && m_iFocus != 0)
         {
             const wchar_t* hint = L"ID";
@@ -134,7 +158,7 @@ void CUI_LoginBox::Render(ID2D1RenderTarget* pRT)
         }
     }
 
-    // PW Ä­ - µ¿ÀÏÇÏ°Ô
+    // PW ì¹¸ - ë™ì¼í•˜ê²Œ
     {
         D2D1_RECT_F rc = D2D1::RectF(
             fL + FIELD_X, fT + PW_Y,
@@ -144,7 +168,7 @@ void CUI_LoginBox::Render(ID2D1RenderTarget* pRT)
 
         D2D1_RECT_F rcText = D2D1::RectF(rc.left + 8.f, rc.top, rc.right - 4.f, rc.bottom);
 
-        // ºñ¾îÀÖ°í Æ÷Ä¿½º ¾øÀ¸¸é ÈùÆ® ÅØ½ºÆ®
+        // ë¹„ì–´ìˆê³  í¬ì»¤ìŠ¤ ì—†ìœ¼ë©´ íŒíŠ¸ í…ìŠ¤íŠ¸
         if (m_strPW.empty() && m_iFocus != 1)
         {
             const wchar_t* hint = L"Password";
@@ -157,6 +181,27 @@ void CUI_LoginBox::Render(ID2D1RenderTarget* pRT)
             if (m_iFocus == 1 && m_bCaretVis) display += L'|';
             pRT->DrawText(display.c_str(), (UINT32)display.size(),
                 m_pFmtInput, rcText, m_pBrushText);
+        }
+    }
+
+    // ì•ˆë‚´ / ë¡œê·¸ì¸ ì‹¤íŒ¨ ë©”ì‹œì§€
+    {
+        D2D1_RECT_F rcMsg = D2D1::RectF(
+            fL + FIELD_X, fT + PW_Y + FIELD_H + 8.f,
+            fL + FIELD_X + FIELD_W, fT + PW_Y + FIELD_H + 30.f);
+
+        if (CNetwork_Manager::Get_Instance()->Is_LoginFailed())
+        {
+            ID2D1SolidColorBrush* pFail = nullptr;
+            pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.3f, 0.3f), &pFail);
+            const wchar_t* msg = L"ë¡œê·¸ì¸ ì‹¤íŒ¨ - ì•„ì´ë””/ë¹„ë°€ë²ˆí˜¸ í™•ì¸";
+            pRT->DrawText(msg, (UINT32)wcslen(msg), m_pFmtInput, rcMsg, pFail);
+            pFail->Release();
+        }
+        else
+        {
+            const wchar_t* msg = L"Enter: ë¡œê·¸ì¸ / Tab: ì¹¸ ì´ë™";
+            pRT->DrawText(msg, (UINT32)wcslen(msg), m_pFmtInput, rcMsg, m_pBrushHint);
         }
     }
 }
@@ -177,7 +222,7 @@ void CUI_LoginBox::Process_Event()
 
 void CUI_LoginBox::On_Char(wchar_t ch)
 {
-    // Á¦¾î¹®ÀÚ ¹«½Ã
+    // ì œì–´ë¬¸ì ë¬´ì‹œ
     if (ch == L'\b' || ch == L'\t' || ch == L'\r' || ch == L'\n') return;
 
     std::wstring& str = (m_iFocus == 0) ? m_strID : m_strPW;

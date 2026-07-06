@@ -1,0 +1,50 @@
+﻿#pragma once
+#include "define.h"
+
+class CInventory;
+class CItemData;
+
+// ================================================================
+//  CUI_InvenGrid  재사용 인벤토리 그리드 위젯
+//  - "인벤 슬롯을 골라야 하는" 모든 UI 공용: 상점 판매, (예정)경매장 등록 등.
+//  - 이 위젯은 렌더 + 히트테스트만 담당한다.
+//    입력모드 전환·네트워크 전송·행동 의미(판매/등록)는 호스트 UI가 결정.
+//  - 사용법:
+//      m_grid.Set_Reference(pInven);
+//      m_grid.Set_Layout(left, top, cols, slot, gap);
+//      int iClicked = m_grid.Update(tMouse, bLeftClick); // 클릭 슬롯(-1=없음)
+//      m_grid.Render(pRT);
+// ================================================================
+class CUI_InvenGrid
+{
+public:
+    void Set_Reference(CInventory* pInven) { m_pInven = pInven; }
+
+    // 좌상단 기준 배치. cols=열 수, slot=칸 크기, gap=칸 간격.
+    void Set_Layout(float fLeft, float fTop, int iCols, float fSlot, float fGap)
+    {
+        m_fLeft = fLeft; m_fTop = fTop;
+        m_iCols = (iCols > 0) ? iCols : 1;
+        m_fSlot = fSlot;  m_fGap = fGap;
+    }
+
+    // 마우스/좌클릭 처리. 아이템이 있는 슬롯을 클릭하면 그 인덱스, 아니면 -1.
+    int  Update(POINT tMouse, bool bLeftClick);
+    void Render(ID2D1RenderTarget* pRT);
+
+    int         Get_HoverSlot() const { return m_iHoverSlot; }
+    CItemData*  Get_HoverItem() const;
+
+private:
+    void Slot_Pos(int iSlot, float& fX, float& fY) const;
+    int  Slot_At(POINT tMouse) const;
+
+private:
+    CInventory* m_pInven = nullptr;
+    float m_fLeft = 0.f;
+    float m_fTop  = 0.f;
+    int   m_iCols = 5;
+    float m_fSlot = 44.f;
+    float m_fGap  = 4.f;
+    int   m_iHoverSlot = -1;
+};

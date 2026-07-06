@@ -140,5 +140,8 @@
     <ClInclude Include="PathFinder.h">
       <Filter>Contents_Level\99.Util</Filter>
     </ClInclude>
+    <ClInclude Include="AccountDB.h">
+      <Filter>Contents_Level\02.Player_Manager\Player</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

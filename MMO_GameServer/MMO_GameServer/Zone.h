@@ -62,8 +62,12 @@ public:
     void OnMovePos(PlayerRef pPlayer,
         float fCurX, float fCurZ, uint32_t nMoveTime);
 
+    // UI 진입 등으로 이동 강제 정지. 현재 위치 커밋 + m_bMoving=false.
+    void OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ);
+
     // 유틸
     bool IsMovable(int32_t nTileX, int32_t nTileZ) const;
+    void SetBlock(int32_t nTileX, int32_t nTileZ);   // 오브젝트 블락(마을) - 클라와 동일해야 함
     int32_t GetZoneID() { return m_nZoneID; }
 
 

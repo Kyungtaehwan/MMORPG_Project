@@ -70,6 +70,14 @@ bool CZone::IsMovable(int32_t nTileX, int32_t nTileZ) const
         m_tileMap[nTileZ * m_nTileCountX + nTileX]));
 }
 
+// 오브젝트가 가리는 칸을 이동 불가로 지정 (마을용, 클라 Zone_Town과 동일 목록)
+void CZone::SetBlock(int32_t nTileX, int32_t nTileZ)
+{
+    if (nTileX < 0 || nTileX >= m_nTileCountX) return;
+    if (nTileZ < 0 || nTileZ >= m_nTileCountZ) return;
+    m_tileMap[nTileZ * m_nTileCountX + nTileX] = static_cast<uint8_t>(TILE_BLOCK);
+}
+
 // ================================================================
 //  EnterZone
 // ================================================================
@@ -314,7 +322,53 @@ void CZone::OnMovePos(PlayerRef pPlayer,
 }
 
 // ================================================================
-//  GetNearPlayers ? 존 전체 순회 + 타일 거리로 시야 판정
+//  OnMoveStop ? UI 진입 등으로 이동 강제 정지
+//
+//  클라가 UI를 열면 그 자리에 멈추지만 CS_MOVE_POS는 더 안 온다.
+//  서버가 이걸 모르면 m_bMoving이 true로 남아 GetCurrentPos가 옛 목적지로
+//  오버슈트 → 몬스터 AI가 잘못된 위치를 때린다.
+//  그래서 보고된 현재 위치를 커밋하고 이동을 멈춘다.
+//  (플레이어는 여전히 월드에 정상 존재 → 몬스터가 제 위치를 때림)
+// ================================================================
+void CZone::OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ)
+{
+    if (pPlayer->m_bDead) return;
+
+    uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
+
+    // 서버 추정 위치와 비교해 허용 오차(2타일) 내면 보고 위치 채택, 넘으면 서버 위치로 스냅(치트 방지)
+    if (pPlayer->m_bMoving)
+    {
+        float fServerX, fServerZ;
+        pPlayer->GetCurrentPos(nNow, fServerX, fServerZ);
+        float fDiffX = fCurX - fServerX;
+        float fDiffZ = fCurZ - fServerZ;
+        if (sqrtf(fDiffX * fDiffX + fDiffZ * fDiffZ) > 2.f)
+        {
+            fCurX = fServerX;
+            fCurZ = fServerZ;
+        }
+    }
+
+    pPlayer->m_fCurX  = fCurX;
+    pPlayer->m_fCurZ  = fCurZ;
+    pPlayer->m_fDestX = fCurX;
+    pPlayer->m_fDestZ = fCurZ;
+    pPlayer->m_bMoving = false;
+    pPlayer->m_nLastMoveTime = nNow;
+    pPlayer->UpdateTilePos();
+
+    // 다른 플레이어들도 정지(cur=dest)로 보이도록 브로드캐스트
+    std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
+    for (int32_t nNearID : pPlayer->m_viewList)
+    {
+        PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
+        if (pNear) Send_MovePlayer(pNear, pPlayer, nNow);
+    }
+}
+
+// ================================================================
+//  GetNearPlayers 존 전체 순회 + 타일 거리로 시야 판정
 // ================================================================
 std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
 {
@@ -345,9 +399,9 @@ bool CZone::CanSee(PlayerRef pA, PlayerRef pB)
 //  UpdateViewAndBroadcast
 //
 //  old/new 비교:
-//  new에 있고 old에 없음 → 새로 보임 → SC_ADD_PLAYER 양방향
-//  old에 있고 new에 없음 → 시야 밖   → SC_REMOVE_PLAYER 양방향
-//  둘 다 있음            → 계속 보임 → SC_MOVE_PLAYER
+//  new에 있고 old에 없음 => 새로 보임 => SC_ADD_PLAYER 양방향
+//  old에 있고 new에 없음 => 시야 밖   => SC_REMOVE_PLAYER 양방향
+//  둘 다 있음           => 계속 보임 => SC_MOVE_PLAYER
 // ================================================================
 void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
     const std::vector<int32_t>& vOldView,
@@ -680,6 +734,52 @@ void CZone::Monster_Chase(MonsterRef pMonster, float fPlayerX, float fPlayerZ)
             pMonster->m_eState = MON_IDLE;
             Broadcast_MoveMonster(pMonster);
         }
+        return;
+    }
+
+    // ── 부유 몬스터(WING): 길찾기 없이 플레이어를 향해 직선 이동 (장애물 무시) ──
+    if (pMonster->m_eType == MONSTER_WING)
+    {
+        float fNX = fDX / fDist;
+        float fNZ = fDZ / fDist;
+        MONSTER_DIR eNewDir = pMonster->CalcDirection(fNX, fNZ);
+
+        pMonster->m_eState = MON_WALK;
+        pMonster->m_eDir = eNewDir;
+        pMonster->m_fDestX = fPlayerX;
+        pMonster->m_fDestZ = fPlayerZ;
+
+        float fMoveStep = pMonster->m_fSpeed * 0.5f;
+        if (fDist <= fMoveStep)
+        {
+            pMonster->m_fCurX = fPlayerX;
+            pMonster->m_fCurZ = fPlayerZ;
+        }
+        else
+        {
+            pMonster->m_fCurX += fNX * fMoveStep;
+            pMonster->m_fCurZ += fNZ * fMoveStep;
+        }
+
+        // 이동 후 공격 범위 진입 → 멈추고 플레이어 방향 바라봄
+        float fAfterDX = fPlayerX - pMonster->m_fCurX;
+        float fAfterDZ = fPlayerZ - pMonster->m_fCurZ;
+        float fAfterDist = sqrtf(fAfterDX * fAfterDX + fAfterDZ * fAfterDZ);
+        if (fAfterDist <= pMonster->m_fAtkRange)
+        {
+            pMonster->m_eState = MON_IDLE;
+            if (fAfterDist > 0.001f)
+                pMonster->m_eDir = pMonster->CalcDirection(fAfterDX / fAfterDist, fAfterDZ / fAfterDist);
+            pMonster->m_fDestX = pMonster->m_fCurX;
+            pMonster->m_fDestZ = pMonster->m_fCurZ;
+            pMonster->UpdateTilePos();
+            Broadcast_MoveMonster(pMonster);
+            return;
+        }
+
+        bool bTileChanged = pMonster->UpdateTilePos();
+        if (bTileChanged || ePrevDir != eNewDir || ePrevState != MON_WALK)
+            Broadcast_MoveMonster(pMonster);
         return;
     }
 
@@ -1097,6 +1197,20 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
             << " 거리=" << fDist << std::endl;
         return;
     }
+
+    // ---- 공격 시 플레이어 정지 처리 (위치 desync 방지) ----
+    // 클라는 공격 사거리에 들면 그 자리에 멈춰 CS_ATTACK_MONSTER만 보내고
+    // 별도 CS_MOVE_POS를 보내지 않는다. 서버가 이걸 처리하지 않으면
+    // m_bMoving이 true로 남아 GetCurrentPos가 옛 목적지까지 오버슈트하고,
+    // 몬스터 AI가 그 잘못된 위치를 바라보며 공격하게 된다.
+    // 거리 검증을 이미 통과(몬스터 근처)했으므로 보고 위치를 신뢰하고 커밋한다.
+    pPlayer->m_fCurX  = fPlayerX;
+    pPlayer->m_fCurZ  = fPlayerZ;
+    pPlayer->m_fDestX = fPlayerX;
+    pPlayer->m_fDestZ = fPlayerZ;
+    pPlayer->m_bMoving = false;
+    pPlayer->m_nLastMoveTime = nNow;
+    pPlayer->UpdateTilePos();
 
     // ---- 공격자 모션 브로드캐스트 ----
     // viewList 내 다른 플레이어들에게 공격 모션 전송

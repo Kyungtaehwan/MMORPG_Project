@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "PathFinder.h"
 #include <queue>
 #include <unordered_map>
@@ -83,7 +83,9 @@ std::vector<std::pair<float, float>> CPathFinder::FindPath(
     IsMovableFunc fnIsMovable,
     EPathMode eMode)
 {
-    if (nStartX == nEndX && nStartZ == nEndZ) return {};
+    // 같은 타일 내부로 목적지를 찍은 경우: 빈 경로(이동 안 함) 대신
+    // 웨이포인트 1개 반환 → 호출부가 정확한 클릭 위치로 교체해 이동시킨다.
+    if (nStartX == nEndX && nStartZ == nEndZ) return { { fRealStartX, fRealStartZ } };
     if (!fnIsMovable(nEndX, nEndZ))           return {};
 
     switch (eMode)
@@ -333,7 +335,7 @@ std::vector<std::pair<float, float>> CPathFinder::RunThetaStar(
 }
 
 
-//  A* ��ó�� 1 - Ÿ�� �߽� String Pulling
+//  A* 후처리 1 - 타일 중심 String Pulling
 
 std::vector<std::pair<float, float>> CPathFinder::StringPull_AStar(
     const std::vector<std::pair<int32_t, int32_t>>& rawPath,
@@ -372,7 +374,7 @@ std::vector<std::pair<float, float>> CPathFinder::StringPull_AStar(
 }
 
 
-//  A* ��ó�� 2 - ��ֹ� �𼭸� String Pulling
+//  A* 후처리 2 - 장애물 모서리 String Pulling
 std::pair<float, float> CPathFinder::FindCornerPoint(
     const std::pair<float, float>& from,
     const std::pair<float, float>& to,
@@ -475,7 +477,7 @@ std::vector<std::pair<float, float>> CPathFinder::StringPull_Corner(
 
         if (nFarthest == nFrom + 1)
         {
-            // ���� �Ұ� �� �𼭸� ����
+            // 직선 불가 → 모서리 경유
             auto corner = FindCornerPoint(
                 floatPath[nFrom],
                 floatPath[nFrom + 1],

@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "Map_Manager.h"
 #include "Object_Manager.h"
+#include "Network_Manager.h"
 #include "NPC_Shop.h"
 #include "Zone_Test.h"
 #include "Zone_Town.h"
@@ -13,7 +14,12 @@ void CMap_Manager::Initialize()
 {
     Release();
     m_vecZone.assign(ZONE_MAX, nullptr);
-    Change_Zone(ZONE_TEST);
+
+    // 서버가 SC_ENTER_GAME으로 지정한 시작 존을 로드 (계정별로 다를 수 있음)
+    ZONE_ID eStart = static_cast<ZONE_ID>(
+        CNetwork_Manager::Get_Instance()->GetStartZone());
+    if (eStart < 0 || eStart >= ZONE_MAX) eStart = ZONE_TOWN;
+    Change_Zone(eStart);
 }
 
 void CMap_Manager::Update()
