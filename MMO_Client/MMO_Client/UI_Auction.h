@@ -12,8 +12,8 @@ class CInventory;
 // ================================================================
 //  CUI_Auction  경매장 UI (즉시구매 / 개당가격 / 부분구매)
 //   탭: 구매 / 등록 / 내판매
-//   - 구매: 전체 매물 + 검색 + 페이지네이션, 행 [구매]→수량 다이얼로그
-//   - 등록: 인벤 그리드에서 아이템 선택 + 개수/가격 입력 → [등록]
+//   - 구매: 전체 매물 + 검색 + 페이지네이션, 행 [구매]-수량 다이얼로그
+//   - 등록: 인벤 그리드에서 아이템 선택 + 개수/가격 입력 - [등록]
 //   - 내판매: 내 매물(남은수량/미수령골드), [수령] 버튼
 //   - 데이터는 서버 SC_AUCTION_LIST 스냅샷(Network_Manager 보관)을 참조.
 // ================================================================
@@ -52,7 +52,12 @@ private:
     void Update_Buy(POINT m, bool bClick);
     void Update_Register(POINT m, bool bClick);
     void Update_Mine(POINT m, bool bClick);
-    void Rebuild_Filter();       // 현재 탭 기준 표시할 매물 인덱스 목록
+
+    // 서버 페이지네이션: 현재 탭/페이지/검색으로 목록 재요청
+    void Request_List();
+    // 검색어(m_szSearch) 일치 아이템 코드 수집 - outCodes. 반환=개수. (구매 탭 검색용)
+    int  Resolve_Search(int32_t* outCodes, int cap);
+    int  Server_Tab() const { return (m_iTab == TAB_MINE) ? 1 : 0; }  // 클라탭-서버탭(0구매/1내판매)
 
     // 렌더
     void Render_Bg(ID2D1RenderTarget* pRT);
@@ -68,7 +73,6 @@ private:
     static void Item_Display(int code, TCHAR* outName, int nameCap,
         TCHAR* outIcon, int iconCap);
     RECT R(float ox, float oy, float w, float h) const;  // 패널 기준 rect
-    int  Page_Count() const;
 
 private:
     CPlayer* m_pPlayer = nullptr;
@@ -89,7 +93,7 @@ private:
     int  m_iPending = PEND_NONE;
     int  m_iPendingCancelID = 0;
 
-    // 검색 / 페이지
+    // 검색 / 페이지 (페이지네이션은 서버가 수행 — m_iPage=서버에 요청할 페이지)
     wchar_t m_szSearch[32] = {};
     int     m_iPage = 0;
 
@@ -98,14 +102,10 @@ private:
     int m_iRegCount = 1;
     int m_iRegPrice = 10;
 
-    // 필터 결과(스냅샷 entries 인덱스)
-    int m_aFilter[AUCTION_MAX] = {};
-    int m_iFilterCount = 0;
-
     static constexpr float PANEL_W = 560.f;
     static constexpr float PANEL_H = 470.f;
     static constexpr int   ROWS_PER_PAGE = 5;
     static constexpr float ROW_H = 62.f;
-    static constexpr float CONTENT_TOP = 92.f;   // 패널 상단 → 컨텐츠
-    static constexpr float LIST_TOP = 128.f;     // 패널 상단 → 리스트 첫행(검색/페이지바 아래)
+    static constexpr float CONTENT_TOP = 92.f;   // 패널 상단 - 컨텐츠
+    static constexpr float LIST_TOP = 128.f;     // 패널 상단 - 리스트 첫행(검색/페이지바 아래)
 };

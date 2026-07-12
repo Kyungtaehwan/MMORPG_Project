@@ -52,6 +52,12 @@
     <Filter Include="Contents_Level\99.Util">
       <UniqueIdentifier>{1e80875d-9037-4575-9db1-f6649f96ee0c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="99.Etc\nanodbc">
+      <UniqueIdentifier>{8f1d2e63-4a75-4c19-83b6-1f9e2a7c5b40}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Network_Level\03.DB_Manager">
+      <UniqueIdentifier>{2c9f4a71-6b3e-4f8a-9d21-7e5c0a1b4d6f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MainServer.cpp">
@@ -95,6 +101,12 @@
     </ClCompile>
     <ClCompile Include="PathFinder.cpp">
       <Filter>Contents_Level\99.Util</Filter>
+    </ClCompile>
+    <ClCompile Include="DB_Manager.cpp">
+      <Filter>Network_Level\03.DB_Manager</Filter>
+    </ClCompile>
+    <ClCompile Include="nanodbc.cpp">
+      <Filter>99.Etc\nanodbc</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -143,5 +155,19 @@
     <ClInclude Include="AccountDB.h">
       <Filter>Contents_Level\02.Player_Manager\Player</Filter>
     </ClInclude>
+    <ClInclude Include="DB_Manager.h">
+      <Filter>Network_Level\03.DB_Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="SaveData.h">
+      <Filter>Network_Level\03.DB_Manager</Filter>
+    </ClInclude>
+    <ClInclude Include="nanodbc.h">
+      <Filter>99.Etc\nanodbc</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\db\procedures.sql">
+      <Filter>Network_Level\03.DB_Manager</Filter>
+    </None>
   </ItemGroup>
 </Project>

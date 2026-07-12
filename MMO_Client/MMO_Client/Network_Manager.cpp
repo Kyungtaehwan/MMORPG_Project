@@ -354,7 +354,7 @@ void CNetwork_Manager::Handle_SC_REMOVE_PLAYER(uint8_t* pBuffer, int32_t nSize)
         CObject_Manager::Get_Instance()->Find_OtherPlayer(pPkt->playerID);
     if (!pObj) return;
 
-    // Set_Dead() → Object_Manager Update에서 자동 제거
+    // Set_Dead() - Object_Manager Update에서 자동 제거
     pObj->Set_Dead();
 
     std::cout << "[Network] 플레이어 제거. ID=" << pPkt->playerID << std::endl;
@@ -488,7 +488,7 @@ bool CNetwork_Manager::SendRaw(const void* pData, int32_t nSize)
 
 void CNetwork_Manager::SendLogin(const char* pszID, const char* pszPW)
 {
-    m_bLoginFailed = false;   // 새 시도 → 이전 실패 표시 제거
+    m_bLoginFailed = false;   // 새 시도 - 이전 실패 표시 제거
     CS_LOGIN_PACKET pkt = {};
     pkt.header.size = sizeof(pkt);
     pkt.header.id = CS_LOGIN;
@@ -746,7 +746,7 @@ void CNetwork_Manager::Handle_SC_BUFF(uint8_t* pBuffer, int32_t nSize)
         CObject_Manager::Get_Instance()->Get_Player());
     if (!pPlayer) return;
 
-    // 서버가 사용 확정 → 클라가 자체 타이머로 표시
+    // 서버가 사용 확정 - 클라가 자체 타이머로 표시
     pPlayer->Add_Buff(pPkt->buffType, (DWORD)pPkt->durationMs);
 }
 
@@ -808,11 +808,21 @@ void CNetwork_Manager::SendSell(int32_t nInvenSlot, int32_t nCount)
 }
 
 // ===================== 경매장 =====================
-void CNetwork_Manager::SendAuctionList()
+void CNetwork_Manager::SendAuctionList(int32_t page, int32_t tab,
+    const int32_t* searchCodes, int32_t searchCount)
 {
+    if (page < 0) page = 0;
+    if (searchCount < 0) searchCount = 0;
+    if (searchCount > AUCTION_SEARCH_MAX) searchCount = AUCTION_SEARCH_MAX;
+
     CS_AUCTION_LIST_PACKET pkt = {};
     pkt.header.size = sizeof(pkt);
     pkt.header.id = CS_AUCTION_LIST;
+    pkt.page = page;
+    pkt.tab = tab;
+    pkt.searchCount = searchCount;
+    for (int32_t i = 0; i < searchCount; ++i)
+        pkt.searchCodes[i] = searchCodes[i];
     SendRaw(&pkt, sizeof(pkt));
 }
 
@@ -867,5 +877,7 @@ void CNetwork_Manager::Handle_SC_AUCTION_LIST(uint8_t* pBuffer, int32_t nSize)
     for (int32_t i = 0; i < n; ++i)
         m_auctionEntries[i] = pPkt->entries[i];
     m_auctionCount = n;
+    m_auctionPage = pPkt->page;
+    m_auctionHasNext = pPkt->hasNext;
     ++m_auctionVersion;
 }

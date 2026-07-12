@@ -118,8 +118,8 @@ void CLevel_Test::Ready_Player()
 	}
 
 	CPlayer* pPlayer = new CPlayer;
-	pPlayer->Set_WorldPos(fX, fZ);
-	pPlayer->Initialize();
+	pPlayer->Initialize();              // Initialize가 위치를 (10,10)으로 하드코딩하므로
+	pPlayer->Set_WorldPos(fX, fZ);      // 반드시 그 뒤에 서버 스폰 위치를 적용해야 함
 
 	CObject_Manager::Get_Instance()->Add_Object(OBJ_PLAYER, pPlayer);
 	CCamera::Get_Instance()->Set_Target(pPlayer);

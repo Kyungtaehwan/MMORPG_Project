@@ -7,7 +7,7 @@
 //  메인 스레드가 매 프레임 꺼내서 처리
 //
 //  이렇게 하는 이유:
-//  D2D 렌더는 싱글스레드 모델 → 메인 스레드에서만 가능
+//  D2D 렌더는 싱글스레드 모델 - 메인 스레드에서만 가능
 //  수신 스레드에서 직접 UI 건드리면 크래시
 //  큐를 거치면 항상 메인 스레드에서 처리 보장
 // ================================================================
@@ -20,9 +20,9 @@ struct FPacketTask
 //  CNetwork_Manager  클라이언트 네트워크 싱글톤
 //
 //  구조:
-//  1) Connect() → TCP 연결 + 수신 스레드 시작
-//  2) 수신 스레드 → 패킷 수신 → 큐에 push
-//  3) Dispatch() → 메인 스레드에서 매 프레임 호출
+//  1) Connect() - TCP 연결 + 수신 스레드 시작
+//  2) 수신 스레드 - 패킷 수신 - 큐에 push
+//  3) Dispatch() - 메인 스레드에서 매 프레임 호출
 //                  큐에서 꺼내서 처리
 // ================================================================
 class CNetwork_Manager
@@ -72,7 +72,8 @@ public:
     void SendSell(int32_t nInvenSlot, int32_t nCount); // 상점 판매
 
     // 경매장
-    void SendAuctionList();                                             // 목록 요청
+    void SendAuctionList(int32_t page, int32_t tab,
+        const int32_t* searchCodes, int32_t searchCount);               // 목록 요청(페이지/탭/검색)
     void SendAuctionRegister(int32_t nInvenSlot, int32_t nCount, int32_t nUnitPrice);
     void SendAuctionBuy(int32_t nListingID, int32_t nCount);
     void SendAuctionCollect(int32_t nListingID);
@@ -161,6 +162,8 @@ public:
     // 경매장 스냅샷 접근 (경매장 UI가 매 프레임 참조)
     const FAuctionEntry* GetAuctionEntries() const { return m_auctionEntries; }
     int32_t              GetAuctionCount()   const { return m_auctionCount; }
+    int32_t              GetAuctionPage()    const { return m_auctionPage; }
+    bool                 GetAuctionHasNext() const { return m_auctionHasNext != 0; }
     uint32_t             GetAuctionVersion() const { return m_auctionVersion; } // 갱신 감지용
     void  ClearSpawn()     { m_bSpawnReady = false; }
 
@@ -176,5 +179,7 @@ private:
     // 경매장 스냅샷(SC_AUCTION_LIST 수신 시 갱신)
     FAuctionEntry m_auctionEntries[AUCTION_MAX] = {};
     int32_t       m_auctionCount = 0;
+    int32_t       m_auctionPage = 0;      // 서버가 준 현재 페이지
+    int32_t       m_auctionHasNext = 0;   // 다음 페이지 존재 여부
     uint32_t      m_auctionVersion = 0;   // 수신할 때마다 +1
 };

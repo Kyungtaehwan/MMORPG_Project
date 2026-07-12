@@ -1,28 +1,35 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "IOCP_Server.h"
 #include "Session_Manager.h"
 #include "Zone_Manager.h"
+#include "DB_Manager.h"
 #include <iostream>
 
 int main()
 {
     std::cout << "=== MMO GameServer ===" << std::endl;
-    CZone_Manager::Get_Instance();  // »ý¼ºÀÚ¿¡¼­ ¸Ê »ý¼º
-    std::cout << "¸Ê ÃÊ±âÈ­ ¿Ï·á" << std::endl;
-    // ¿öÄ¿ ½º·¹µå ¶ß±â Àü¿¡ ¹Ì¸® »ý¼º
-    // ¸ÖÆ¼½º·¹µå °æÇÕ ¾øÀÌ ¾ÈÀüÇÏ°Ô ÃÊ±âÈ­
+
+    // DB ì—°ê²° í…ŒìŠ¤íŠ¸ (sp_login ë“± ì €ìž¥ í”„ë¡œì‹œì € í˜¸ì¶œìš© ODBC ì—°ê²°).
+    // ì‹¤íŒ¨í•´ë„ ì„œë²„ëŠ” ëœ¨ì§€ë§Œ, ë¡œê·¸ì¸ì€ ì „ë¶€ ì‹¤íŒ¨í•˜ê²Œ ëœë‹¤ - ì¦‰ì‹œ ê²½ê³ .
+    if (!CDB_Manager::Get_Instance()->Init())
+        std::cout << "[ê²½ê³ ] DB ì—°ê²° ì‹¤íŒ¨ - ë¡œê·¸ì¸ì´ ë™ìž‘í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤." << std::endl;
+
+    CZone_Manager::Get_Instance();  // ìƒì„±ìžì—ì„œ ë§µ ìƒì„±
+    std::cout << "ë§µ ì´ˆê¸°í™” ì™„ë£Œ" << std::endl;
+    // ì›Œì»¤ ìŠ¤ë ˆë“œ ëœ¨ê¸° ì „ì— ë¯¸ë¦¬ ìƒì„±
+    // ë©€í‹°ìŠ¤ë ˆë“œ ê²½í•© ì—†ì´ ì•ˆì „í•˜ê²Œ ì´ˆê¸°í™”
     CSession_Manager::Get_Instance();
-    //½ÃÀÛ
+    //ì‹œìž‘
     CIOCP_Server server;
     if (!server.Start(7777))
     {
-        std::cout << "¼­¹ö ½ÃÀÛ ½ÇÆÐ" << std::endl;
+        std::cout << "ì„œë²„ ì‹œìž‘ ì‹¤íŒ¨" << std::endl;
         CSession_Manager::Destroy_Instance();
         return -1;
     }
 
     server.Run();
-    // ¼­¹ö Á¾·á ½Ã ¸í½ÃÀû ÇØÁ¦
+    // ì„œë²„ ì¢…ë£Œ ì‹œ ëª…ì‹œì  í•´ì œ
     CSession_Manager::Destroy_Instance();
     return 0;
 }

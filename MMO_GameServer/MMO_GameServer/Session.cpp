@@ -4,6 +4,7 @@
 #include "Session_Manager.h"
 #include "Player_Manager.h"
 #include "Zone_Manager.h"
+#include "DB_Manager.h"
 #include "Protocol.h"
 #include <iostream>
 #include <cstring>
@@ -126,6 +127,15 @@ void CSession::Disconnect()
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(m_id);
         if (pPlayer)
         {
+            // 로그아웃 저장: 현재 상태(존/위치/골드/인벤/장비)를 DB에 기록.
+            // (이름이 있어야 = 로그인 성공한 플레이어만 저장 대상)
+            if (pPlayer->m_szName[0] != '\0')
+            {
+                FSaveSnapshot snap;
+                pPlayer->TakeSnapshot(snap);
+                CDB_Manager::Get_Instance()->Save(snap);
+            }
+
             CZone* pZone = CZone_Manager::Get_Instance()->GetZone(pPlayer->m_nZoneID);
             if (pZone)
                 pZone->LeaveZone(pPlayer);
@@ -147,7 +157,7 @@ void CSession::OnRecvComplete(int32_t nNumOfBytes)
 
 void CSession::OnSendComplete()
 {
-    // 이전 전송 완료 → 큐에 남은 다음 패킷 전송
+    // 이전 전송 완료 - 큐에 남은 다음 패킷 전송
     std::lock_guard<std::mutex> lock(m_sendLock);
     StartSend_Locked();
 }
