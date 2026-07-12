@@ -11,7 +11,7 @@ struct PacketHeader
 
 enum PacketID : uint16_t
 {
-    // Client → Server
+    // Client - Server
     CS_LOGIN = 1000,
     CS_MOVE_DEST = 1001,  // 마우스 클릭  목적지 전송
     CS_MOVE_POS = 1002,  // 이동 중 타일 변경 시  현재 위치 전송
@@ -31,7 +31,7 @@ enum PacketID : uint16_t
     CS_AUCTION_COLLECT = 1016,   // 판매대금 수령 (listingID)
     CS_AUCTION_CANCEL = 1017,    // 등록 취소 (남은수량 반환 + 미수령골드 지급)
 
-    // Server → Client
+    // Server - Client
     //세션, 플레이어 관련
     SC_LOGIN_OK = 2000,
     SC_LOGIN_FAIL = 2001,
@@ -57,7 +57,7 @@ enum PacketID : uint16_t
     SC_MONSTER_HIT = 2104,
 };
 
-// ---- C→S ----
+// ---- C-S ----
 
 struct CS_LOGIN_PACKET
 {
@@ -86,7 +86,7 @@ struct CS_MOVE_POS_PACKET
     uint32_t     moveTime;
 };
 
-// ---- S→C ----
+// ---- S-C ----
 
 struct SC_LOGIN_OK_PACKET
 {
@@ -131,7 +131,7 @@ struct SC_REMOVE_PLAYER_PACKET
 };
 
 // 이동 브로드캐스트
-// 현재위치 + 목적지 포함 → 클라이언트가 보간
+// 현재위치 + 목적지 포함 - 클라이언트가 보간
 struct SC_MOVE_PLAYER_PACKET
 {
     PacketHeader header;
@@ -310,7 +310,7 @@ struct CS_MOVE_STOP_PACKET
     float        fCurZ;
 };
 
-// 상점 구매. 서버가 골드 검증 후 인벤 추가 → SC_INVEN_UPDATE 응답.
+// 상점 구매. 서버가 골드 검증 후 인벤 추가 - SC_INVEN_UPDATE 응답.
 struct CS_BUY_PACKET
 {
     PacketHeader header;
@@ -318,7 +318,7 @@ struct CS_BUY_PACKET
     int32_t      count;
 };
 
-// 상점 판매. 서버가 인벤 차감 후 골드 지급 → SC_INVEN_UPDATE 응답.
+// 상점 판매. 서버가 인벤 차감 후 골드 지급 - SC_INVEN_UPDATE 응답.
 struct CS_SELL_PACKET
 {
     PacketHeader header;
@@ -346,7 +346,9 @@ struct SC_BUFF_PACKET
 };
 
 // ================= 경매장 =================
-constexpr int32_t AUCTION_MAX = 64;   // 스냅샷 최대 매물 수
+constexpr int32_t AUCTION_MAX = 64;        // 패킷 entries 배열 크기(클라 버퍼와 공유)
+constexpr int32_t AUCTION_PAGE_SIZE = 5;   // 한 페이지 매물 수(클라 UI 행수와 일치)
+constexpr int32_t AUCTION_SEARCH_MAX = 32; // 검색어 일치 아이템 코드 최대 개수
 
 // 매물 1건. 인스턴스ID 없이 (코드,개수) 모델. 개당 가격/부분 구매.
 struct FAuctionEntry
@@ -359,17 +361,27 @@ struct FAuctionEntry
     char    sellerName[20];
 };
 
-struct CS_AUCTION_LIST_PACKET     { PacketHeader header; };
+// 경매 목록 요청. tab=0 구매(남의 매물), 1 내판매. searchCount>0 이면 item_code IN(searchCodes) 필터.
+struct CS_AUCTION_LIST_PACKET
+{
+    PacketHeader header;
+    int32_t page;        // 0-base 페이지 번호
+    int32_t tab;         // 0=구매, 1=내판매
+    int32_t searchCount; // 검색 코드 개수(0=검색없음)
+    int32_t searchCodes[AUCTION_SEARCH_MAX];
+};
 struct CS_AUCTION_REGISTER_PACKET { PacketHeader header; int32_t invenSlot; int32_t count; int32_t unitPrice; };
 struct CS_AUCTION_BUY_PACKET      { PacketHeader header; int32_t listingID; int32_t count; };
 struct CS_AUCTION_COLLECT_PACKET  { PacketHeader header; int32_t listingID; };
 struct CS_AUCTION_CANCEL_PACKET   { PacketHeader header; int32_t listingID; };
 
-// 경매장 전체 스냅샷(변경 시마다 갱신 전송).
+// 경매장 한 페이지 스냅샷(최신 등록순). 등록/구매/수령/취소 후에도 현재 페이지 재전송.
 struct SC_AUCTION_LIST_PACKET
 {
     PacketHeader  header;
-    int32_t       count;               // 유효 매물 수
+    int32_t       page;                // 이 응답의 페이지 번호(0-base)
+    int32_t       count;               // 이 페이지의 유효 매물 수 (<= AUCTION_PAGE_SIZE)
+    int32_t       hasNext;             // 다음 페이지 존재 여부(1/0)
     FAuctionEntry entries[AUCTION_MAX];
 };
 #pragma pack(pop)

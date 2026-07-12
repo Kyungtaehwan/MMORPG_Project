@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <cstdint>
 #include <chrono>
 #include <queue>
@@ -10,6 +10,7 @@ enum class EEventType : uint8_t
     MonsterAI = 0,
     MonsterRespawn = 1,
     MonsterAttackHit = 2,
+    PlayerAutoSave = 3,   // 주기 저장 틱 (nID 미사용)
 };
 
 struct FTimerEvent

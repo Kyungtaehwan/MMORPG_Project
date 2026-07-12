@@ -18,7 +18,8 @@ enum class IOType : uint8_t
     Send,
     MonsterAI,
     MonsterRespawn,
-    MonsterAttackHit
+    MonsterAttackHit,
+    PlayerAutoSave
 };
 
 

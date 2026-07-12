@@ -150,6 +150,10 @@
     <ClCompile Include="Timer.cpp" />
     <ClCompile Include="Zone.cpp" />
     <ClCompile Include="Zone_Manager.cpp" />
+    <ClCompile Include="DB_Manager.cpp" />
+    <ClCompile Include="nanodbc.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AccountDB.h" />
@@ -167,6 +171,12 @@
     <ClInclude Include="Timer.h" />
     <ClInclude Include="Zone.h" />
     <ClInclude Include="Zone_Manager.h" />
+    <ClInclude Include="DB_Manager.h" />
+    <ClInclude Include="SaveData.h" />
+    <ClInclude Include="nanodbc.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\db\procedures.sql" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "IOCP_Server.h"
 #include "Session_Manager.h"
 #include "Player_Manager.h"
@@ -8,6 +8,9 @@
 #include "Protocol.h"
 #include <iostream>
 #include <cstring>
+
+// ì£¼ê¸° ì €ì¥ í‹± ê°„ê²©(ms). í•œ í‹±ì— ì˜¨ë¼ì¸ 1ëª…ì”© ë¼ìš´ë“œë¡œë¹ˆ ì €ì¥.
+static constexpr uint32_t AUTOSAVE_INTERVAL_MS = 5000;
 
 CIOCP_Server::CIOCP_Server() {}
 
@@ -25,16 +28,16 @@ bool CIOCP_Server::Start(uint16_t nPort)
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
     {
-        std::cout << "[CIOCPServer] WSAStartup ½ÇÆĞ" << std::endl;
+        std::cout << "[CIOCPServer] WSAStartup ì‹¤íŒ¨" << std::endl;
         return false;
     }
 
     if (!InitIOCP())        return false;
     if (!InitSocket(nPort)) return false;
 
-    // AcceptEx ÇÔ¼ö Æ÷ÀÎÅÍ È¹µæ
-    // ±³¼ö´Ô ÄÚµå´Â Àü¿ª AcceptEx¸¦ ¹Ù·Î ¾²Áö¸¸
-    // ¿ì¸®´Â ·±Å¸ÀÓ¿¡ Æ÷ÀÎÅÍ¸¦ ¹Ş¾Æ¾ß ÇÔ
+    // AcceptEx í•¨ìˆ˜ í¬ì¸í„° íšë“
+    // êµìˆ˜ë‹˜ ì½”ë“œëŠ” ì „ì—­ AcceptExë¥¼ ë°”ë¡œ ì“°ì§€ë§Œ
+    // ìš°ë¦¬ëŠ” ëŸ°íƒ€ì„ì— í¬ì¸í„°ë¥¼ ë°›ì•„ì•¼ í•¨
     GUID guidAcceptEx = WSAID_ACCEPTEX;
     DWORD dwBytes = 0;
     WSAIoctl(m_listenSocket, SIO_GET_EXTENSION_FUNCTION_POINTER,
@@ -44,7 +47,7 @@ bool CIOCP_Server::Start(uint16_t nPort)
 
     if (m_fnAcceptEx == nullptr)
     {
-        std::cout << "[CIOCPServer] AcceptEx Æ÷ÀÎÅÍ È¹µæ ½ÇÆĞ" << std::endl;
+        std::cout << "[CIOCPServer] AcceptEx í¬ì¸í„° íšë“ ì‹¤íŒ¨" << std::endl;
         return false;
     }
 
@@ -57,11 +60,14 @@ bool CIOCP_Server::Start(uint16_t nPort)
 
     m_timerThread = std::thread(&CIOCP_Server::TimerThread, this);
     m_timerThread.detach();
+
+    // ì£¼ê¸° ì €ì¥ íƒ€ì´ë¨¸ ìµœì´ˆ ë“±ë¡ (ì´í›„ ì›Œì»¤ê°€ ë§¤ í‹± ì¬ë“±ë¡)
+    AddTimer(0, EEventType::PlayerAutoSave, AUTOSAVE_INTERVAL_MS);
     for (int32_t i = 0; i < nThreadCount; ++i)
         m_workerThreads.emplace_back(&CIOCP_Server::WorkerThread, this);
 
-    //std::cout << "[CIOCPServer] ½ÃÀÛ. Æ÷Æ®=" << nPort
-    //    << " Worker½º·¹µå=" << nThreadCount << std::endl;
+    //std::cout << "[CIOCPServer] ì‹œì‘. í¬íŠ¸=" << nPort
+    //    << " WorkerìŠ¤ë ˆë“œ=" << nThreadCount << std::endl;
     return true;
 }
 
@@ -78,7 +84,7 @@ bool CIOCP_Server::InitIOCP()
     m_hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
     if (m_hIOCP == INVALID_HANDLE_VALUE)
     {
-        std::cout << "[CIOCPServer] IOCP »ı¼º ½ÇÆĞ" << std::endl;
+        std::cout << "[CIOCPServer] IOCP ìƒì„± ì‹¤íŒ¨" << std::endl;
         return false;
     }
     return true;
@@ -90,7 +96,7 @@ bool CIOCP_Server::InitSocket(uint16_t nPort)
         nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (m_listenSocket == INVALID_SOCKET)
     {
-        std::cout << "[CIOCPServer] ¼ÒÄÏ »ı¼º ½ÇÆĞ" << std::endl;
+        std::cout << "[CIOCPServer] ì†Œì¼“ ìƒì„± ì‹¤íŒ¨" << std::endl;
         return false;
     }
 
@@ -98,9 +104,9 @@ bool CIOCP_Server::InitSocket(uint16_t nPort)
     setsockopt(m_listenSocket, SOL_SOCKET, SO_REUSEADDR,
         reinterpret_cast<const char*>(&bReuseAddr), sizeof(bReuseAddr));
 
-    // ¸®½¼ ¼ÒÄÏÀ» IOCP¿¡ µî·Ï
-    // ±³¼ö´Ô ÄÚµå: CreateIoCompletionPort(g_s_socket, h_iocp, 9999, 0)
-    // key=0À¸·Î µî·Ï (Accept ¿Ï·á´Â key°¡ ¾Æ´Ñ IOEvent·Î ±¸ºĞ)
+    // ë¦¬ìŠ¨ ì†Œì¼“ì„ IOCPì— ë“±ë¡
+    // êµìˆ˜ë‹˜ ì½”ë“œ: CreateIoCompletionPort(g_s_socket, h_iocp, 9999, 0)
+    // key=0ìœ¼ë¡œ ë“±ë¡ (Accept ì™„ë£ŒëŠ” keyê°€ ì•„ë‹Œ IOEventë¡œ êµ¬ë¶„)
     CreateIoCompletionPort(
         reinterpret_cast<HANDLE>(m_listenSocket), m_hIOCP, 0, 0);
 
@@ -112,28 +118,28 @@ bool CIOCP_Server::InitSocket(uint16_t nPort)
     if (bind(m_listenSocket,
         reinterpret_cast<SOCKADDR*>(&addr), sizeof(addr)) == SOCKET_ERROR)
     {
-        std::cout << "[CIOCPServer] bind ½ÇÆĞ: " << WSAGetLastError() << std::endl;
+        std::cout << "[CIOCPServer] bind ì‹¤íŒ¨: " << WSAGetLastError() << std::endl;
         return false;
     }
 
     if (listen(m_listenSocket, SOMAXCONN) == SOCKET_ERROR)
     {
-        std::cout << "[CIOCPServer] listen ½ÇÆĞ: " << WSAGetLastError() << std::endl;
+        std::cout << "[CIOCPServer] listen ì‹¤íŒ¨: " << WSAGetLastError() << std::endl;
         return false;
     }
 
-    //std::cout << "[CIOCPServer] ¸®½¼ ¼ÒÄÏ ÁØºñ ¿Ï·á" << std::endl;
+    //std::cout << "[CIOCPServer] ë¦¬ìŠ¨ ì†Œì¼“ ì¤€ë¹„ ì™„ë£Œ" << std::endl;
     return true;
 }
 
 // ================================================================
 //  StartAccept
 //
-//  ±³¼ö´Ô ÄÚµå¿Í ºñ±³:
-//    ±³¼ö´Ô: g_c_socket ÇÏ³ª + g_a_over ÇÏ³ª
-//    ¿ì¸®:   ¼¼¼Ç ½½·Ô ACCEPT_POOL_SIZE°³ ¹Ì¸® ÁØºñ
+//  êµìˆ˜ë‹˜ ì½”ë“œì™€ ë¹„êµ:
+//    êµìˆ˜ë‹˜: g_c_socket í•˜ë‚˜ + g_a_over í•˜ë‚˜
+//    ìš°ë¦¬:   ì„¸ì…˜ ìŠ¬ë¡¯ ACCEPT_POOL_SIZEê°œ ë¯¸ë¦¬ ì¤€ë¹„
 //
-//  Accept ¿Ï·á ÈÄ Àçµî·Ï ½Ã »õ ¼¼¼Ç ½½·ÔÀ» AssignÇØ¼­ »ç¿ë
+//  Accept ì™„ë£Œ í›„ ì¬ë“±ë¡ ì‹œ ìƒˆ ì„¸ì…˜ ìŠ¬ë¡¯ì„ Assigní•´ì„œ ì‚¬ìš©
 // ================================================================
 void CIOCP_Server::StartAccept()
 {
@@ -148,7 +154,7 @@ void CIOCP_Server::StartAccept()
             nullptr, 0, WSA_FLAG_OVERLAPPED);
         pSession->SetSocket(clientSocket);
 
-        // ¿©±â¼­ IOCP µî·Ï (¼ÒÄÏ »ı¼º Á÷ÈÄ ÇÑ ¹ø¸¸)
+        // ì—¬ê¸°ì„œ IOCP ë“±ë¡ (ì†Œì¼“ ìƒì„± ì§í›„ í•œ ë²ˆë§Œ)
         CreateIoCompletionPort(
             reinterpret_cast<HANDLE>(clientSocket),
             m_hIOCP,
@@ -162,16 +168,16 @@ void CIOCP_Server::StartAccept()
 // ================================================================
 //  ReRegisterAccept
 //
-//  ±³¼ö´Ô ÄÚµå¿Í ºñ±³:
-//    ±³¼ö´Ô:
-//      CreateIoCompletionPort(g_c_socket, h_iocp, client_id, 0)  // Accept ÈÄ
+//  êµìˆ˜ë‹˜ ì½”ë“œì™€ ë¹„êµ:
+//    êµìˆ˜ë‹˜:
+//      CreateIoCompletionPort(g_c_socket, h_iocp, client_id, 0)  // Accept í›„
 //      AcceptEx(g_s_socket, g_c_socket, g_a_over._send_buf, ...)
 //
-//    ¿ì¸®:
-//      IOCP µî·Ï ¡æ AcceptEx ¼ø¼­
-//      g_a_over._send_buf ¿ªÇÒ = pSession->GetAcceptBuf()
+//    ìš°ë¦¬:
+//      IOCP ë“±ë¡ - AcceptEx ìˆœì„œ
+//      g_a_over._send_buf ì—­í•  = pSession->GetAcceptBuf()
 //                              = m_acceptEvent.m_acceptBuf
-//                              (CIOEvent ¾È¿¡ Æ÷ÇÔµÈ ¹öÆÛ)
+//                              (CIOEvent ì•ˆì— í¬í•¨ëœ ë²„í¼)
 // ================================================================
 void CIOCP_Server::ReRegisterAccept(SessionRef pSession)
 {
@@ -199,20 +205,20 @@ void CIOCP_Server::ReRegisterAccept(SessionRef pSession)
     {
         int nErr = WSAGetLastError();
         if (nErr != WSA_IO_PENDING)
-            std::cout << "[ReRegisterAccept] AcceptEx ½ÇÆĞ: " << nErr
+            std::cout << "[ReRegisterAccept] AcceptEx ì‹¤íŒ¨: " << nErr
             << " Socket=" << pSession->GetSocket() << std::endl;
     }
     else
     {
-        //std::cout << "[ReRegisterAccept] AcceptEx ¼º°ø Áï½Ã¿Ï·á" << std::endl;
+        //std::cout << "[ReRegisterAccept] AcceptEx ì„±ê³µ ì¦‰ì‹œì™„ë£Œ" << std::endl;
     }
 }
 
 // ================================================================
 //  WorkerThread
 //
-//  ±³¼ö´Ô ÄÚµåÀÇ worker_thread()¿Í µ¿ÀÏÇÑ ±¸Á¶
-//  GQCS ¡æ IOTypeÀ¸·Î ºĞ±â
+//  êµìˆ˜ë‹˜ ì½”ë“œì˜ worker_thread()ì™€ ë™ì¼í•œ êµ¬ì¡°
+//  GQCS - IOTypeìœ¼ë¡œ ë¶„ê¸°
 // ================================================================
 void CIOCP_Server::WorkerThread()
 {
@@ -243,7 +249,7 @@ void CIOCP_Server::WorkerThread()
             }
 
             delete pIOEvent;
-            continue;  // ¼ÒÄÏ Ã³¸®·Î ³»·Á°¡Áö ¾ÊÀ½
+            continue;  // ì†Œì¼“ ì²˜ë¦¬ë¡œ ë‚´ë ¤ê°€ì§€ ì•ŠìŒ
         }
         else if (pIOEvent->m_type == IOType::MonsterRespawn)
         {
@@ -279,6 +285,15 @@ void CIOCP_Server::WorkerThread()
             delete pIOEvent;
             continue;
         }
+        else if (pIOEvent->m_type == IOType::PlayerAutoSave)
+        {
+            // ì£¼ê¸° ì €ì¥: ì˜¨ë¼ì¸ 1ëª… ì €ì¥(ë¼ìš´ë“œë¡œë¹ˆ) í›„ ë‹¤ìŒ í‹± ì¬ë“±ë¡
+            CPlayer_Manager::Get_Instance()->AutoSaveNext();
+            AddTimer(0, EEventType::PlayerAutoSave, AUTOSAVE_INTERVAL_MS);
+
+            delete pIOEvent;
+            continue;
+        }
 
         CSession* rawSession = pIOEvent->m_owner;
         if (!rawSession) continue;
@@ -288,22 +303,22 @@ void CIOCP_Server::WorkerThread()
 
         if (pIOEvent->m_type == IOType::Accept)
         {
-            // Accept´Â bResult TRUE¸é ¹«Á¶°Ç ¼º°ø
-            // dwNumOfBytes == 0Àº Á¤»ó (µ¥ÀÌÅÍ ¾øÀÌ ¿¬°á¸¸)
+            // AcceptëŠ” bResult TRUEë©´ ë¬´ì¡°ê±´ ì„±ê³µ
+            // dwNumOfBytes == 0ì€ ì •ìƒ (ë°ì´í„° ì—†ì´ ì—°ê²°ë§Œ)
             if (bResult == TRUE)
             {
                 if (pSession) ProcessAccept(pSession);
             }
             else
             {
-                // ÁøÂ¥ ¿¡·¯ ¼ÒÄÏÀÌ À¯È¿ÇÒ ¶§¸¸ Àçµî·Ï
+                // ì§„ì§œ ì—ëŸ¬ ì†Œì¼“ì´ ìœ íš¨í•  ë•Œë§Œ ì¬ë“±ë¡
                 if (pSession && pSession->GetSocket() != INVALID_SOCKET)
                     ReRegisterAccept(pSession);
             }
             continue;
         }
 
-        // Recv / Send Ã³¸®
+        // Recv / Send ì²˜ë¦¬
         if (bResult == FALSE || dwNumOfBytes == 0)
         {
             if (pSession) pSession->Disconnect();
@@ -325,8 +340,8 @@ void CIOCP_Server::WorkerThread()
 // ================================================================
 //  ProcessAccept
 //
-//  ±³¼ö´Ô ÄÚµåÀÇ OP_ACCEPT Ã³¸®¿Í µ¿ÀÏ
-//  Â÷ÀÌÁ¡: SO_UPDATE_ACCEPT_CONTEXT ÈÄÃ³¸® ÇÊ¼ö (AcceptEx »ç¿ë ½Ã)
+//  êµìˆ˜ë‹˜ ì½”ë“œì˜ OP_ACCEPT ì²˜ë¦¬ì™€ ë™ì¼
+//  ì°¨ì´ì : SO_UPDATE_ACCEPT_CONTEXT í›„ì²˜ë¦¬ í•„ìˆ˜ (AcceptEx ì‚¬ìš© ì‹œ)
 // ================================================================
 void CIOCP_Server::ProcessAccept(SessionRef pSession)
 {
@@ -339,16 +354,16 @@ void CIOCP_Server::ProcessAccept(SessionRef pSession)
         reinterpret_cast<const char*>(&m_listenSocket),
         sizeof(m_listenSocket));
 
-    //std::cout << "[ProcessAccept] setsockopt °á°ú=" << nResult
+    //std::cout << "[ProcessAccept] setsockopt ê²°ê³¼=" << nResult
     //    << " err=" << WSAGetLastError() << std::endl;
-    // AcceptEx ÇÊ¼ö ÈÄÃ³¸® ½ÇÆĞÇÏ¸é ¼ÒÄÏ ¿¬°áÀÌ ¾È µÈ »óÅÂ
+    // AcceptEx í•„ìˆ˜ í›„ì²˜ë¦¬ ì‹¤íŒ¨í•˜ë©´ ì†Œì¼“ ì—°ê²°ì´ ì•ˆ ëœ ìƒíƒœ
 
     pSession->SetConnected(true);
     pSession->RegisterRecv();
 
-    // »õ ½½·Ô º¸Ãæ
+    // ìƒˆ ìŠ¬ë¡¯ ë³´ì¶©
     int32_t nNewID = CSession_Manager::Get_Instance()->Assign();
-    //std::cout << "[ProcessAccept] »õ ½½·Ô nNewID=" << nNewID << std::endl;
+    //std::cout << "[ProcessAccept] ìƒˆ ìŠ¬ë¡¯ nNewID=" << nNewID << std::endl;
     if (nNewID != -1)
     {
         SessionRef pNewSession = CSession_Manager::Get_Instance()->Get_Session(nNewID);
@@ -379,7 +394,7 @@ void CIOCP_Server::DebugConsoleThread()
 {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
-    // Ä¿¼­ ±ôºıÀÓ Á¦°Å
+    // ì»¤ì„œ ê¹œë¹¡ì„ ì œê±°
     CONSOLE_CURSOR_INFO cursorInfo = { 1, FALSE };
     SetConsoleCursorInfo(hConsole, &cursorInfo);
 
@@ -397,21 +412,21 @@ void CIOCP_Server::DebugConsoleThread()
         int nWaiting = (int)m_acceptSessions.size();
 
         std::cout << "=== MMO Server Debug =====================\n";
-        std::cout << "Æ÷Æ®: 7777  ¿öÄ¿: " << m_workerThreads.size() << "\n";
+        std::cout << "í¬íŠ¸: 7777  ì›Œì»¤: " << m_workerThreads.size() << "\n";
         std::cout << "------------------------------------------\n";
 
-        // Accept ´ë±â ½½·Ô ÇÑÁÙ Ãâ·Â
-        std::cout << "[Accept ´ë±â] ";
+        // Accept ëŒ€ê¸° ìŠ¬ë¡¯ í•œì¤„ ì¶œë ¥
+        std::cout << "[Accept ëŒ€ê¸°] ";
         for (auto& pSession : m_acceptSessions)
         {
             if (pSession && !pSession->IsConnected())
                 std::cout << pSession->GetID() << " ";
         }
-        std::cout << "          \n";  // ÀÌÀü ³»¿ë µ¤¾î¾²±â¿ë °ø¹é
+        std::cout << "          \n";  // ì´ì „ ë‚´ìš© ë®ì–´ì“°ê¸°ìš© ê³µë°±
 
-        // Á¢¼Ó ÁßÀÎ ÇÃ·¹ÀÌ¾î
+        // ì ‘ì† ì¤‘ì¸ í”Œë ˆì´ì–´
         std::cout << "------------------------------------------\n";
-        std::cout << "[Á¢¼Ó Áß ÇÃ·¹ÀÌ¾î]\n";
+        std::cout << "[ì ‘ì† ì¤‘ í”Œë ˆì´ì–´]\n";
 
         for (int i = 0; i < MAX_SESSION; ++i)
         {
@@ -429,14 +444,14 @@ void CIOCP_Server::DebugConsoleThread()
             nConnected++;
         }
 
-        // ºó ÁÙ·Î ÀÌÀü ³»¿ë µ¤¾î¾²±â
+        // ë¹ˆ ì¤„ë¡œ ì´ì „ ë‚´ìš© ë®ì–´ì“°ê¸°
         for (int i = nConnected; i < 5; ++i)
             std::cout << "                                          \n";
 
         std::cout << "------------------------------------------\n";
-        std::cout << "Á¢¼Ó: " << nConnected
-            << "  ´ë±â: " << nWaiting
-            << "  ÃÑ ½½·Ô: " << (nConnected + nWaiting) << "   \n";
+        std::cout << "ì ‘ì†: " << nConnected
+            << "  ëŒ€ê¸°: " << nWaiting
+            << "  ì´ ìŠ¬ë¡¯: " << (nConnected + nWaiting) << "   \n";
         std::cout << "==========================================\n";
     }
 }
@@ -479,6 +494,9 @@ void CIOCP_Server::TimerThread()
                 break;
             case EEventType::MonsterAttackHit:
                 eIOType = IOType::MonsterAttackHit;
+                break;
+            case EEventType::PlayerAutoSave:
+                eIOType = IOType::PlayerAutoSave;
                 break;
             default:
                 eIOType = IOType::MonsterAI;

@@ -17,7 +17,7 @@ static void DrawL(ID2D1RenderTarget* pRT, const TCHAR* t, D2D1_RECT_F rc, D2D1_C
     b->Release();
 }
 
-// char(계정 id / "경매장" CP949) → wide
+// char(계정 id / "경매장" CP949) - wide
 static void ToWide(const char* src, wchar_t* dst, int cap)
 {
     dst[0] = 0;
@@ -34,7 +34,7 @@ void CUI_Auction::Initialize()
 
     m_closeBtn.Set_ByPanelCorner((float)m_tRect.right, (float)m_tRect.top);
 
-    // 등록 탭 인벤 그리드 (8열 × 5행)
+    // 등록 탭 인벤 그리드 (8열 x 5행)
     m_grid.Set_Layout((float)m_tRect.left + 16.f, (float)m_tRect.top + CONTENT_TOP,
         8, 40.f, 4.f);
 }
@@ -55,7 +55,7 @@ void CUI_Auction::Open()
     CInput_Manager::Get_Instance()->Set_InputMode(INPUT_MODE_UI);
     CInput_Manager::Get_Instance()->Set_CursorMode(CURSOR_UI);
 
-    CNetwork_Manager::Get_Instance()->SendAuctionList();
+    Request_List();   // 0페이지 구매탭 요청
 }
 
 void CUI_Auction::Close()
@@ -76,12 +76,6 @@ RECT CUI_Auction::R(float ox, float oy, float w, float h) const
     return RECT{ (LONG)l, (LONG)t, (LONG)(l + w), (LONG)(t + h) };
 }
 
-int CUI_Auction::Page_Count() const
-{
-    int p = (m_iFilterCount + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE;
-    return (p < 1) ? 1 : p;
-}
-
 void CUI_Auction::Item_Display(int code, TCHAR* outName, int nameCap,
     TCHAR* outIcon, int iconCap)
 {
@@ -93,42 +87,46 @@ void CUI_Auction::Item_Display(int code, TCHAR* outName, int nameCap,
     delete p;
 }
 
-void CUI_Auction::Rebuild_Filter()
+// 검색어와 이름이 일치하는 아이템 코드들을 수집(코드-이름은 클라만 앎).
+// 서버는 이 코드 목록으로 item_code IN(...) 필터. 반환=수집 개수.
+int CUI_Auction::Resolve_Search(int32_t* outCodes, int cap)
 {
-    m_iFilterCount = 0;
-    const FAuctionEntry* ents = CNetwork_Manager::Get_Instance()->GetAuctionEntries();
-    int n = CNetwork_Manager::Get_Instance()->GetAuctionCount();
-    const char* myName = CNetwork_Manager::Get_Instance()->GetMyName();
+    int cnt = 0;
+    if (m_szSearch[0] == 0) return 0;   // 검색어 없음 - 필터 없음
 
-    bool bSearch = (m_iTab == TAB_BUY && m_szSearch[0] != 0);
-
-    for (int i = 0; i < n; ++i)
+    // 카테고리별 (코드 = cat*1000 + sub) 열거. sub 상한은 각 enum의 _END.
+    struct { int cat; int end; } cats[] = {
+        { 1, POTION_END }, { 2, SCROLL_END }, { 3, EQUIP_TYPE_END }, { 4, ETC_END }
+    };
+    for (auto& c : cats)
     {
-        const FAuctionEntry& e = ents[i];
-
-        if (m_iTab == TAB_MINE)
+        for (int sub = 0; sub < c.end; ++sub)
         {
-            if (strcmp(e.sellerName, myName) != 0) continue;
-        }
-        else // TAB_BUY
-        {
-            if (e.count <= 0) continue;
-            if (strcmp(e.sellerName, myName) == 0) continue;  // 본인 매물 제외
-            if (bSearch)
+            int code = c.cat * 1000 + sub;
+            TCHAR nm[64], ic[64];
+            Item_Display(code, nm, 64, ic, 64);
+            if (nm[0] && wcsstr(nm, m_szSearch))
             {
-                TCHAR nm[64], ic[64];
-                Item_Display(e.itemCode, nm, 64, ic, 64);
-                if (!wcsstr(nm, m_szSearch)) continue;
+                if (cnt < cap) outCodes[cnt++] = code;
+                if (cnt >= cap) return cnt;
             }
         }
-
-        if (m_iFilterCount < AUCTION_MAX)
-            m_aFilter[m_iFilterCount++] = i;
     }
+    // 검색어는 있는데 일치 코드가 0개 - 아무것도 안 나오게 불가능 코드 하나 전송
+    if (cnt == 0 && cap > 0) { outCodes[0] = -1; cnt = 1; }
+    return cnt;
+}
 
-    // 페이지 범위 보정
-    if (m_iPage > Page_Count() - 1) m_iPage = Page_Count() - 1;
+// 현재 탭/페이지/검색으로 서버에 목록 재요청.
+void CUI_Auction::Request_List()
+{
+    if (m_iTab == TAB_REGISTER) return;   // 등록 탭은 목록 없음
+
+    int32_t codes[AUCTION_SEARCH_MAX];
+    int count = (m_iTab == TAB_BUY) ? Resolve_Search(codes, AUCTION_SEARCH_MAX) : 0;
     if (m_iPage < 0) m_iPage = 0;
+    CNetwork_Manager::Get_Instance()->SendAuctionList(
+        m_iPage, Server_Tab(), codes, count);
 }
 
 // ===================== 입력 =====================
@@ -155,6 +153,7 @@ int CUI_Auction::Update(float dt)
             else if (m_iPending == PEND_CANCEL)
             {
                 CNetwork_Manager::Get_Instance()->SendAuctionCancel(m_iPendingCancelID);
+                Request_List();   // 취소 반영 위해 현재 페이지 재요청(서버가 취소 후 처리)
             }
         }
         if (r != CUI_ConfirmDialog::RESULT_NONE) m_iPending = PEND_NONE;
@@ -166,7 +165,10 @@ int CUI_Auction::Update(float dt)
     {
         int r = m_dlg.Update();
         if (r == CUI_QtyDialog::RESULT_CONFIRM)
+        {
             CNetwork_Manager::Get_Instance()->SendAuctionBuy(m_iPendingListing, m_dlg.Get_Qty());
+            Request_List();   // 구매 반영 위해 현재 페이지 재요청(서버가 구매 후 처리)
+        }
         return OBJ_NOEVENT;
     }
 
@@ -176,11 +178,11 @@ int CUI_Auction::Update(float dt)
     if (in->Key_Down(VK_ESCAPE)) { Close(); return OBJ_NOEVENT; }
     if (m_closeBtn.Update(m, bClick)) { Close(); return OBJ_NOEVENT; }
 
-    // 새로고침(모든 탭 공통)
+    // 새로고침(모든 탭 공통) — 현재 탭/페이지/검색 그대로 재요청
     RECT rRefresh = R(PANEL_W - 100.f, 44.f, 80.f, 30.f);
     if (bClick && PtInRect(&rRefresh, m))
     {
-        CNetwork_Manager::Get_Instance()->SendAuctionList();
+        Request_List();
         return OBJ_NOEVENT;
     }
 
@@ -190,12 +192,10 @@ int CUI_Auction::Update(float dt)
         if (tab != m_iTab)
         {
             m_iTab = tab; m_iPage = 0; m_iFocus = FOCUS_NONE;
-            CNetwork_Manager::Get_Instance()->SendAuctionList();  // 최신화
+            Request_List();   // 탭 전환 시 0페이지부터 새로 요청
         }
         return OBJ_NOEVENT;
     }
-
-    Rebuild_Filter();
 
     if (m_iTab == TAB_BUY)          Update_Buy(m, bClick);
     else if (m_iTab == TAB_REGISTER) Update_Register(m, bClick);
@@ -221,20 +221,20 @@ void CUI_Auction::Update_Buy(POINT m, bool bClick)
     RECT rs = R(70.f, CONTENT_TOP, 250.f, 28.f);
     if (PtInRect(&rs, m)) { m_iFocus = FOCUS_SEARCH; return; }
 
+    CNetwork_Manager* net = CNetwork_Manager::Get_Instance();
     RECT rp = R(PANEL_W - 150.f, CONTENT_TOP, 34.f, 28.f);
     RECT rn = R(PANEL_W - 48.f, CONTENT_TOP, 34.f, 28.f);
-    if (PtInRect(&rp, m)) { if (m_iPage > 0) --m_iPage; return; }
-    if (PtInRect(&rn, m)) { if (m_iPage < Page_Count() - 1) ++m_iPage; return; }
+    if (PtInRect(&rp, m)) { if (m_iPage > 0) { --m_iPage; Request_List(); } return; }
+    if (PtInRect(&rn, m)) { if (net->GetAuctionHasNext()) { ++m_iPage; Request_List(); } return; }
 
-    const FAuctionEntry* ents = CNetwork_Manager::Get_Instance()->GetAuctionEntries();
-    for (int i = 0; i < ROWS_PER_PAGE; ++i)
+    const FAuctionEntry* ents = net->GetAuctionEntries();
+    int n = net->GetAuctionCount();   // 서버가 이미 필터+페이지 처리한 결과
+    for (int i = 0; i < n && i < ROWS_PER_PAGE; ++i)
     {
-        int idx = m_iPage * ROWS_PER_PAGE + i;
-        if (idx >= m_iFilterCount) break;
         RECT rb = R(PANEL_W - 96.f, LIST_TOP + i * ROW_H + 16.f, 80.f, 30.f);
         if (PtInRect(&rb, m))
         {
-            const FAuctionEntry& e = ents[m_aFilter[idx]];
+            const FAuctionEntry& e = ents[i];
             TCHAR nm[64], ic[64];
             Item_Display(e.itemCode, nm, 64, ic, 64);
             m_iPendingListing = e.listingID;
@@ -249,17 +249,17 @@ void CUI_Auction::Update_Mine(POINT m, bool bClick)
 {
     if (!bClick) return;
 
+    CNetwork_Manager* net = CNetwork_Manager::Get_Instance();
     RECT rp = R(PANEL_W - 150.f, CONTENT_TOP, 34.f, 28.f);
     RECT rn = R(PANEL_W - 48.f, CONTENT_TOP, 34.f, 28.f);
-    if (PtInRect(&rp, m)) { if (m_iPage > 0) --m_iPage; return; }
-    if (PtInRect(&rn, m)) { if (m_iPage < Page_Count() - 1) ++m_iPage; return; }
+    if (PtInRect(&rp, m)) { if (m_iPage > 0) { --m_iPage; Request_List(); } return; }
+    if (PtInRect(&rn, m)) { if (net->GetAuctionHasNext()) { ++m_iPage; Request_List(); } return; }
 
-    const FAuctionEntry* ents = CNetwork_Manager::Get_Instance()->GetAuctionEntries();
-    for (int i = 0; i < ROWS_PER_PAGE; ++i)
+    const FAuctionEntry* ents = net->GetAuctionEntries();
+    int n = net->GetAuctionCount();
+    for (int i = 0; i < n && i < ROWS_PER_PAGE; ++i)
     {
-        int idx = m_iPage * ROWS_PER_PAGE + i;
-        if (idx >= m_iFilterCount) break;
-        const FAuctionEntry& e = ents[m_aFilter[idx]];
+        const FAuctionEntry& e = ents[i];
 
         RECT rCollect = R(PANEL_W - 176.f, LIST_TOP + i * ROW_H + 16.f, 74.f, 30.f);
         RECT rCancel = R(PANEL_W - 96.f, LIST_TOP + i * ROW_H + 16.f, 74.f, 30.f);
@@ -267,7 +267,10 @@ void CUI_Auction::Update_Mine(POINT m, bool bClick)
         if (PtInRect(&rCollect, m))
         {
             if (e.pendingGold > 0)
-                CNetwork_Manager::Get_Instance()->SendAuctionCollect(e.listingID);
+            {
+                net->SendAuctionCollect(e.listingID);
+                Request_List();   // 수령 반영 위해 재요청
+            }
             return;
         }
         if (PtInRect(&rCancel, m))
@@ -337,8 +340,10 @@ void CUI_Auction::On_Char(wchar_t ch)
     if (m_iFocus == FOCUS_SEARCH)
     {
         int len = lstrlenW(m_szSearch);
-        if (ch == 8) { if (len > 0) m_szSearch[len - 1] = 0; }
-        else if (ch >= 32 && len < 31) { m_szSearch[len] = ch; m_szSearch[len + 1] = 0; m_iPage = 0; }
+        bool changed = false;
+        if (ch == 8) { if (len > 0) { m_szSearch[len - 1] = 0; changed = true; } }
+        else if (ch >= 32 && len < 31) { m_szSearch[len] = ch; m_szSearch[len + 1] = 0; changed = true; }
+        if (changed) { m_iPage = 0; Request_List(); }   // 라이브 검색: 입력마다 서버 재조회
         return;
     }
 
@@ -473,9 +478,11 @@ static void Draw_Field(ID2D1RenderTarget* pRT, const RECT& r, const TCHAR* text,
 
 void CUI_Auction::Render_ListRows(ID2D1RenderTarget* pRT, bool bMine)
 {
-    const FAuctionEntry* ents = CNetwork_Manager::Get_Instance()->GetAuctionEntries();
+    CNetwork_Manager* net = CNetwork_Manager::Get_Instance();
+    const FAuctionEntry* ents = net->GetAuctionEntries();
+    int n = net->GetAuctionCount();   // 서버가 이미 필터+페이지 처리
 
-    if (m_iFilterCount == 0)
+    if (n == 0)
     {
         DrawL(pRT, bMine ? L"등록한 매물이 없습니다." : L"매물이 없습니다.",
             D2D1::RectF((float)m_tRect.left + 20.f, (float)m_tRect.top + LIST_TOP + 10.f,
@@ -484,11 +491,9 @@ void CUI_Auction::Render_ListRows(ID2D1RenderTarget* pRT, bool bMine)
         return;
     }
 
-    for (int i = 0; i < ROWS_PER_PAGE; ++i)
+    for (int i = 0; i < n && i < ROWS_PER_PAGE; ++i)
     {
-        int idx = m_iPage * ROWS_PER_PAGE + i;
-        if (idx >= m_iFilterCount) break;
-        const FAuctionEntry& e = ents[m_aFilter[idx]];
+        const FAuctionEntry& e = ents[i];
 
         float rowY = LIST_TOP + i * ROW_H;
 
@@ -555,14 +560,15 @@ void CUI_Auction::Render_Buy(ID2D1RenderTarget* pRT)
     Draw_Field(pRT, R(70.f, CONTENT_TOP, 250.f, 28.f), m_szSearch,
         m_iFocus == FOCUS_SEARCH, L"아이템 이름");
 
-    // 페이지
+    // 페이지 (서버 페이지네이션: 총 페이지수는 모르므로 현재 페이지만 표시, >는 hasNext로)
+    bool bNext = CNetwork_Manager::Get_Instance()->GetAuctionHasNext();
     Draw_Btn(pRT, R(PANEL_W - 150.f, CONTENT_TOP, 34.f, 28.f), L"<", mp, false, m_iPage > 0);
-    TCHAR pg[24]; swprintf_s(pg, 24, L"%d / %d", m_iPage + 1, Page_Count());
+    TCHAR pg[24]; swprintf_s(pg, 24, L"%d 페이지", m_iPage + 1);
     CImg_Manager::Get_Instance()->Draw_Text_Center(pRT, pg,
         D2D1::RectF((float)m_tRect.left + PANEL_W - 112.f, (float)m_tRect.top + CONTENT_TOP,
             (float)m_tRect.left + PANEL_W - 52.f, (float)m_tRect.top + CONTENT_TOP + 28.f),
         D2D1::ColorF(0.9f, 0.9f, 0.95f));
-    Draw_Btn(pRT, R(PANEL_W - 48.f, CONTENT_TOP, 34.f, 28.f), L">", mp, false, m_iPage < Page_Count() - 1);
+    Draw_Btn(pRT, R(PANEL_W - 48.f, CONTENT_TOP, 34.f, 28.f), L">", mp, false, bNext);
 
     Render_ListRows(pRT, false);
 }
@@ -576,13 +582,14 @@ void CUI_Auction::Render_Mine(ID2D1RenderTarget* pRT)
             (float)m_tRect.left + PANEL_W - 160.f, (float)m_tRect.top + CONTENT_TOP + 26.f),
         D2D1::ColorF(0.85f, 0.85f, 0.9f));
 
+    bool bNext = CNetwork_Manager::Get_Instance()->GetAuctionHasNext();
     Draw_Btn(pRT, R(PANEL_W - 150.f, CONTENT_TOP, 34.f, 28.f), L"<", mp, false, m_iPage > 0);
-    TCHAR pg[24]; swprintf_s(pg, 24, L"%d / %d", m_iPage + 1, Page_Count());
+    TCHAR pg[24]; swprintf_s(pg, 24, L"%d 페이지", m_iPage + 1);
     CImg_Manager::Get_Instance()->Draw_Text_Center(pRT, pg,
         D2D1::RectF((float)m_tRect.left + PANEL_W - 112.f, (float)m_tRect.top + CONTENT_TOP,
             (float)m_tRect.left + PANEL_W - 52.f, (float)m_tRect.top + CONTENT_TOP + 28.f),
         D2D1::ColorF(0.9f, 0.9f, 0.95f));
-    Draw_Btn(pRT, R(PANEL_W - 48.f, CONTENT_TOP, 34.f, 28.f), L">", mp, false, m_iPage < Page_Count() - 1);
+    Draw_Btn(pRT, R(PANEL_W - 48.f, CONTENT_TOP, 34.f, 28.f), L">", mp, false, bNext);
 
     Render_ListRows(pRT, true);
 }
@@ -611,7 +618,7 @@ void CUI_Auction::Render_Register(ID2D1RenderTarget* pRT)
     }
     else
     {
-        DrawL(pRT, L"← 아이템 선택", D2D1::RectF(fL + rx, fT + CONTENT_TOP + 12.f,
+        DrawL(pRT, L"- 아이템 선택", D2D1::RectF(fL + rx, fT + CONTENT_TOP + 12.f,
             fL + PANEL_W - 12.f, fT + CONTENT_TOP + 36.f), D2D1::ColorF(0.6f, 0.6f, 0.65f));
     }
 

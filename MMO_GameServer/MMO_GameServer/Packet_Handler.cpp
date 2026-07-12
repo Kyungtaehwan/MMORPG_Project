@@ -6,7 +6,7 @@
 #include "Zone_Manager.h"
 #include "Protocol.h"
 #include "AccountDB.h"
-#include "AuctionManager.h"
+#include "DB_Manager.h"
 #include "ServerItem.h"
 
 void CPacket_Handler::Handle(std::shared_ptr<CSession> pSession,
@@ -51,17 +51,24 @@ void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
     pPkt->id[sizeof(pPkt->id) - 1] = '\0';
     pPkt->pw[sizeof(pPkt->pw) - 1] = '\0';
 
-    // ---- 인증 (DB 대체: AccountDB. 추후 DB 조회로 교체) ----
-    const FAccountData* pAcc = FindAccount(pPkt->id, pPkt->pw);
-    if (!pAcc) { Send_SC_LOGIN_FAIL(pSession, 1); return; }   // 1 = 아이디/비번 불일치
+    // ---- 인증 + 계정 데이터 로드 (DB: sp_login 호출) ----
+    // sp_login 이 결과셋 3개(character/inventory/equipment)를 돌려주고
+    // CDB_Manager::Login 이 이를 FAccountData 로 채워준다. 인증 실패면 false.
+    FAccountData acc;
+    if (!CDB_Manager::Get_Instance()->Login(pPkt->id, pPkt->pw, acc))
+    {
+        Send_SC_LOGIN_FAIL(pSession, 1);   // 1 = 아이디/비번 불일치(또는 DB 오류)
+        return;
+    }
+    const FAccountData* pAcc = &acc;
 
     PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Create(pSession->GetID());
     if (!pPlayer) { Send_SC_LOGIN_FAIL(pSession, 0); return; }
 
-    strncpy_s(pPlayer->m_szName, pAcc->id, sizeof(pPlayer->m_szName) - 1);
+    // DB 경로에선 pAcc->id 가 비어 있으므로, 클라가 보낸 id 로 이름 설정.
+    strncpy_s(pPlayer->m_szName, pPkt->id, sizeof(pPlayer->m_szName) - 1);
 
-    // ---- 계정 데이터 로드 (DB 없으므로 매번 동일: 골드/인벤/장비) ----
-    // 추후 DB 붙이면 이 블록을 "DB에서 로드"로 교체.
+    // ---- 계정 데이터 반영 (DB에서 로드된 값: 골드/인벤/장비) ----
     pPlayer->m_gold = pAcc->gold;
     for (const FSaveItem& it : pAcc->inven)
     {
@@ -80,7 +87,7 @@ void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
     Send_SC_LOGIN_OK(pSession, pPlayer->m_nPlayerID);
     Send_SC_ENTER_GAME(pSession);
 
-    // 골드/인벤/장비를 클라에 1회 동기화 (ENTER_GAME 뒤 → 클라 플레이어 생성 후 도착)
+    // 골드/인벤/장비를 클라에 1회 동기화 (ENTER_GAME 뒤 - 클라 플레이어 생성 후 도착)
     pZone->Send_InvenUpdate(pPlayer);
 }
 
@@ -320,7 +327,7 @@ void CPacket_Handler::Handle_CS_USE_ITEM(
 
 // ================================================================
 //  Handle_CS_MOVE_STOP  UI 진입 등으로 이동 강제 정지
-//  서버가 현재 위치를 커밋하고 m_bMoving=false → 몬스터가 제 위치를 때림
+//  서버가 현재 위치를 커밋하고 m_bMoving=false - 몬스터가 제 위치를 때림
 // ================================================================
 void CPacket_Handler::Handle_CS_MOVE_STOP(
     std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize)
@@ -338,7 +345,7 @@ void CPacket_Handler::Handle_CS_MOVE_STOP(
 
 // ================================================================
 //  Handle_CS_BUY  상점 구매 (현재 포션만)
-//  골드 검증 → 인벤 추가 → 골드 차감 → SC_INVEN_UPDATE
+//  골드 검증 - 인벤 추가 - 골드 차감 - SC_INVEN_UPDATE
 // ================================================================
 void CPacket_Handler::Handle_CS_BUY(
     std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize)
@@ -369,7 +376,7 @@ void CPacket_Handler::Handle_CS_BUY(
 
 // ================================================================
 //  Handle_CS_SELL  상점 판매 (현재 포션만)
-//  인벤 차감 → 골드 지급 → SC_INVEN_UPDATE
+//  인벤 차감 - 골드 지급 - SC_INVEN_UPDATE
 // ================================================================
 void CPacket_Handler::Handle_CS_SELL(
     std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize)
@@ -403,20 +410,37 @@ void CPacket_Handler::Handle_CS_SELL(
 //  경매장 (즉시구매 / 개당가격 / 부분구매)
 //  응답: SC_AUCTION_LIST(스냅샷) + 인벤 변화 시 SC_INVEN_UPDATE 재사용
 // ================================================================
-void CPacket_Handler::Send_SC_AUCTION_LIST(std::shared_ptr<CSession> pSession)
+void CPacket_Handler::Send_SC_AUCTION_LIST(std::shared_ptr<CSession> pSession, int32_t page,
+    int32_t tab, const int32_t* searchCodes, int32_t searchCount)
 {
     if (!pSession) return;
+    if (page < 0) page = 0;
+
+    PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(pSession->GetID());
+    const char* myName = pPlayer ? pPlayer->m_szName : "";
+
     SC_AUCTION_LIST_PACKET pkt = {};
     pkt.header.size = sizeof(pkt);
     pkt.header.id = SC_AUCTION_LIST;
-    CAuction_Manager::Get_Instance()->Fill_Snapshot(pkt);
+    pkt.page = page;
+
+    bool bHasNext = false;
+    int32_t n = CDB_Manager::Get_Instance()->Auction_GetPage(
+        page, tab, myName, searchCodes, searchCount, pkt.entries, bHasNext);
+    pkt.count = n;
+    pkt.hasNext = bHasNext ? 1 : 0;
     pSession->Send(&pkt, sizeof(pkt));
 }
 
 void CPacket_Handler::Handle_CS_AUCTION_LIST(
     std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize)
 {
-    Send_SC_AUCTION_LIST(pSession);
+    if (nSize < static_cast<int32_t>(sizeof(CS_AUCTION_LIST_PACKET))) return;
+    CS_AUCTION_LIST_PACKET* pPkt = reinterpret_cast<CS_AUCTION_LIST_PACKET*>(pBuffer);
+    int32_t sc = pPkt->searchCount;
+    if (sc < 0) sc = 0;
+    if (sc > AUCTION_SEARCH_MAX) sc = AUCTION_SEARCH_MAX;
+    Send_SC_AUCTION_LIST(pSession, pPkt->page, pPkt->tab, pPkt->searchCodes, sc);
 }
 
 void CPacket_Handler::Handle_CS_AUCTION_REGISTER(
@@ -440,13 +464,13 @@ void CPacket_Handler::Handle_CS_AUCTION_REGISTER(
     if (nCode <= 0) return;
     if (pPlayer->m_invenCount[nSlot] < nCount) return;
 
-    // 인벤에서 빼서(에스크로) 매물 등록
-    if (!CAuction_Manager::Get_Instance()->Register(pPlayer->m_szName, nCode, nCount, nPrice))
+    // 인벤에서 빼서(에스크로) 매물 등록 (DB INSERT)
+    if (!CDB_Manager::Get_Instance()->Auction_Register(pPlayer->m_szName, nCode, nCount, nPrice))
         return;
     pPlayer->RemoveItemSlot(nSlot, nCount);
 
     pZone->Send_InvenUpdate(pPlayer);
-    Send_SC_AUCTION_LIST(pSession);
+    // 등록 후 목록 갱신은 클라가 재요청(보통 0페이지로 이동해 새 매물 확인).
 }
 
 void CPacket_Handler::Handle_CS_AUCTION_BUY(
@@ -463,28 +487,29 @@ void CPacket_Handler::Handle_CS_AUCTION_BUY(
     int32_t nQty = pPkt->count;
     if (nQty <= 0 || nQty > 99) return;
 
-    CAuction_Manager* pAuc = CAuction_Manager::Get_Instance();
+    CDB_Manager* pDB = CDB_Manager::Get_Instance();
 
-    // 1) 비변경 검증 → 코드/총액
-    int32_t nCode = 0, nTotal = 0;
-    if (!pAuc->Peek_Buy(pPkt->listingID, nQty, pPlayer->m_szName, nCode, nTotal))
+    // 1) 사전조회(비변경): 코드/개당가. 매물 없음/본인매물이면 중단.
+    int32_t nCode = 0, nUnit = 0;
+    if (!pDB->Auction_PeekBuy(pPkt->listingID, pPlayer->m_szName, nCode, nUnit))
         return;
+    int32_t nTotal = nUnit * nQty;
 
-    // 2) 골드 확인
+    // 2) 지급 가능성 사전 확인(골드 + 인벤 여유). 여기서 막아야 원자 UPDATE 후 지급 실패가 없음.
     if (pPlayer->m_gold < nTotal) return;
+    if (!pPlayer->CanAddItem(nCode, nQty)) return;
 
-    // 3) 인벤 수용(가득이면 실패 → 변화 없음)
-    if (!pPlayer->AddItem(nCode, nQty)) return;
+    // 3) 매물 확정: 원자적 조건부 UPDATE. 동시 구매 시 여기서 한 명만 성공(1행), 나머지 거부(0행).
+    //    - 이 단계가 성공한 뒤에만 아이템 지급 - 복사/오버셀 불가.
+    if (!pDB->Auction_CommitBuy(pPkt->listingID, nQty, nTotal, pPlayer->m_szName))
+        return;   // 경쟁에서 밀렸거나 수량 부족 - 아무것도 안 준 상태로 종료
 
-    // 4) 매물 확정(경쟁 상태 극히 드묾: 실패 시에도 아이템은 지급된 상태이나
-    //    이 게임 규모에선 사실상 발생하지 않음)
-    if (!pAuc->Commit_Buy(pPkt->listingID, nQty, pPlayer->m_szName)) return;
-
-    // 5) 골드 차감
+    // 4) 확정됐으니 지급(사전 확인했으므로 성공 보장) + 골드 차감
+    pPlayer->AddItem(nCode, nQty);
     pPlayer->SpendGold(nTotal);
 
     pZone->Send_InvenUpdate(pPlayer);
-    Send_SC_AUCTION_LIST(pSession);
+    // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
 }
 
 void CPacket_Handler::Handle_CS_AUCTION_COLLECT(
@@ -499,12 +524,12 @@ void CPacket_Handler::Handle_CS_AUCTION_COLLECT(
     if (!pZone) return;
 
     int32_t nGold = 0;
-    if (!CAuction_Manager::Get_Instance()->Collect(pPkt->listingID, pPlayer->m_szName, nGold))
+    if (!CDB_Manager::Get_Instance()->Auction_Collect(pPkt->listingID, pPlayer->m_szName, nGold))
         return;
 
     pPlayer->AddGold(nGold);
     pZone->Send_InvenUpdate(pPlayer);
-    Send_SC_AUCTION_LIST(pSession);
+    // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
 }
 
 void CPacket_Handler::Handle_CS_AUCTION_CANCEL(
@@ -518,23 +543,25 @@ void CPacket_Handler::Handle_CS_AUCTION_CANCEL(
     CZone* pZone = CZone_Manager::Get_Instance()->GetZone(pPlayer->m_nZoneID);
     if (!pZone) return;
 
-    CAuction_Manager* pAuc = CAuction_Manager::Get_Instance();
+    CDB_Manager* pDB = CDB_Manager::Get_Instance();
 
-    // 1) 취소 정보(남은수량/미수령골드) 조회
+    // 1) 사전조회(비변경): 코드/남은수량/미수령골드. 본인 매물 아니면 중단.
     int32_t nCode = 0, nCount = 0, nGold = 0;
-    if (!pAuc->Peek_Cancel(pPkt->listingID, pPlayer->m_szName, nCode, nCount, nGold))
+    if (!pDB->Auction_PeekCancel(pPkt->listingID, pPlayer->m_szName, nCode, nCount, nGold))
         return;
 
-    // 2) 남은 수량 인벤 반환 (가득이면 취소 불가 → 변화 없음)
-    if (nCount > 0)
-        if (!pPlayer->AddItem(nCode, nCount)) return;
+    // 2) 남은 수량을 인벤에 담을 수 있는지 먼저 확인(DELETE 후 지급 실패로 아이템 소실 방지)
+    if (nCount > 0 && !pPlayer->CanAddItem(nCode, nCount)) return;
 
-    // 3) 미수령 골드 지급
-    if (nGold > 0) pPlayer->AddGold(nGold);
+    // 3) 매물 삭제(원자적). 삭제 시점의 실제 수량/골드를 받아 그대로 지급.
+    //    동시 구매가 있었다면 실제 수량은 조회 때보다 적을 수 있음(<= 이므로 인벤에 반드시 들어감).
+    int32_t aCode = 0, aCount = 0, aGold = 0;
+    if (!pDB->Auction_Cancel(pPkt->listingID, pPlayer->m_szName, aCode, aCount, aGold))
+        return;
 
-    // 4) 매물 제거
-    pAuc->Remove_Listing(pPkt->listingID, pPlayer->m_szName);
+    if (aCount > 0) pPlayer->AddItem(aCode, aCount);   // 남은 수량 반환
+    if (aGold  > 0) pPlayer->AddGold(aGold);           // 미수령 골드 지급
 
     pZone->Send_InvenUpdate(pPlayer);
-    Send_SC_AUCTION_LIST(pSession);
+    // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
 }
