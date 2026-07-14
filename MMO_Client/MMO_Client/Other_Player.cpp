@@ -21,6 +21,8 @@ void COther_Player::Initialize(int32_t nPlayerID, const char* pszName, float fX,
     m_nPlayerID = nPlayerID;
     strncpy_s(m_szName, pszName, sizeof(m_szName) - 1);
 
+    m_bDead = false;   // 재사용(리스폰 부활) 시 지연삭제 예약을 취소 - 다시 살아있는 상태로
+
     m_tIsoInfo.fWorldX = fX;
     m_tIsoInfo.fWorldZ = fZ;
     m_fDestX = fX;
@@ -120,14 +122,32 @@ void COther_Player::OnMovePosPacket(float fCurX, float fCurZ,
 }
 
 
-void COther_Player::OnAttackPacket()
+void COther_Player::OnAttackPacket(uint8_t nDir, float fCurX, float fCurZ)
 {
-    Motion_Change(PLAYER_ATTACK);
+    // 공격 확정 위치로 스냅 - 이동 보간이 옛 목적지까지 오버슈트하던 위치 어긋남 제거.
+    m_tIsoInfo.fWorldX = fCurX;
+    m_tIsoInfo.fWorldZ = fCurZ;
+    m_fDestX = fCurX;
+    m_fDestZ = fCurZ;
     m_bMoving = false;
+
+    // 서버가 계산한 "몬스터 바라보는 방향"으로 정렬 후 공격 모션 재생.
+    // (예전엔 방향을 안 받아 마지막 이동 방향으로 공격해 관찰자 화면에서 어긋났다)
+    Direction_Change(static_cast<DIRECTION>(nDir));
+    Motion_Change(PLAYER_ATTACK);
 }
 
-void COther_Player::OnHitPacket(int32_t iHp)
+void COther_Player::OnHitPacket(int32_t iHp, float fCurX, float fCurZ)
 {
+    // 피격 시 서버가 커밋한 정지 위치로 스냅 + 이동 중단.
+    // (예전엔 m_bMoving을 안 꺼서 HIT 애니메이션 후 옛 목적지까지 계속 이동해
+    //  관찰자 화면에서만 그냥 통과하는 것처럼 보였다)
+    m_tIsoInfo.fWorldX = fCurX;
+    m_tIsoInfo.fWorldZ = fCurZ;
+    m_fDestX = fCurX;
+    m_fDestZ = fCurZ;
+    m_bMoving = false;
+
     Motion_Change(PLAYER_HIT);
     m_iHp = iHp;
 }

@@ -68,6 +68,8 @@ bool CDB_Manager::Login(const char* id, const char* pw, FAccountData& out)
         out.spawnX = r.get<float>(1);   // spawn_x
         out.spawnZ = r.get<float>(2);   // spawn_z
         out.gold   = r.get<int>(3);     // gold
+        out.level  = r.get<int>(4);     // level
+        out.exp    = r.get<int>(5);     // exp
 
         // ---- 결과셋2: inventory (slot, item_code, count) ----
         if (r.next_result())
@@ -92,6 +94,18 @@ bool CDB_Manager::Login(const char* id, const char* pw, FAccountData& out)
                 int code = r.get<int>(1);   // item_code
                 if (slot >= 0 && slot < 6)
                     out.equip[slot] = code;
+            }
+        }
+
+        // ---- 결과셋4: quickslot (slot, item_code) ----
+        if (r.next_result())
+        {
+            while (r.next())
+            {
+                int slot = r.get<int>(0);   // slot (0~7)
+                int code = r.get<int>(1);   // item_code
+                if (slot >= 0 && slot < 8)
+                    out.quick[slot] = code;
             }
         }
 
@@ -124,17 +138,21 @@ bool CDB_Manager::Save(const FSaveSnapshot& snap)
         {
             nanodbc::statement s(conn);
             nanodbc::prepare(s, NANODBC_TEXT(
-                "UPDATE `character` SET zone_id=?, spawn_x=?, spawn_z=?, gold=? "
+                "UPDATE `character` SET zone_id=?, spawn_x=?, spawn_z=?, gold=?, level=?, exp=? "
                 "WHERE account_id=?"));
-            int   zone = snap.zoneID;
-            float x    = snap.x;
-            float z    = snap.z;
-            int   gold = snap.gold;
+            int   zone  = snap.zoneID;
+            float x     = snap.x;
+            float z     = snap.z;
+            int   gold  = snap.gold;
+            int   level = snap.level;
+            int   exp   = snap.exp;
             s.bind(0, &zone);
             s.bind(1, &x);
             s.bind(2, &z);
             s.bind(3, &gold);
-            s.bind(4, id);
+            s.bind(4, &level);
+            s.bind(5, &exp);
+            s.bind(6, id);
             nanodbc::execute(s);
         }
 
@@ -182,9 +200,31 @@ bool CDB_Manager::Save(const FSaveSnapshot& snap)
             nanodbc::execute(s);
         }
 
+        // 4) quickslot : 전부 지우고 등록된 칸만 (인벤/장비와 같은 스냅샷 방식)
+        {
+            nanodbc::statement d(conn);
+            nanodbc::prepare(d, NANODBC_TEXT("DELETE FROM quickslot WHERE account_id=?"));
+            d.bind(0, id);
+            nanodbc::execute(d);
+        }
+        for (int i = 0; i < FSaveSnapshot::QUICK; ++i)
+        {
+            if (snap.quickCode[i] <= 0) continue;   // 빈 칸은 저장 안 함
+            nanodbc::statement s(conn);
+            nanodbc::prepare(s, NANODBC_TEXT(
+                "INSERT INTO quickslot (account_id, slot, item_code) VALUES (?,?,?)"));
+            int slot = i;
+            int code = snap.quickCode[i];
+            s.bind(0, id);
+            s.bind(1, &slot);
+            s.bind(2, &code);
+            nanodbc::execute(s);
+        }
+
         tx.commit();   // 여기까지 다 성공 - 확정
         std::cout << "[DB] saved: " << id << " (zone=" << snap.zoneID
-                  << " gold=" << snap.gold << ")\n";
+                  << " gold=" << snap.gold
+                  << " Lv" << snap.level << " exp=" << snap.exp << ")\n";
         return true;
     }
     catch (const std::exception& e)

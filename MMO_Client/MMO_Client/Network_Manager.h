@@ -78,6 +78,7 @@ public:
     void SendAuctionBuy(int32_t nListingID, int32_t nCount);
     void SendAuctionCollect(int32_t nListingID);
     void SendAuctionCancel(int32_t nListingID);
+    void SendQuickSlotSet(int32_t nSlot, int32_t nItemCode);   // 퀵슬롯 등록/해제(0=해제)
     // ---- 메인 스레드에서 매 프레임 호출 ----
     // 큐에 쌓인 패킷 핸들러를 전부 처리
     void Dispatch();
@@ -112,6 +113,8 @@ private:
     void Handle_SC_INVEN_UPDATE(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_PLAYER_HP(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_BUFF(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_PLAYER_EXP(uint8_t* pBuffer, int32_t nSize);
+    void Handle_SC_QUICKSLOT_UPDATE(uint8_t* pBuffer, int32_t nSize);
     void Handle_SC_AUCTION_LIST(uint8_t* pBuffer, int32_t nSize);
 public:
     
@@ -165,6 +168,10 @@ public:
     int32_t              GetAuctionPage()    const { return m_auctionPage; }
     bool                 GetAuctionHasNext() const { return m_auctionHasNext != 0; }
     uint32_t             GetAuctionVersion() const { return m_auctionVersion; } // 갱신 감지용
+
+    // 퀵슬롯 스냅샷(로그인 시 서버가 보내줌). UI가 버전 변화를 보고 한 번 가져간다.
+    const int32_t*       GetQuickCodes()   const { return m_quickCode; }
+    uint32_t             GetQuickVersion() const { return m_quickVersion; }
     void  ClearSpawn()     { m_bSpawnReady = false; }
 
 private:
@@ -182,4 +189,7 @@ private:
     int32_t       m_auctionPage = 0;      // 서버가 준 현재 페이지
     int32_t       m_auctionHasNext = 0;   // 다음 페이지 존재 여부
     uint32_t      m_auctionVersion = 0;   // 수신할 때마다 +1
+
+    int32_t       m_quickCode[QUICK_SLOTS] = {};
+    uint32_t      m_quickVersion = 0;     // 수신할 때마다 +1 (0 = 아직 못 받음)
 };

@@ -14,13 +14,17 @@ struct FSaveSnapshot
 {
     static constexpr int INVEN = 40;   // CPlayer::INVEN_SIZE 와 일치
     static constexpr int EQUIP = 6;    // CPlayer::EQUIP_SLOTS 와 일치
+    static constexpr int QUICK = 8;    // CPlayer::QUICK_SLOTS_N 와 일치
 
     char    id[20]  = {};   // account_id (= CPlayer::m_szName)
     int32_t zoneID  = 0;
     float   x       = 0.f;
     float   z       = 0.f;
     int32_t gold    = 0;
+    int32_t level   = 1;
+    int32_t exp     = 0;
     int32_t invenCode[INVEN]  = {};
     int32_t invenCount[INVEN] = {};
     int32_t equipCode[EQUIP]  = {};
+    int32_t quickCode[QUICK]  = {};
 };

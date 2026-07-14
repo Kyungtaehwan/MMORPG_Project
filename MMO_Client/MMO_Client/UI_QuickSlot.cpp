@@ -6,6 +6,7 @@
 #include "ItemData_UseItem.h"
 #include "Img_Manager.h"
 #include "Input_Manager.h"
+#include "Network_Manager.h"
 
 static const TCHAR* s_KeyLabel[8] = {
     L"1", L"2", L"3", L"4", L"Q", L"W", L"E", L"R"
@@ -26,6 +27,11 @@ int CUI_QuickSlot::Update(float dt)
 {
     CInput_Manager* pInput = CInput_Manager::Get_Instance();
     POINT tMouse = pInput->Get_MousePos();
+
+    // 서버가 보낸 퀵슬롯 스냅샷(로그인 복원)을 먼저 반영.
+    // Update_SlotValidity 보다 앞서야 한다 — 복원 직후 유효성 검사가 돌아야
+    // 인벤에 없는 아이템 슬롯이 정리된다.
+    Sync_FromServer();
 
     // 드래그 중 마우스 뗌 퀵슬롯 영역 체크 후 드롭
     if (pInput->Is_Dragging() && pInput->Mouse_Up(MBUTTON_L))
@@ -186,7 +192,7 @@ void CUI_QuickSlot::On_LButtonUp(POINT tMouse)
         if (pItem && pItem->Get_Type() == ITEM_USE)
         {
             // 포인터가 아니라 아이템 코드를 등록 (인벤 재구성에도 유지)
-            m_aSlotCode[iSlot] = pItem->Get_ItemCode();
+            Set_Slot(iSlot, pItem->Get_ItemCode());
         }
     }
 
@@ -198,7 +204,33 @@ void CUI_QuickSlot::On_RClick(POINT tMouse)
     int iSlot = Get_SlotAt(tMouse);
     if (iSlot == -1 || !Is_UseSlot(iSlot)) return;
 
-    m_aSlotCode[iSlot] = 0;
+    Set_Slot(iSlot, 0);
+}
+
+// 슬롯 변경의 단일 창구 — 로컬 반영 + 서버 통보(서버가 DB에 저장).
+// 값이 안 바뀌면 아무것도 보내지 않는다(매 프레임 도는 Update_SlotValidity 대비).
+void CUI_QuickSlot::Set_Slot(int iSlot, int iCode)
+{
+    if (iSlot < 0 || iSlot >= 8) return;
+    if (m_aSlotCode[iSlot] == iCode) return;
+
+    m_aSlotCode[iSlot] = iCode;
+    CNetwork_Manager::Get_Instance()->SendQuickSlotSet(iSlot, iCode);
+}
+
+// 서버 스냅샷 반영(로그인 시 1회). 서버가 준 값이라 되돌려 보내지 않으므로
+// Set_Slot 이 아니라 배열에 직접 넣는다.
+void CUI_QuickSlot::Sync_FromServer()
+{
+    CNetwork_Manager* pNet = CNetwork_Manager::Get_Instance();
+    uint32_t nVersion = pNet->GetQuickVersion();
+    if (nVersion == m_nQuickVersion) return;   // 새로 받은 스냅샷 없음
+
+    const int32_t* pCodes = pNet->GetQuickCodes();
+    for (int i = 0; i < 8; ++i)
+        m_aSlotCode[i] = pCodes[i];
+
+    m_nQuickVersion = nVersion;
 }
 
 int CUI_QuickSlot::Get_SlotAt(POINT tMouse)
@@ -222,6 +254,7 @@ int CUI_QuickSlot::Get_SlotAt(POINT tMouse)
 void CUI_QuickSlot::Update_SlotValidity()
 {
     // 등록한 코드의 아이템이 인벤에 하나도 없으면 슬롯 비움
+    // (Set_Slot 을 거치므로 이 자동 해제도 서버/DB에 반영된다)
     for (int i = 0; i < 4; ++i)
     {
         if (m_aSlotCode[i] == 0) continue;
@@ -238,7 +271,7 @@ void CUI_QuickSlot::Update_SlotValidity()
         }
 
         if (!bFound)
-            m_aSlotCode[i] = 0;
+            Set_Slot(i, 0);
     }
 }
 

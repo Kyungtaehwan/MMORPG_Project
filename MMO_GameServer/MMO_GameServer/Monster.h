@@ -59,6 +59,7 @@ public:
     int32_t             m_nHp = 100;
     int32_t             m_nMaxHp = 100;
     int32_t             m_nAtk = 10;
+    int32_t             m_nExpReward = 20;    // 처치 시 주는 경험치 (타입별, Monster_Manager에서 설정)
     float               m_fAtkRange = 1.0f;   // 공격 범위a
     float               m_fAggroRange = 3.f;    // 어그로 시작 범위
     float               m_fDeAggroRange = 4.f;   // 어그로 해제 범위

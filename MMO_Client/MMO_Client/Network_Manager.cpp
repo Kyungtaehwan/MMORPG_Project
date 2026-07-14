@@ -239,9 +239,19 @@ void CNetwork_Manager::ProcessPacket(uint8_t* pBuffer, int32_t nSize)
             Handle_SC_BUFF(
                 vData.data(), static_cast<int32_t>(vData.size()));
             }); break;
+    case SC_PLAYER_EXP:
+        PushTask([this, vData]() mutable {
+            Handle_SC_PLAYER_EXP(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
     case SC_AUCTION_LIST:
         PushTask([this, vData]() mutable {
             Handle_SC_AUCTION_LIST(
+                vData.data(), static_cast<int32_t>(vData.size()));
+            }); break;
+    case SC_QUICKSLOT_UPDATE:
+        PushTask([this, vData]() mutable {
+            Handle_SC_QUICKSLOT_UPDATE(
                 vData.data(), static_cast<int32_t>(vData.size()));
             }); break;
     default:
@@ -315,11 +325,18 @@ void CNetwork_Manager::Handle_SC_ADD_PLAYER(uint8_t* pBuffer, int32_t nSize)
 
     if (pPkt->playerID == m_nMyPlayerID) return;
 
+    // 이미 존재할 수 있다: 리스폰 시 서버가 같은 관찰자에게 remove→add를 연속 보내는데,
+    // 클라의 remove는 지연 삭제(Set_Dead, 다음 Update)라 이 add 시점엔 옛 객체가 아직 리스트에 남아있다.
+    // 예전엔 여기서 그냥 return해 add를 버렸고, 그러면 옛 객체는 다음 Update에 삭제되어
+    // 리스폰한 플레이어가 영영 안 보였다. → 있으면 재사용(부활), 없으면 새로 만든다.
     CGameObject* pExist =
         CObject_Manager::Get_Instance()->Find_OtherPlayer(pPkt->playerID);
-    if (pExist) return;
 
-    COther_Player* pOther = new COther_Player;
+    bool bNew = (pExist == nullptr);
+    COther_Player* pOther = bNew
+        ? new COther_Player
+        : static_cast<COther_Player*>(pExist);
+
     pOther->Initialize(pPkt->playerID, pPkt->name,
         pPkt->fCurX, pPkt->fCurZ, pPkt->dir);
 
@@ -338,7 +355,8 @@ void CNetwork_Manager::Handle_SC_ADD_PLAYER(uint8_t* pBuffer, int32_t nSize)
         }
     }
 
-    CObject_Manager::Get_Instance()->Add_Object(OBJ_OTHER_PLAYER, pOther);
+    if (bNew)
+        CObject_Manager::Get_Instance()->Add_Object(OBJ_OTHER_PLAYER, pOther);
 
     std::cout << "[Network] 플레이어 추가. ID=" << pPkt->playerID
         << " name=" << pPkt->name
@@ -407,6 +425,7 @@ void CNetwork_Manager::Handle_SC_ADD_MONSTER(uint8_t* pBuffer, int32_t nSize)
     pMonster->Set_WorldPos(pPkt->fCurX, pPkt->fCurZ);
     pMonster->Set_MonsterID(pPkt->monsterID);
     pMonster->Set_Speed(pPkt->fSpeed);
+    pMonster->Set_Dir(static_cast<DIRECTION>(pPkt->dir));   // 시야 진입 시 방향(없으면 기본 DIR_B로 이동해 방향이 어긋남)
 
     // 이동 중이면 목적지 세팅
     MONSTER_STATE eState = static_cast<MONSTER_STATE>(pPkt->state);
@@ -548,7 +567,7 @@ void CNetwork_Manager::Handle_SC_PLAYER_STATE(uint8_t* pBuffer, int32_t nSize)
     PLAYER_STATE eTempState = (PLAYER_STATE)pPkt->state;
     switch (eTempState) {
     case PLAYER_ATTACK:
-        pOther->OnAttackPacket();
+        pOther->OnAttackPacket(pPkt->dir, pPkt->fCurX, pPkt->fCurZ);
         break;
     case PLAYER_HIT:
         break;
@@ -587,7 +606,7 @@ void CNetwork_Manager::Handle_SC_PLAYER_HIT(uint8_t* pBuffer, int32_t nSize)
         if (!pObj) return;
 
         COther_Player* pOther = static_cast<COther_Player*>(pObj);
-        pOther->OnHitPacket(pPkt->nHp);
+        pOther->OnHitPacket(pPkt->nHp, pPkt->fCurX, pPkt->fCurZ);
     }
 }
 
@@ -732,8 +751,31 @@ void CNetwork_Manager::Handle_SC_PLAYER_HP(uint8_t* pBuffer, int32_t nSize)
     if (!pPlayer) return;
 
     // 회복/스탯 동기화 (피격 애니 없음)
+    // 최대치도 반영해야 한다 - 레벨업으로 MaxHp/MaxMp가 늘어나면
+    // 옛 최대치로 나눈 HUD 바가 꽉 찬 채로 멈춰 보인다.
+    pPlayer->Set_MaxHp(pPkt->nMaxHp);
+    pPlayer->Set_MaxMp(pPkt->nMaxMp);
     pPlayer->Set_Hp(pPkt->nHp);
     pPlayer->Set_Mp(pPkt->nMp);
+}
+
+// ================================================================
+//  SC_PLAYER_EXP — 레벨/경험치 동기화 (서버 정본, 자기 자신만 수신)
+//   몬스터 처치 시 + 로그인 직후 1회. levelUp=1 이면 레벨업 순간.
+//   레벨업에 따른 HP/MP 변화는 서버가 SC_PLAYER_HP로 따로 보낸다.
+// ================================================================
+void CNetwork_Manager::Handle_SC_PLAYER_EXP(uint8_t* pBuffer, int32_t nSize)
+{
+    SC_PLAYER_EXP_PACKET* pPkt = reinterpret_cast<SC_PLAYER_EXP_PACKET*>(pBuffer);
+
+    if (pPkt->playerID != m_nMyPlayerID) return;
+
+    CPlayer* pPlayer = dynamic_cast<CPlayer*>(
+        CObject_Manager::Get_Instance()->Get_Player());
+    if (!pPlayer) return;
+
+    pPlayer->Set_Level(pPkt->level);
+    pPlayer->Set_Exp(pPkt->exp, pPkt->maxExp);
 }
 
 void CNetwork_Manager::Handle_SC_BUFF(uint8_t* pBuffer, int32_t nSize)
@@ -774,6 +816,16 @@ void CNetwork_Manager::SendUseItem(int32_t nInvenSlot)
     pkt.header.size = sizeof(pkt);
     pkt.header.id = CS_USE_ITEM;
     pkt.invenSlot = nInvenSlot;
+    SendRaw(&pkt, sizeof(pkt));
+}
+
+void CNetwork_Manager::SendQuickSlotSet(int32_t nSlot, int32_t nItemCode)
+{
+    CS_QUICKSLOT_SET_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = CS_QUICKSLOT_SET;
+    pkt.slot = nSlot;
+    pkt.itemCode = nItemCode;
     SendRaw(&pkt, sizeof(pkt));
 }
 
@@ -863,6 +915,22 @@ void CNetwork_Manager::SendAuctionCancel(int32_t nListingID)
     pkt.header.id = CS_AUCTION_CANCEL;
     pkt.listingID = nListingID;
     SendRaw(&pkt, sizeof(pkt));
+}
+
+// ================================================================
+//  SC_QUICKSLOT_UPDATE — 퀵슬롯 스냅샷 (로그인 시 1회)
+//   UI를 직접 건드리지 않고 캐시에 담아 버전만 올린다(경매장과 같은 방식).
+//   CUI_QuickSlot::Update 가 버전 변화를 보고 한 번만 가져간다.
+// ================================================================
+void CNetwork_Manager::Handle_SC_QUICKSLOT_UPDATE(uint8_t* pBuffer, int32_t nSize)
+{
+    if (nSize < static_cast<int32_t>(sizeof(SC_QUICKSLOT_UPDATE_PACKET))) return;
+    SC_QUICKSLOT_UPDATE_PACKET* pPkt =
+        reinterpret_cast<SC_QUICKSLOT_UPDATE_PACKET*>(pBuffer);
+
+    for (int i = 0; i < QUICK_SLOTS; ++i)
+        m_quickCode[i] = pPkt->codes[i];
+    ++m_quickVersion;
 }
 
 void CNetwork_Manager::Handle_SC_AUCTION_LIST(uint8_t* pBuffer, int32_t nSize)

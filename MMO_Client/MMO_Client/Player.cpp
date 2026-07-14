@@ -14,8 +14,11 @@
 
 CPlayer::CPlayer()
 {
-	m_iMaxExp = 100.f;
-	m_iCurExp = m_iMaxExp;
+	// 서버 SC_PLAYER_EXP 가 도착하기 전의 초기값(로그인 직후 1회 덮어써진다).
+	// 서버 CPlayer::ExpToNext(1) == 100 과 맞춰 둔다.
+	m_iLevel = 1;
+	m_iCurExp = 0;
+	m_iMaxExp = 100;
 }
 
 CPlayer::~CPlayer()

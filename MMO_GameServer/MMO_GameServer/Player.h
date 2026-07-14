@@ -160,6 +160,28 @@ public:
         return false;
     }
 
+    // ---- 퀵슬롯 (표시 전용 - 서버는 값만 보관하고 DB에 저장한다) ----
+    //  인벤과 달리 "권위"랄 게 없다(사용은 CS_USE_ITEM 이 별도로 검증).
+    //  등록 내용이 계정에 남아야 하므로 서버가 들고 있다가 로그인 때 돌려준다.
+    static constexpr int32_t QUICK_SLOTS_N = 8;   // Protocol.h QUICK_SLOTS 와 동일해야 함
+    int32_t  m_quickCode[QUICK_SLOTS_N] = {};   // 슬롯별 itemCode (0=빈칸)
+
+    // 퀵슬롯 한 칸 설정. 범위/코드 검증 후 반영. 소비 가능 아이템(포션1xxx/스크롤2xxx)과
+    // 해제(0)만 허용 — 장비를 퀵슬롯에 넣는 잘못된 클라를 걸러낸다.
+    bool SetQuickSlot(int32_t nSlot, int32_t nCode)
+    {
+        std::lock_guard<std::recursive_mutex> lk(m_saveLock);
+        if (nSlot < 0 || nSlot >= QUICK_SLOTS_N) return false;
+        if (nCode < 0) return false;
+        if (nCode > 0)
+        {
+            int cat = nCode / 1000;
+            if (cat != 1 && cat != 2) return false;   // 포션/스크롤만 등록 가능
+        }
+        m_quickCode[nSlot] = nCode;
+        return true;
+    }
+
     // ---- 장비 / 스탯 (서버 권위) ----
     static constexpr int32_t EQUIP_SLOTS = 6;   // 클라 SLOT_END
     int32_t  m_equipCode[EQUIP_SLOTS] = {};     // 슬롯별 itemCode (0=빈칸)
@@ -167,6 +189,80 @@ public:
     int32_t  m_iMaxMp = 100;
     int32_t  m_baseAtk = 10;   // 클라 Player Initialize 와 일치
     int32_t  m_baseDef = 5;
+
+    // ---- 레벨 / 경험치 (서버 권위) ----
+    //  필요 경험치 = 100 * 현재레벨 (1→2 100, 2→3 200 …). 만렙 도달 시 경험치 누적 중단.
+    //  레벨업 보상은 baseAtk/baseDef/MaxHp/MaxMp 상승 + 풀회복 (LevelUp 참고).
+    static constexpr int32_t MAX_LEVEL = 50;
+    int32_t  m_nLevel = 1;
+    int32_t  m_nExp   = 0;
+
+    static int32_t ExpToNext(int32_t nLevel)
+    {
+        if (nLevel >= MAX_LEVEL) return 0;   // 만렙 - 더 올릴 곳 없음
+        return 100 * nLevel;
+    }
+
+    bool IsMaxLevel() const { return m_nLevel >= MAX_LEVEL; }
+
+    // 레벨에서 파생되는 스탯을 다시 계산한다(증분이 아니라 순수 함수).
+    // 레벨업 때도, DB에서 레벨을 불러올 때도 같은 식을 쓰므로 값이 어긋날 일이 없다.
+    // 최종 공/방은 여기 base 에 장비/버프가 더해진 Get_Atk()/Get_Def().
+    void ApplyLevelStats()
+    {
+        int32_t n = m_nLevel - 1;
+        m_iMaxHp  = 100 + n * 20;
+        m_iMaxMp  = 100 + n * 10;
+        m_baseAtk = 10  + n * 2;
+        m_baseDef = 5   + n * 1;
+        if (m_iHp > m_iMaxHp) m_iHp = m_iMaxHp;
+        if (m_iMp > m_iMaxMp) m_iMp = m_iMaxMp;
+    }
+
+    // DB에서 불러온 레벨/경험치 적용(로그인 시 1회). 스탯 재계산 + 풀회복.
+    void SetLevelExp(int32_t nLevel, int32_t nExp)
+    {
+        std::lock_guard<std::recursive_mutex> lk(m_saveLock);
+        if (nLevel < 1)         nLevel = 1;
+        if (nLevel > MAX_LEVEL) nLevel = MAX_LEVEL;
+        m_nLevel = nLevel;
+        m_nExp   = (nExp > 0) ? nExp : 0;
+        ApplyLevelStats();
+        m_iHp = m_iMaxHp;
+        m_iMp = m_iMaxMp;
+    }
+
+    // 경험치 획득. 필요치를 넘으면 레벨업(연속 레벨업 가능).
+    // 반환값 = 이번 호출로 오른 레벨 수(0이면 레벨업 없음).
+    // 인벤/장비와 같은 락을 쓴다 - 주기 저장이 반쪽 상태(레벨만 오르고 경험치는 옛값)를
+    // 읽지 않도록. 레벨업 시 HP/MP도 바뀌므로 호출자는 SC_PLAYER_HP도 같이 보낼 것.
+    int32_t AddExp(int32_t nAmount)
+    {
+        std::lock_guard<std::recursive_mutex> lk(m_saveLock);
+        if (nAmount <= 0 || IsMaxLevel()) return 0;
+
+        m_nExp += nAmount;
+
+        int32_t nGained = 0;
+        while (!IsMaxLevel() && m_nExp >= ExpToNext(m_nLevel))
+        {
+            m_nExp -= ExpToNext(m_nLevel);
+            ++m_nLevel;
+            ++nGained;
+        }
+
+        if (nGained > 0)
+        {
+            ApplyLevelStats();
+            m_iHp = m_iMaxHp;   // 레벨업 보상 - 풀회복
+            m_iMp = m_iMaxMp;
+        }
+
+        // 만렙이면 남는 경험치는 버린다(클라는 바를 꽉 찬 상태로 표시).
+        if (IsMaxLevel()) m_nExp = 0;
+
+        return nGained;
+    }
 
     // 버프 (지속시간 서버 관리)
     uint32_t m_nAtkBuffEnd = 0;
@@ -286,6 +382,8 @@ public:
         s.x      = m_fCurX;
         s.z      = m_fCurZ;
         s.gold   = m_gold;
+        s.level  = m_nLevel;
+        s.exp    = m_nExp;
         for (int i = 0; i < INVEN_SIZE; ++i)
         {
             s.invenCode[i]  = m_invenCode[i];
@@ -293,6 +391,8 @@ public:
         }
         for (int i = 0; i < EQUIP_SLOTS; ++i)
             s.equipCode[i] = m_equipCode[i];
+        for (int i = 0; i < QUICK_SLOTS_N; ++i)
+            s.quickCode[i] = m_quickCode[i];
     }
 
     // ================================================================

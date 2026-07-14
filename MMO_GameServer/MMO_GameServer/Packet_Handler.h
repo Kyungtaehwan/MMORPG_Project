@@ -31,6 +31,8 @@ private:
     static void Handle_CS_AUCTION_BUY(std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize);
     static void Handle_CS_AUCTION_COLLECT(std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize);
     static void Handle_CS_AUCTION_CANCEL(std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize);
+    static void Handle_CS_QUICKSLOT_SET(std::shared_ptr<CSession> pSession, uint8_t* pBuffer, int32_t nSize);
+    static void Send_SC_QUICKSLOT_UPDATE(std::shared_ptr<CSession> pSession);
     static void Send_SC_AUCTION_LIST(std::shared_ptr<CSession> pSession, int32_t page,
         int32_t tab, const int32_t* searchCodes, int32_t searchCount);
 

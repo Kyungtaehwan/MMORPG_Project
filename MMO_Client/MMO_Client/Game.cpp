@@ -66,7 +66,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpszCmdLi
 	QueryPerformanceFrequency(&freq);
 	QueryPerformanceCounter(&frameStart);
 
-	timeBeginPeriod(1); // Sleep 해상도 1ms로 설정
+	timeBeginPeriod(1); 
 
 	while (true)
 	{
@@ -108,7 +108,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_CREATE:
 		break;
-	case WM_CHAR:                              // ← 추가
+	case WM_CHAR:
 		if (g_pMainApp)
 			g_pMainApp->On_Char((wchar_t)wParam);
 		break;

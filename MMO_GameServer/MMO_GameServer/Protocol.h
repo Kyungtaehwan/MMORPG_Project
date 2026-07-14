@@ -30,6 +30,7 @@ enum PacketID : uint16_t
     CS_AUCTION_BUY = 1015,       // 경매장 구매 (listingID count개)
     CS_AUCTION_COLLECT = 1016,   // 판매대금 수령 (listingID)
     CS_AUCTION_CANCEL = 1017,    // 등록 취소 (남은수량 반환 + 미수령골드 지급)
+    CS_QUICKSLOT_SET = 1018,     // 퀵슬롯 한 칸 등록/해제 (itemCode 0 = 해제)
 
     // Server - Client
     //세션, 플레이어 관련
@@ -49,6 +50,8 @@ enum PacketID : uint16_t
     SC_PLAYER_HP = 2013,    // HP/MP 동기화 (회복 등, 피격 애니 없음)
     SC_BUFF = 2014,         // 버프 적용 알림 (클라가 자체 타이머 표시)
     SC_AUCTION_LIST = 2015, // 경매장 매물 전체 스냅샷
+    SC_PLAYER_EXP = 2016,   // 레벨/경험치 동기화 (획득 시 + 로그인 1회)
+    SC_QUICKSLOT_UPDATE = 2017, // 퀵슬롯 전체 스냅샷 (로그인 1회)
     //몬스터 용
     SC_ADD_MONSTER = 2100,
     SC_REMOVE_MONSTER = 2101,
@@ -150,6 +153,7 @@ struct SC_ADD_MONSTER_PACKET
     int32_t       monsterID;
     uint8_t       monsterType;
     uint8_t       state;
+    uint8_t       dir;      // 시야 진입 시 방향(움직이는 몬스터가 시야에 들어올 때 방향 동기화)
     float         fCurX;
     float         fCurZ;
     float         fDestX;
@@ -198,6 +202,9 @@ struct SC_PLAYER_STATE_PACKET
     PacketHeader header;
     uint32_t     playerID;
     uint8_t      state;
+    uint8_t      dir;     // 공격 시 바라보는 방향(관찰자 클라 방향 동기화용)
+    float        fCurX;   // 공격 확정 위치(관찰자 오버슈트 방지)
+    float        fCurZ;
 };
 
 struct SC_PLAYER_HIT_PACKET
@@ -206,6 +213,8 @@ struct SC_PLAYER_HIT_PACKET
     uint32_t     playerID;
     int32_t      nHp;
     int32_t      nMaxHp;
+    float        fCurX;   // 피격 시 정지 위치(관찰자 이동 중단·스냅용)
+    float        fCurZ;
 };
 
 struct CS_RESPAWN_PACKET
@@ -343,6 +352,41 @@ struct SC_BUFF_PACKET
     uint32_t     playerID;
     int32_t      buffType;
     int32_t      durationMs;
+};
+
+// 레벨/경험치 동기화. 서버가 정본이고 클라는 표시만 한다(자기 자신에게만 전송).
+// maxExp = 다음 레벨까지 필요한 경험치(만렙이면 0 - 클라는 바를 꽉 채워 표시).
+// levelUp = 1 이면 이번 패킷으로 레벨이 올랐음(연출용). 스탯/HP는 SC_PLAYER_HP로 따로 옴.
+struct SC_PLAYER_EXP_PACKET
+{
+    PacketHeader header;
+    uint32_t     playerID;
+    int32_t      level;
+    int32_t      exp;
+    int32_t      maxExp;
+    int32_t      levelUp;
+};
+
+// ================= 퀵슬롯 =================
+// 클라 CUI_QuickSlot::m_aSlotCode 와 같은 크기. 0~3 소비아이템, 4~7 스킬(추후).
+constexpr int32_t QUICK_SLOTS = 8;
+
+// 퀵슬롯 한 칸 등록/해제. 클라가 슬롯 내용이 바뀔 때마다 보낸다
+// (드래그 등록 / 우클릭 해제 / 아이템 소진으로 자동 해제).
+// itemCode 0 = 해제. 서버는 값만 보관하고 되돌려주지 않는다(클라가 이미 표시 중).
+struct CS_QUICKSLOT_SET_PACKET
+{
+    PacketHeader header;
+    int32_t      slot;       // 0 ~ QUICK_SLOTS-1
+    int32_t      itemCode;   // 0 = 해제
+};
+
+// 퀵슬롯 전체 스냅샷. 로그인 시 1회(인벤 스냅샷 뒤에) 보낸다 —
+// 클라가 등록 코드를 인벤에서 찾아 아이콘을 그리므로 인벤이 먼저 도착해야 한다.
+struct SC_QUICKSLOT_UPDATE_PACKET
+{
+    PacketHeader header;
+    int32_t      codes[QUICK_SLOTS];
 };
 
 // ================= 경매장 =================

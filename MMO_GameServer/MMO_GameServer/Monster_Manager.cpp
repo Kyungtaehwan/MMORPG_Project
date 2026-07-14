@@ -24,10 +24,12 @@ MonsterRef CMonster_Manager::Create(int32_t nID, MONSTER_TYPE eType,
     {
     case MONSTER_WING:
         pMonster->m_nHp = pMonster->m_nMaxHp = 80;   // 클라 CMonster_Wing과 동일
+        pMonster->m_nExpReward = 25;                 // HP는 낮지만 직선 추적이라 성가심
         break;
     case MONSTER_ORC:
     default:
         pMonster->m_nHp = pMonster->m_nMaxHp = 100;
+        pMonster->m_nExpReward = 20;                 // Lv1→2(100exp) = 5마리
         break;
     }
 

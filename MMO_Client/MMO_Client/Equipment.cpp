@@ -1,7 +1,7 @@
 ﻿#include "pch.h"
 #include "Equipment.h"
 #include "ItemData_Equipment.h"
-#include "Inventory.h"   // Create_ItemFromCode
+#include "Inventory.h"  
 
 CEquipment::~CEquipment()
 {

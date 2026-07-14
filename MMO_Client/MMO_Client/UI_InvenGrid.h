@@ -6,14 +6,9 @@ class CItemData;
 
 // ================================================================
 //  CUI_InvenGrid  재사용 인벤토리 그리드 위젯
-//  - "인벤 슬롯을 골라야 하는" 모든 UI 공용: 상점 판매, (예정)경매장 등록 등.
-//  - 이 위젯은 렌더 + 히트테스트만 담당한다.
-//    입력모드 전환·네트워크 전송·행동 의미(판매/등록)는 호스트 UI가 결정.
-//  - 사용법:
-//      m_grid.Set_Reference(pInven);
-//      m_grid.Set_Layout(left, top, cols, slot, gap);
-//      int iClicked = m_grid.Update(tMouse, bLeftClick); // 클릭 슬롯(-1=없음)
-//      m_grid.Render(pRT);
+//  - 인벤 슬롯을 골라야 하는 모든 UI 공용: 
+//      1.상점 판매 
+//      2.경매장 등록
 // ================================================================
 class CUI_InvenGrid
 {

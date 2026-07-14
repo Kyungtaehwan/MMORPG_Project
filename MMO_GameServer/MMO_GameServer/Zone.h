@@ -84,6 +84,8 @@ public:
     void OnPlayerPickup(PlayerRef pPlayer, uint32_t nDropId);
     void Send_InvenUpdate(PlayerRef pPlayer);   // 인벤+장비 스냅샷
     void Send_PlayerHp(PlayerRef pPlayer);      // HP/MP 동기화
+    // 레벨/경험치 동기화. bLevelUp=true면 클라가 레벨업 연출을 띄운다.
+    void Send_PlayerExp(PlayerRef pPlayer, bool bLevelUp);
 private:
     void SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ);
     void Send_AllDrops(PlayerRef pTo);
