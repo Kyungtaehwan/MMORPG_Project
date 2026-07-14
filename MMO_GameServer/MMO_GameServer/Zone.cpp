@@ -1068,6 +1068,7 @@ void CZone::Send_AddMonster(PlayerRef pTo, MonsterRef pMonster)
     pkt.monsterID = pMonster->m_nMonsterID;
     pkt.monsterType = static_cast<uint8_t>(pMonster->m_eType);
     pkt.state = static_cast<uint8_t>(pMonster->m_eState);
+    pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);   // 시야 진입 시 방향 동기화
     pkt.fCurX = pMonster->m_fCurX;
     pkt.fCurZ = pMonster->m_fCurZ;
     pkt.fDestX = pMonster->m_fDestX;
@@ -1126,15 +1127,39 @@ void CZone::Broadcast_MoveMonster(MonsterRef pMonster)
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
 
+        // 몬스터 이동에 따른 시야 진입/이탈 처리.
+        // 기존엔 "이미 시야에 있는" 플레이어에게만 보냈다. 그래서 몬스터가 다른
+        // 플레이어를 쫓아와 가만히 있는 관찰자의 시야로 들어와도, 관찰자의
+        // m_monsterViewList엔 없으니 영영 안 보였다(플레이어 이동 때만 시야 갱신).
+        // 여기서 몬스터 기준으로도 시야를 대칭 갱신한다.
+        int32_t nDX = abs(pPlayer->m_nTileX - pMonster->m_nTileX);
+        int32_t nDZ = abs(pPlayer->m_nTileZ - pMonster->m_nTileZ);
+        bool bInRange = (nDX <= VIEW_RANGE && nDZ <= VIEW_RANGE);
+
+        bool bWasInView;
         {
             std::lock_guard<std::mutex> vlock(pPlayer->m_monsterViewLock);
-            if (pPlayer->m_monsterViewList.count(pMonster->m_nMonsterID) == 0)
-                continue;
+            bWasInView = (pPlayer->m_monsterViewList.count(pMonster->m_nMonsterID) != 0);
+            if (bInRange && !bWasInView)
+                pPlayer->m_monsterViewList.insert(pMonster->m_nMonsterID);
+            else if (!bInRange && bWasInView)
+                pPlayer->m_monsterViewList.erase(pMonster->m_nMonsterID);
         }
 
         auto pSession = CSession_Manager::Get_Instance()
             ->Get_Session(pPlayer->m_nSessionID);
-        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+        if (!pSession) continue;
+
+        if (bInRange)
+        {
+            if (!bWasInView)
+                Send_AddMonster(pPlayer, pMonster);   // 새로 진입 → 먼저 생성
+            pSession->Send(&pkt, sizeof(pkt));         // 이어서 이동 갱신
+        }
+        else if (bWasInView)
+        {
+            Send_RemoveMonster(pPlayer, pMonster->m_nMonsterID);  // 시야 이탈 → 제거
+        }
     }
 }
 
@@ -1212,8 +1237,38 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
     pPlayer->m_nLastMoveTime = nNow;
     pPlayer->UpdateTilePos();
 
+    // ---- 공격 방향 계산 (몬스터를 바라봄) ----
+    // 관찰자 클라는 방향값을 못 받으면 마지막 이동 방향으로 공격 모션을 재생해
+    // 방향이 어긋난다. 공격자 자기 클라와 같은 벡터(몬스터-플레이어)로 8방향을 정해
+    // pPlayer->m_eDir에 반영하고, 아래 Broadcast_PlayerState가 이 값을 실어 보낸다.
+    {
+        float fFaceDX = pMonster->m_fCurX - fPlayerX;
+        float fFaceDZ = pMonster->m_fCurZ - fPlayerZ;
+        float fFaceLen = sqrtf(fFaceDX * fFaceDX + fFaceDZ * fFaceDZ);
+        if (fFaceLen > 0.001f)
+        {
+            float fNX = fFaceDX / fFaceLen;
+            float fNZ = fFaceDZ / fFaceLen;
+            constexpr float TILE_HALF_W = 64.f;
+            constexpr float TILE_HALF_H = 32.f;
+            float fScreenDX = (fNX - fNZ) * TILE_HALF_W;
+            float fScreenDY = (fNX + fNZ) * TILE_HALF_H;
+            float fAngle = atan2f(fScreenDY, fScreenDX) * 180.f / 3.14159f;
+            uint8_t nDir = pPlayer->m_eDir;
+            if      (fAngle >= -22.5f  && fAngle <   22.5f)  nDir = 6;
+            else if (fAngle >=  22.5f  && fAngle <   67.5f)  nDir = 7;
+            else if (fAngle >=  67.5f  && fAngle <  112.5f)  nDir = 0;
+            else if (fAngle >= 112.5f  && fAngle <  157.5f)  nDir = 1;
+            else if (fAngle >= 157.5f  || fAngle  < -157.5f) nDir = 2;
+            else if (fAngle >= -157.5f && fAngle < -112.5f)  nDir = 3;
+            else if (fAngle >= -112.5f && fAngle <  -67.5f)  nDir = 4;
+            else                                              nDir = 5;
+            pPlayer->m_eDir = nDir;
+        }
+    }
+
     // ---- 공격자 모션 브로드캐스트 ----
-    // viewList 내 다른 플레이어들에게 공격 모션 전송
+    // viewList 내 다른 플레이어들에게 공격 모션 전송 (방향/정지위치 포함)
     Broadcast_PlayerState(pPlayer, PLAYER_ATTACK);
 
     // ---- HP 감소 (플레이어 공격력 = 기본 + 장비 + 버프) ----
@@ -1241,7 +1296,26 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
             SpawnDrop(roll.code, roll.amount,
                 pMonster->m_fCurX, pMonster->m_fCurZ);
 
-        std::cout << "[Zone] 몬스터 사망. ID=" << nMonsterID << std::endl;
+        // ---- 경험치 지급 (막타 친 플레이어에게) ----
+        // 레벨업하면 MaxHp/MaxMp/기본공방이 바뀌고 풀회복되므로 HP 패킷도 같이 보낸다.
+        int32_t nLevelUp = pPlayer->AddExp(pMonster->m_nExpReward);
+        Send_PlayerExp(pPlayer, nLevelUp > 0);
+        if (nLevelUp > 0)
+        {
+            Send_PlayerHp(pPlayer);
+            std::cout << "[Zone] 레벨업! PlayerID=" << pPlayer->m_nPlayerID
+                << " Lv=" << pPlayer->m_nLevel
+                << " (Atk=" << pPlayer->Get_Atk()
+                << " Def=" << pPlayer->Get_Def()
+                << " MaxHp=" << pPlayer->m_iMaxHp << ")" << std::endl;
+        }
+
+        std::cout << "[Zone] 몬스터 사망. ID=" << nMonsterID
+            << " - PlayerID=" << pPlayer->m_nPlayerID
+            << " 경험치 +" << pMonster->m_nExpReward
+            << " (Lv" << pPlayer->m_nLevel
+            << " " << pPlayer->m_nExp
+            << "/" << CPlayer::ExpToNext(pPlayer->m_nLevel) << ")" << std::endl;
         return;
     }
 
@@ -1401,6 +1475,9 @@ void CZone::Broadcast_PlayerState(PlayerRef pPlayer, PLAYER_STATE eState)
     pkt.header.id = SC_PLAYER_STATE;
     pkt.playerID = pPlayer->m_nPlayerID;
     pkt.state = static_cast<uint8_t>(eState);
+    pkt.dir = pPlayer->m_eDir;      // 공격자가 바라보는 방향
+    pkt.fCurX = pPlayer->m_fCurX;   // 공격 확정 위치(관찰자 오버슈트 방지)
+    pkt.fCurZ = pPlayer->m_fCurZ;
 
     std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
     for (int32_t nNearID : pPlayer->m_viewList)
@@ -1422,6 +1499,8 @@ void CZone::Broadcast_PlayerHit(PlayerRef pPlayer)
     pkt.playerID = pPlayer->m_nPlayerID;
     pkt.nHp = pPlayer->m_iHp;
     pkt.nMaxHp = pPlayer->m_iMaxHp;
+    pkt.fCurX = pPlayer->m_fCurX;   // OnMonsterAttackHit에서 커밋한 정지 위치
+    pkt.fCurZ = pPlayer->m_fCurZ;
 
     // 피격 당사자에게
     auto pSession = CSession_Manager::Get_Instance()
@@ -1679,5 +1758,21 @@ void CZone::Send_PlayerHp(PlayerRef pPlayer)
     pkt.nMaxHp = pPlayer->m_iMaxHp;
     pkt.nMp = pPlayer->m_iMp;
     pkt.nMaxMp = pPlayer->m_iMaxMp;
+    pSession->Send(&pkt, sizeof(pkt));
+}
+
+void CZone::Send_PlayerExp(PlayerRef pPlayer, bool bLevelUp)
+{
+    auto pSession = CSession_Manager::Get_Instance()->Get_Session(pPlayer->m_nSessionID);
+    if (!pSession) return;
+
+    SC_PLAYER_EXP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_PLAYER_EXP;
+    pkt.playerID = pPlayer->m_nPlayerID;
+    pkt.level = pPlayer->m_nLevel;
+    pkt.exp = pPlayer->m_nExp;
+    pkt.maxExp = CPlayer::ExpToNext(pPlayer->m_nLevel);   // 만렙이면 0
+    pkt.levelUp = bLevelUp ? 1 : 0;
     pSession->Send(&pkt, sizeof(pkt));
 }

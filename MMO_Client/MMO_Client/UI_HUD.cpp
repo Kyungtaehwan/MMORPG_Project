@@ -38,10 +38,13 @@ void CUI_HUD::Render(ID2D1RenderTarget* pRT)
             D2D1::RectF(fL, fT, fL + PANEL_W, fT + PANEL_H),
             1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 
-    // EXP 바
+    // EXP 바 (maxExp==0 = 만렙 - 꽉 찬 상태로 표시)
     float fExpRatio = (m_pPlayer->Get_MaxExp() > 0)
-        ? (float)m_pPlayer->Get_Exp() / m_pPlayer->Get_MaxExp() : 0.f;
+        ? (float)m_pPlayer->Get_Exp() / m_pPlayer->Get_MaxExp() : 1.f;
     Render_Bar(pRT, L"HUD_EXP", fL + EXP_X, fT + EXP_Y, BAR_W, BAR_H, fExpRatio);
+
+    // 레벨 (EXP 바 왼쪽)
+    Render_Level(pRT, fL + LEVEL_X, fT + LEVEL_Y);
 
     // HP 바
     float fHpRatio = (m_pPlayer->Get_MaxHP() > 0)
@@ -55,6 +58,24 @@ void CUI_HUD::Render(ID2D1RenderTarget* pRT)
 
     // 버프 박스 (HP UI 위쪽)
     Render_Buffs(pRT, fL + 20.f, fT - 52.f);
+}
+
+// 레벨 숫자 서버 SC_PLAYER_EXP 가 채움
+void CUI_HUD::Render_Level(ID2D1RenderTarget* pRT, float fX, float fY)
+{
+    if (!m_pPlayer) return;
+
+    TCHAR szLevel[16];
+    swprintf_s(szLevel, 16, L"Lv.%d", m_pPlayer->Get_Level());
+
+    ID2D1SolidColorBrush* pBrush = nullptr;
+    pRT->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 0.6f), &pBrush);
+    if (!pBrush) return;
+
+    pRT->DrawText(szLevel, lstrlen(szLevel),
+        CImg_Manager::Get_Instance()->Get_DebugFont(),
+        D2D1::RectF(fX, fY, fX + 80.f, fY + 24.f), pBrush);
+    pBrush->Release();
 }
 
 void CUI_HUD::Render_Buffs(ID2D1RenderTarget* pRT, float fBaseX, float fBaseY)

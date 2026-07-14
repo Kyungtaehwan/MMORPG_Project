@@ -34,6 +34,7 @@ void CPacket_Handler::Handle(std::shared_ptr<CSession> pSession,
     case CS_AUCTION_BUY:      Handle_CS_AUCTION_BUY(pSession, pBuffer, nSize); break;
     case CS_AUCTION_COLLECT:  Handle_CS_AUCTION_COLLECT(pSession, pBuffer, nSize); break;
     case CS_AUCTION_CANCEL:   Handle_CS_AUCTION_CANCEL(pSession, pBuffer, nSize); break;
+    case CS_QUICKSLOT_SET:    Handle_CS_QUICKSLOT_SET(pSession, pBuffer, nSize); break;
     default:
         std::cout << "[CPacket_Handler] 알 수 없는 패킷: "
             << pHeader->id << std::endl;
@@ -68,7 +69,10 @@ void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
     // DB 경로에선 pAcc->id 가 비어 있으므로, 클라가 보낸 id 로 이름 설정.
     strncpy_s(pPlayer->m_szName, pPkt->id, sizeof(pPlayer->m_szName) - 1);
 
-    // ---- 계정 데이터 반영 (DB에서 로드된 값: 골드/인벤/장비) ----
+    // ---- 계정 데이터 반영 (DB에서 로드된 값: 골드/레벨/인벤/장비) ----
+    // 레벨을 먼저 적용해야 MaxHp/MaxMp/기본공방이 그 레벨 기준으로 재계산되고
+    // 풀피 상태로 입장한다(SetLevelExp 내부에서 ApplyLevelStats + 회복).
+    pPlayer->SetLevelExp(pAcc->level, pAcc->exp);
     pPlayer->m_gold = pAcc->gold;
     for (const FSaveItem& it : pAcc->inven)
     {
@@ -77,6 +81,8 @@ void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
     }
     for (int i = 0; i < CPlayer::EQUIP_SLOTS; ++i)
         pPlayer->m_equipCode[i] = pAcc->equip[i];
+    for (int i = 0; i < CPlayer::QUICK_SLOTS_N; ++i)
+        pPlayer->m_quickCode[i] = pAcc->quick[i];
 
     // ---- 계정에 저장된 존/위치로 입장 ----
     CZone* pZone = CZone_Manager::Get_Instance()->GetZone(pAcc->zoneID);
@@ -89,6 +95,44 @@ void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
 
     // 골드/인벤/장비를 클라에 1회 동기화 (ENTER_GAME 뒤 - 클라 플레이어 생성 후 도착)
     pZone->Send_InvenUpdate(pPlayer);
+
+    // 레벨/경험치 + 그 레벨의 HP/MP 도 1회 동기화 (클라 HUD 초기 표시)
+    pZone->Send_PlayerExp(pPlayer, false);
+    pZone->Send_PlayerHp(pPlayer);
+
+    // 퀵슬롯 복원. 반드시 Send_InvenUpdate 뒤에 보낼 것 —
+    // 클라는 등록된 코드를 인벤에서 찾아 아이콘을 그리므로 인벤이 먼저 채워져 있어야 한다.
+    Send_SC_QUICKSLOT_UPDATE(pSession);
+}
+
+// ================================================================
+//  Handle_CS_QUICKSLOT_SET — 퀵슬롯 한 칸 등록/해제
+//   퀵슬롯은 "표시 전용"이라 응답을 돌려주지 않는다(클라가 이미 그리고 있음).
+//   서버는 값만 보관했다가 주기 저장/접속 종료 때 DB에 쓰고, 다음 로그인에 돌려준다.
+// ================================================================
+void CPacket_Handler::Handle_CS_QUICKSLOT_SET(std::shared_ptr<CSession> pSession,
+    uint8_t* pBuffer, int32_t nSize)
+{
+    if (nSize < static_cast<int32_t>(sizeof(CS_QUICKSLOT_SET_PACKET))) return;
+    CS_QUICKSLOT_SET_PACKET* pPkt = reinterpret_cast<CS_QUICKSLOT_SET_PACKET*>(pBuffer);
+
+    PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(pSession->GetID());
+    if (!pPlayer) return;
+
+    pPlayer->SetQuickSlot(pPkt->slot, pPkt->itemCode);   // 범위/코드 검증은 안에서
+}
+
+void CPacket_Handler::Send_SC_QUICKSLOT_UPDATE(std::shared_ptr<CSession> pSession)
+{
+    PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(pSession->GetID());
+    if (!pPlayer) return;
+
+    SC_QUICKSLOT_UPDATE_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_QUICKSLOT_UPDATE;
+    for (int i = 0; i < QUICK_SLOTS; ++i)
+        pkt.codes[i] = pPlayer->m_quickCode[i];
+    pSession->Send(&pkt, sizeof(pkt));
 }
 
 // ================================================================

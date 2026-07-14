@@ -25,6 +25,8 @@ private:
         float fX, float fY, float fW, float fH, float fRatio);
     // 버프 아이콘 박스 (경과 시간만큼 검은색으로 덮임)
     void    Render_Buffs(ID2D1RenderTarget* pRT, float fBaseX, float fBaseY);
+    // EXP 바 왼쪽의 레벨 숫자 ("Lv.3")
+    void    Render_Level(ID2D1RenderTarget* pRT, float fX, float fY);
 
 private:
     CPlayer* m_pPlayer = nullptr;
@@ -42,4 +44,6 @@ private:
     static constexpr float HP_Y = 104.f;
     static constexpr float MP_X = 204.f;
     static constexpr float MP_Y = 140.f;
+    static constexpr float LEVEL_X = 150.f; 
+    static constexpr float LEVEL_Y = 75.f;
 };

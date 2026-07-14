@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS `character` (
     spawn_x     FLOAT        NOT NULL DEFAULT 0,              -- 시작 좌표 X
     spawn_z     FLOAT        NOT NULL DEFAULT 0,              -- 시작 좌표 Z
     gold        INT          NOT NULL DEFAULT 0,              -- 보유 골드
+    level       INT          NOT NULL DEFAULT 1,              -- 레벨 (1 ~ CPlayer::MAX_LEVEL=50)
+    exp         INT          NOT NULL DEFAULT 0,              -- 현재 레벨에서 쌓은 경험치 (누적 아님)
     PRIMARY KEY (account_id),                                 -- 계정당 1행 보장
     CONSTRAINT fk_character_account                           -- account 없는 아이디면 생성 불가
         FOREIGN KEY (account_id) REFERENCES account (account_id)
@@ -68,6 +70,23 @@ CREATE TABLE IF NOT EXISTS equipment (
     item_code   INT          NOT NULL,                        -- 장착 아이템 코드
     PRIMARY KEY (account_id, slot),                           -- 계정+슬롯 = 유일
     CONSTRAINT fk_equipment_account
+        FOREIGN KEY (account_id) REFERENCES account (account_id)
+        ON DELETE CASCADE
+);
+
+-- ------------------------------------------------------------
+--  quickslot : 퀵슬롯 등록 내용 (슬롯 1개 = 행 1개)
+--   - (account_id, slot) 복합 PK - 한 칸에는 아이템 하나만.
+--   - FAccountData 의 quick[8] 에 대응 (slot 0~7; 0~3 소비아이템, 4~7 스킬 예정).
+--   - 인벤과 달리 "무엇을 등록했나"만 저장 - 수량은 인벤이 정본이다.
+--   - 아이템을 다 쓰면 클라가 슬롯을 비우고 서버에 알리므로 행이 지워진다.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS quickslot (
+    account_id  VARCHAR(20)  NOT NULL,                        -- 소유 계정
+    slot        TINYINT      NOT NULL,                        -- 퀵슬롯 번호 (0~7)
+    item_code   INT          NOT NULL,                        -- 등록 아이템 코드
+    PRIMARY KEY (account_id, slot),                           -- 계정+칸 = 유일
+    CONSTRAINT fk_quickslot_account
         FOREIGN KEY (account_id) REFERENCES account (account_id)
         ON DELETE CASCADE
 );

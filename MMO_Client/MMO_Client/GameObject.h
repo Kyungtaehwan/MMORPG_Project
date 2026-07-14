@@ -61,6 +61,7 @@ public:
 		}
 	};
 	void		Set_Hp(int iHp) { m_iHp = iHp; };
+	void		Set_MaxHp(int iMaxHp) { m_iMaxHp = iMaxHp; };
 
 	int			Get_MP() { return m_iMp; };
 	int			Get_MaxMP() { return m_iMaxMp; }
@@ -72,16 +73,19 @@ public:
 		}
 	};
 	void		Set_Mp(int iMp) { m_iMp = iMp; };
+	void		Set_MaxMp(int iMaxMp) { m_iMaxMp = iMaxMp; };
 
-	void		Add_Exp(int iExp) {
-		m_iCurExp += iExp;
-		while (m_iCurExp >= m_iMaxExp)
-		{
-			m_iCurExp -= m_iMaxExp;
-		}
+	// 레벨/경험치는 서버가 정본(SC_PLAYER_EXP). 클라는 받은 값을 표시만 한다.
+	// maxExp==0 은 만렙 - HUD가 바를 꽉 채워 그린다.
+	void		Set_Exp(int iCurExp, int iMaxExp) {
+		m_iCurExp = iCurExp;
+		m_iMaxExp = iMaxExp;
 	};
 	int			Get_Exp() { return m_iCurExp; }
 	int			Get_MaxExp() { return m_iMaxExp; }
+
+	void		Set_Level(int iLevel) { m_iLevel = iLevel; };
+	int			Get_Level() { return m_iLevel; }
 
 
 	int			Get_Atk() { return m_iAttack; }
@@ -149,8 +153,9 @@ protected:
 	float		m_fSortOffset = 0.f;   // 렌더 깊이 정렬 보정
 	float		m_fSpeed;
 	float		m_fAngle;
-	int			m_iCurExp;
-	int			m_iMaxExp;
+	int			m_iCurExp = 0;
+	int			m_iMaxExp = 100;
+	int			m_iLevel = 1;
 	int			m_iHp;
 	int			m_iMaxHp;
 	int         m_iMp;

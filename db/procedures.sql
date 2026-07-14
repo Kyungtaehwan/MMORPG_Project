@@ -12,11 +12,12 @@ USE mmorpg;
 
 -- ------------------------------------------------------------
 --  sp_login(id, pw)
---    - id/pw 가 맞으면 그 계정의 데이터를 결과셋 3개로 돌려준다:
+--    - id/pw 가 맞으면 그 계정의 데이터를 결과셋 4개로 돌려준다:
 --        결과셋1: character  (성공 시 1행, 실패 시 0행)  - 서버는 이걸로 성공/실패 판단
 --        결과셋2: inventory  (아이템 행들)
 --        결과셋3: equipment  (장착 행들)
---    - 인증 실패면 p_id 를 NULL 로 바꿔 세 조회 모두 0행이 나오게 한다.
+--        결과셋4: quickslot  (퀵슬롯 등록 행들)
+--    - 인증 실패면 p_id 를 NULL 로 바꿔 네 조회 모두 0행이 나오게 한다.
 -- ------------------------------------------------------------
 DROP PROCEDURE IF EXISTS sp_login;
 
@@ -39,7 +40,7 @@ BEGIN
     END IF;
 
     -- 결과셋1: 캐릭터 상태 (성공 시 정확히 1행)
-    SELECT zone_id, spawn_x, spawn_z, gold
+    SELECT zone_id, spawn_x, spawn_z, gold, level, exp
     FROM `character`
     WHERE account_id = p_id;
 
@@ -52,6 +53,12 @@ BEGIN
     -- 결과셋3: 장비 (슬롯 순서대로)
     SELECT slot, item_code
     FROM equipment
+    WHERE account_id = p_id
+    ORDER BY slot;
+
+    -- 결과셋4: 퀵슬롯 (칸 순서대로)
+    SELECT slot, item_code
+    FROM quickslot
     WHERE account_id = p_id
     ORDER BY slot;
 END$$

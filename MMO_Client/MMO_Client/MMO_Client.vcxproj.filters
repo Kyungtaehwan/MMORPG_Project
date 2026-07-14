@@ -121,39 +121,6 @@
     <ClCompile Include="StaticObject.cpp">
       <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
     </ClCompile>
-    <ClCompile Include="BigTent.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="SmallTent.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="Smithy.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="TreeGreen.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="TreeBare.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="WagonDrink.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="WagonFood.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="WagonShop.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="WagonEtc.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="WoodWagon.cpp">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClCompile>
-    <ClCompile Include="DropItem.cpp">
-      <Filter>05.Object_Manager\GameObjects</Filter>
-    </ClCompile>
     <ClCompile Include="Monster.cpp">
       <Filter>05.Object_Manager\GameObjects\05_02.Monster</Filter>
     </ClCompile>
@@ -196,15 +163,6 @@
     <ClCompile Include="UI_Shop.cpp">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_Shop</Filter>
     </ClCompile>
-    <ClCompile Include="UI_InvenGrid.cpp">
-      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
-    </ClCompile>
-    <ClCompile Include="UI_QtyDialog.cpp">
-      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
-    </ClCompile>
-    <ClCompile Include="UI_Auction.cpp">
-      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
-    </ClCompile>
     <ClCompile Include="UI_HUD.cpp">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_HUD</Filter>
     </ClCompile>
@@ -216,6 +174,48 @@
     </ClCompile>
     <ClCompile Include="PathFinder.cpp">
       <Filter>08.Map_Manager\PathFinder</Filter>
+    </ClCompile>
+    <ClCompile Include="SmallTent.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Tents</Filter>
+    </ClCompile>
+    <ClCompile Include="BigTent.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Tents</Filter>
+    </ClCompile>
+    <ClCompile Include="TreeGreen.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Trees</Filter>
+    </ClCompile>
+    <ClCompile Include="TreeBare.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Trees</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonEtc.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonFood.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonShop.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClCompile>
+    <ClCompile Include="WoodWagon.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClCompile>
+    <ClCompile Include="WagonDrink.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClCompile>
+    <ClCompile Include="Smithy.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Smithy</Filter>
+    </ClCompile>
+    <ClCompile Include="DropItem.cpp">
+      <Filter>05.Object_Manager\GameObjects\05_06.Item\DropItem</Filter>
+    </ClCompile>
+    <ClCompile Include="UI_Auction.cpp">
+      <Filter>06.UI_Manager\UIs\PlayerUI\UI_Auction</Filter>
+    </ClCompile>
+    <ClCompile Include="UI_InvenGrid.cpp">
+      <Filter>06.UI_Manager\UIs\UI_ConfirmDialog</Filter>
+    </ClCompile>
+    <ClCompile Include="UI_QtyDialog.cpp">
+      <Filter>06.UI_Manager\UIs\UI_QtyDialog</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -336,9 +336,6 @@
     <Filter Include="05.Object_Manager\GameObjects\05_06.Item">
       <UniqueIdentifier>{dc0c4a35-a40b-43ae-921b-295922c32a10}</UniqueIdentifier>
     </Filter>
-    <Filter Include="05.Object_Manager\GameObjects\05_06.Item\ItemDrop">
-      <UniqueIdentifier>{8d0ac160-a00c-401b-ae41-8074ff80f82f}</UniqueIdentifier>
-    </Filter>
     <Filter Include="05.Object_Manager\GameObjects\05_06.Item\ItemData">
       <UniqueIdentifier>{f99b843e-5ed8-4e3a-8530-b7727a68d322}</UniqueIdentifier>
     </Filter>
@@ -383,6 +380,30 @@
     </Filter>
     <Filter Include="08.Map_Manager\PathFinder">
       <UniqueIdentifier>{3b9bd937-1c2e-432b-8539-cbe100ee3325}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="05.Object_Manager\GameObjects\05_04.StaticObjects\Tents">
+      <UniqueIdentifier>{337574dd-7a18-4f7c-8f8e-f2544331285e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="05.Object_Manager\GameObjects\05_04.StaticObjects\Trees">
+      <UniqueIdentifier>{08ca8e04-6841-4119-9dba-d24f130a3f49}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon">
+      <UniqueIdentifier>{0aea459b-dc04-4410-a4c7-82d556075efe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="05.Object_Manager\GameObjects\05_04.StaticObjects\Smithy">
+      <UniqueIdentifier>{85ab48b4-f8a6-438f-9868-3e89b90e5844}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="05.Object_Manager\GameObjects\05_06.Item\DropItem">
+      <UniqueIdentifier>{8d0ac160-a00c-401b-ae41-8074ff80f82f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="06.UI_Manager\UIs\PlayerUI\UI_Auction">
+      <UniqueIdentifier>{87bc9cfe-f2da-4838-872a-1c2f4f9cca0f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="06.UI_Manager\UIs\UI_QtyDialog">
+      <UniqueIdentifier>{21c87c5b-2e0a-495b-a570-d8e86f57079b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="06.UI_Manager\UIs\UI_ConfirmDialog">
+      <UniqueIdentifier>{bd1a2b8a-d965-40ff-a749-f6f4489b34ae}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -506,39 +527,6 @@
     <ClInclude Include="StaticObject.h">
       <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
     </ClInclude>
-    <ClInclude Include="BigTent.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="SmallTent.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="Smithy.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="TreeGreen.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="TreeBare.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="WagonDrink.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="WagonFood.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="WagonShop.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="WagonEtc.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="WoodWagon.h">
-      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects</Filter>
-    </ClInclude>
-    <ClInclude Include="DropItem.h">
-      <Filter>05.Object_Manager\GameObjects</Filter>
-    </ClInclude>
     <ClInclude Include="Monster.h">
       <Filter>05.Object_Manager\GameObjects\05_02.Monster</Filter>
     </ClInclude>
@@ -569,9 +557,6 @@
     <ClInclude Include="Inventory.h">
       <Filter>05.Object_Manager\GameObjects\05_04.Inventory</Filter>
     </ClInclude>
-    <ClInclude Include="Item_define.h">
-      <Filter>05.Object_Manager</Filter>
-    </ClInclude>
     <ClInclude Include="UI_Inventory.h">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_Inventory</Filter>
     </ClInclude>
@@ -584,18 +569,6 @@
     </ClInclude>
     <ClInclude Include="UI_Shop.h">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_Shop</Filter>
-    </ClInclude>
-    <ClInclude Include="UI_InvenGrid.h">
-      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
-    </ClInclude>
-    <ClInclude Include="UI_QtyDialog.h">
-      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
-    </ClInclude>
-    <ClInclude Include="UI_Auction.h">
-      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
-    </ClInclude>
-    <ClInclude Include="UI_ConfirmDialog.h">
-      <Filter>06.UI_Manager\UIs\PlayerUI</Filter>
     </ClInclude>
     <ClInclude Include="UI_HUD.h">
       <Filter>06.UI_Manager\UIs\PlayerUI\UI_HUD</Filter>
@@ -611,6 +584,54 @@
     </ClInclude>
     <ClInclude Include="PathFinder.h">
       <Filter>08.Map_Manager\PathFinder</Filter>
+    </ClInclude>
+    <ClInclude Include="BigTent.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Tents</Filter>
+    </ClInclude>
+    <ClInclude Include="SmallTent.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Tents</Filter>
+    </ClInclude>
+    <ClInclude Include="TreeGreen.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Trees</Filter>
+    </ClInclude>
+    <ClInclude Include="TreeBare.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Trees</Filter>
+    </ClInclude>
+    <ClInclude Include="WoodWagon.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonDrink.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonEtc.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonFood.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClInclude>
+    <ClInclude Include="WagonShop.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Wagon</Filter>
+    </ClInclude>
+    <ClInclude Include="Smithy.h">
+      <Filter>05.Object_Manager\GameObjects\05_04.StaticObjects\Smithy</Filter>
+    </ClInclude>
+    <ClInclude Include="DropItem.h">
+      <Filter>05.Object_Manager\GameObjects\05_06.Item\DropItem</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_Auction.h">
+      <Filter>06.UI_Manager\UIs\PlayerUI\UI_Auction</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_ConfirmDialog.h">
+      <Filter>06.UI_Manager\UIs\UI_ConfirmDialog</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_InvenGrid.h">
+      <Filter>06.UI_Manager\UIs\PlayerUI\UI_Inventory</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_QtyDialog.h">
+      <Filter>06.UI_Manager\UIs\UI_QtyDialog</Filter>
+    </ClInclude>
+    <ClInclude Include="Item_define.h">
+      <Filter>05.Object_Manager\GameObjects\05_06.Item</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

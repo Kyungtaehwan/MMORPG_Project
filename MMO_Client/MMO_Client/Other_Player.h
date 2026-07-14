@@ -25,8 +25,8 @@ public:
     void OnMovePosPacket(float fCurX, float fCurZ, uint32_t moveTime);
 
     void SetDeadState();
-    void OnAttackPacket();
-    void OnHitPacket(int32_t iHp);
+    void OnAttackPacket(uint8_t nDir, float fCurX, float fCurZ);
+    void OnHitPacket(int32_t iHp, float fCurX, float fCurZ);
     void OnDeadPacket();
 
     int32_t GetPlayerID() const { return m_nPlayerID; }

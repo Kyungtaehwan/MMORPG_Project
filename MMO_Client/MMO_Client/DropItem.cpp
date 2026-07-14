@@ -17,7 +17,7 @@ void CDropItem::Init_Drop(int32_t nDropId, int32_t nItemCode, int32_t nAmount,
 
 void CDropItem::Initialize()
 {
-    // 코드 → 아이콘 키 / 이름
+    // 코드 => 아이콘 키 / 이름
     if (m_nItemCode / 1000 == 9)      // 골드
     {
         lstrcpy(m_szIconKey, L"Gold");
@@ -54,7 +54,7 @@ void CDropItem::Late_Update(float dt)
 
 void CDropItem::Render(ID2D1RenderTarget* pRT)
 {
-    // 콜라이더(바닥) 중심에 아이콘 중심을 맞춘다 → 바닥에 놓인 것처럼
+    //바닥 중심에 아이콘 중심을 맞춘다
     POINT tScreen = CCamera::Get_Instance()->IsoWorldToScreen(
         Get_ColliderX(), Get_ColliderZ());
 
