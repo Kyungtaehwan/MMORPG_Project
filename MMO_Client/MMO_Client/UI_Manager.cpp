@@ -4,6 +4,7 @@
 #include "UI_LoginBox.h"
 #include "UI_Shop.h"
 #include "UI_Auction.h"
+#include "UI_ZoneSelect.h"
 
 CUI_Manager* CUI_Manager::m_pInstance = nullptr;
 
@@ -130,6 +131,19 @@ void CUI_Manager::Open_Auction()
 		if (pAuc)
 		{
 			pAuc->Open();
+			break;
+		}
+	}
+}
+
+void CUI_Manager::Open_ZoneSelect()
+{
+	for (auto* pUI : m_UIList[UI_ZONESELECT])
+	{
+		auto* pSel = dynamic_cast<CUI_ZoneSelect*>(pUI);
+		if (pSel)
+		{
+			pSel->Open();
 			break;
 		}
 	}

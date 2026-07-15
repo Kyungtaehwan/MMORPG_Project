@@ -44,7 +44,7 @@ static const FAccountData g_Accounts[] =
     },
     {
         "test2", "1234",
-        ZONE_TEST, 10.f, 10.f,          // 북쪽 필드
+        ZONE_FIELD_N, 10.f, 10.f,          // 북쪽 필드
         300,
         1, 0,                           // level, exp
         { {1002,5}, {1005,1}, {0,0} },                      // MP중5, 무적물약1

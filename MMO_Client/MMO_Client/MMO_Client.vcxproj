@@ -203,7 +203,9 @@
     <ClCompile Include="UI_QtyDialog.cpp" />
     <ClCompile Include="UI_Auction.cpp" />
     <ClCompile Include="Zone.cpp" />
-    <ClCompile Include="Zone_Test.cpp" />
+    <ClCompile Include="Zone_Field_N.cpp" />
+    <ClCompile Include="Zone_Raid.cpp" />
+    <ClCompile Include="UI_ZoneSelect.cpp" />
     <ClCompile Include="Zone_Town.cpp" />
     <ClCompile Include="Zone_Field_E.cpp" />
     <ClCompile Include="Zone_Field_S.cpp" />
@@ -281,7 +283,10 @@
     <ClInclude Include="UI_Auction.h" />
     <ClInclude Include="UI_ConfirmDialog.h" />
     <ClInclude Include="Zone.h" />
-    <ClInclude Include="Zone_Test.h" />
+    <ClInclude Include="Zone_Field_N.h" />
+    <ClInclude Include="Zone_Raid.h" />
+    <ClInclude Include="UI_ZoneSelect.h" />
+    <ClInclude Include="RaidMap.h" />
     <ClInclude Include="Zone_Town.h" />
     <ClInclude Include="Zone_Field_E.h" />
     <ClInclude Include="Zone_Field_S.h" />

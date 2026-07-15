@@ -11,6 +11,7 @@
 #include "UI_Manager.h"
 #include "UI_Inventory.h"
 #include "UI_QuickSlot.h"
+#include "UI_ZoneSelect.h"
 #include "UI_HUD.h"
 #include "UI_Shop.h"
 #include "UI_Auction.h"
@@ -150,6 +151,11 @@ void CLevel_Test::Ready_Player()
 	pAuction->Set_References(pPlayer, pPlayer->Get_Inventory());
 	pAuction->Initialize();
 	CUI_Manager::Get_Instance()->Add_UI(UI_AUCTION, pAuction);
+
+	// 천사 NPC 클릭 시 뜨는 대형 맵 선택창
+	CUI_ZoneSelect* pZoneSel = new CUI_ZoneSelect;
+	pZoneSel->Initialize();
+	CUI_Manager::Get_Instance()->Add_UI(UI_ZONESELECT, pZoneSel);
 }
 
 void CLevel_Test::Ready_Item_Resource()

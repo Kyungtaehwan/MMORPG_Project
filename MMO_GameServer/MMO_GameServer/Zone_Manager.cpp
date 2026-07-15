@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "Zone_Manager.h"
 #include "Monster_Manager.h"
+#include "RaidMap.h"     // 대형 맵 블록맵 생성 (클라와 동일 복제본)
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
@@ -8,7 +9,7 @@
 CZone_Manager* CZone_Manager::m_pInstance = nullptr;
 
 // 클라이언트 CZone_Test::Build()의 BLOCK_MAP과 동일해야 함
-static const int BLOCK_MAP_TEST[30][20] =
+static const int BLOCK_MAP_FIELD_N[30][20] =
 {
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
@@ -151,20 +152,41 @@ static const int BLOCK_MAP_FIELD_W[30][20] =
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
 };
 
-// 필드 안 이동 가능한 타일에 몬스터를 랜덤 배치
+// 필드 안 이동 가능한 타일에 몬스터를 랜덤 배치.
+//  내부 좌표는 OUTER(2) + BORDER(1) = 3 부터 시작하므로 3 .. 3+inner-1 범위를 뽑는다.
+//  fAggroRange > 0 이면 그 값으로 어그로/해제 범위를 덮어쓴다(레이드 필드의 장거리 추격용).
 static void SpawnRandomMonsters(CZone* pZone, int32_t& nNextId, int nCount,
-    MONSTER_TYPE eType = MONSTER_ORC)
+    MONSTER_TYPE eType, int32_t nInnerX, int32_t nInnerZ,
+    float fAggroRange = 0.f)
 {
     if (!pZone) return;
     int nPlaced = 0, nAttempts = 0;
-    while (nPlaced < nCount && nAttempts < 300)
+    const int nMaxAttempts = nCount * 30 + 300;
+
+    while (nPlaced < nCount && nAttempts < nMaxAttempts)
     {
         ++nAttempts;
-        int x = 3 + rand() % 20;  // 내부 grass X 범위 3..22
-        int z = 3 + rand() % 30;  // 내부 grass Z 범위 3..32
+        int x = 3 + rand() % nInnerX;
+        int z = 3 + rand() % nInnerZ;
         if (!pZone->IsMovable(x, z)) continue;
-        pZone->SpawnMonster(nNextId++, eType,
+
+        int32_t nID = nNextId++;
+        pZone->SpawnMonster(nID, eType,
             static_cast<float>(x) + 0.5f, static_cast<float>(z) + 0.5f);
+
+        if (fAggroRange > 0.f)
+        {
+            MonsterRef pMon = CMonster_Manager::Get_Instance()->Get_Monster(nID);
+            if (pMon)
+            {
+                // 기본값(어그로 3 / 해제 4)으로는 몬스터가 코앞의 플레이어만 쫓아
+                // A* 경로가 4칸 이하로만 나온다. 그러면 맵을 키워도 길찾기 부하가
+                // 측정되지 않는다. 레이드 필드는 멀리서부터 쫓아오게 해서
+                // 장거리 경로 탐색이 실제로 발생하도록 한다.
+                pMon->m_fAggroRange   = fAggroRange;
+                pMon->m_fDeAggroRange = fAggroRange + 5.f;   // 히스테리시스 유지
+            }
+        }
         ++nPlaced;
     }
 }
@@ -175,23 +197,38 @@ CZone_Manager::CZone_Manager()
 
     // 클라이언트 Build_TileGrid(20, 30, ...) 와 동일한 인자
     // 북쪽 필드(기존) + 동/남/서 필드, 그리고 허브인 마을
-    m_zones[ZONE_TEST]    = new CZone(ZONE_TEST,    "FieldN", 20, 30, &BLOCK_MAP_TEST[0][0]);
+    m_zones[ZONE_FIELD_N]    = new CZone(ZONE_FIELD_N,    "FieldN", 20, 30, &BLOCK_MAP_FIELD_N[0][0]);
     m_zones[ZONE_TOWN]    = new CZone(ZONE_TOWN,    "Town",   30, 30, &BLOCK_MAP_TOWN[0][0]);
     m_zones[ZONE_FIELD_E] = new CZone(ZONE_FIELD_E, "FieldE", 20, 30, &BLOCK_MAP_FIELD_E[0][0]);
     m_zones[ZONE_FIELD_S] = new CZone(ZONE_FIELD_S, "FieldS", 20, 30, &BLOCK_MAP_FIELD_S[0][0]);
     m_zones[ZONE_FIELD_W] = new CZone(ZONE_FIELD_W, "FieldW", 20, 30, &BLOCK_MAP_FIELD_W[0][0]);
 
+    // ---- 대형 맵 2개 (150x150). 블록맵은 RaidMap.h 가 고정 시드로 생성 ----
+    // 클라 CZone_Raid / CZone_Raid_Flat 도 같은 함수를 호출하므로 맵이 반드시 일치한다.
+    m_zones[ZONE_RAID]      = new CZone(ZONE_RAID,      "Raid",
+        RAID_INNER_X, RAID_INNER_Z, GetRaidBlockMap(false));   // 장애물 있음
+    m_zones[ZONE_RAID_FLAT] = new CZone(ZONE_RAID_FLAT, "RaidFlat",
+        RAID_INNER_X, RAID_INNER_Z, GetRaidBlockMap(true));    // 평지(대조군)
+
     // 각 필드에 몬스터를 랜덤 배치 (마을은 없음). ID는 전역 고유.
     int32_t nNextId = 1;
     // 각 필드: 오크(길찾기) + 윙(부유·직선추적) 혼합 배치
-    SpawnRandomMonsters(m_zones[ZONE_TEST],    nNextId, 3, MONSTER_ORC);
-    SpawnRandomMonsters(m_zones[ZONE_TEST],    nNextId, 2, MONSTER_WING);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_E], nNextId, 3, MONSTER_ORC);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_E], nNextId, 2, MONSTER_WING);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_S], nNextId, 3, MONSTER_ORC);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_S], nNextId, 2, MONSTER_WING);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 3, MONSTER_ORC);
-    SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 2, MONSTER_WING);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_N], nNextId, 3, MONSTER_ORC,  20, 30);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_N], nNextId, 2, MONSTER_WING, 20, 30);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_E], nNextId, 3, MONSTER_ORC,  20, 30);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_E], nNextId, 2, MONSTER_WING, 20, 30);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_S], nNextId, 3, MONSTER_ORC,  20, 30);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_S], nNextId, 2, MONSTER_WING, 20, 30);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 3, MONSTER_ORC,  20, 30);
+    SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 2, MONSTER_WING, 20, 30);
+
+    // ---- 대형 맵 몬스터 ----
+    // 전부 오크(A* 길찾기 사용)
+    for (int32_t zoneID : { (int32_t)ZONE_RAID, (int32_t)ZONE_RAID_FLAT })
+    {
+        SpawnRandomMonsters(m_zones[zoneID], nNextId, RAID_MONSTER_COUNT,
+            MONSTER_ORC, RAID_INNER_X, RAID_INNER_Z, RAID_AGGRO_RANGE);
+    }
 
     // 마을 오브젝트 블락 (클라 Zone_Town::Build 의 s_block 목록과 반드시 동일)
     {

@@ -3,11 +3,12 @@
 #include "Object_Manager.h"
 #include "Network_Manager.h"
 #include "NPC_Shop.h"
-#include "Zone_Test.h"
+#include "Zone_Field_N.h"
 #include "Zone_Town.h"
 #include "Zone_Field_E.h"
 #include "Zone_Field_S.h"
 #include "Zone_Field_W.h"
+#include "Zone_Raid.h"
 
 CMap_Manager* CMap_Manager::m_pInstance = nullptr;
 void CMap_Manager::Initialize()
@@ -49,11 +50,13 @@ CZone* CMap_Manager::Create_Zone(ZONE_ID eID)
 {
     switch (eID)
     {
-    case ZONE_TEST:    return new CZone_Test;
+    case ZONE_FIELD_N: return new CZone_Field_N;
     case ZONE_TOWN:    return new CZone_Town;
     case ZONE_FIELD_E: return new CZone_Field_E;
     case ZONE_FIELD_S: return new CZone_Field_S;
     case ZONE_FIELD_W: return new CZone_Field_W;
+    case ZONE_RAID:      return new CZone_Raid;        // 대형 맵(장애물)
+    case ZONE_RAID_FLAT: return new CZone_Raid_Flat;   // 대형 맵(평지)
     default:           return nullptr;
     }
 }

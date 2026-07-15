@@ -97,20 +97,11 @@
     <ClCompile Include="Zone.cpp">
       <Filter>08.Map_Manager\Zone</Filter>
     </ClCompile>
-    <ClCompile Include="Zone_Test.cpp">
-      <Filter>08.Map_Manager\Zone\08_00.Zone_Test</Filter>
+    <ClCompile Include="Zone_Field_N.cpp">
+      <Filter>08.Map_Manager\Zone\08_04.Zone_Field_N</Filter>
     </ClCompile>
     <ClCompile Include="Zone_Town.cpp">
       <Filter>08.Map_Manager\Zone\08_01.Zone_Town</Filter>
-    </ClCompile>
-    <ClCompile Include="Zone_Field_E.cpp">
-      <Filter>08.Map_Manager\Zone</Filter>
-    </ClCompile>
-    <ClCompile Include="Zone_Field_S.cpp">
-      <Filter>08.Map_Manager\Zone</Filter>
-    </ClCompile>
-    <ClCompile Include="Zone_Field_W.cpp">
-      <Filter>08.Map_Manager\Zone</Filter>
     </ClCompile>
     <ClCompile Include="ActiveObject.cpp">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects</Filter>
@@ -217,6 +208,21 @@
     <ClCompile Include="UI_QtyDialog.cpp">
       <Filter>06.UI_Manager\UIs\UI_QtyDialog</Filter>
     </ClCompile>
+    <ClCompile Include="Zone_Field_E.cpp">
+      <Filter>08.Map_Manager\Zone\08_02.Zone_Field_E</Filter>
+    </ClCompile>
+    <ClCompile Include="Zone_Field_S.cpp">
+      <Filter>08.Map_Manager\Zone\08_05.Zone_Field_S</Filter>
+    </ClCompile>
+    <ClCompile Include="Zone_Field_W.cpp">
+      <Filter>08.Map_Manager\Zone\08_03.Zone_Field_W</Filter>
+    </ClCompile>
+    <ClCompile Include="UI_ZoneSelect.cpp">
+      <Filter>06.UI_Manager\UIs\UI_ZoneSelect</Filter>
+    </ClCompile>
+    <ClCompile Include="Zone_Raid.cpp">
+      <Filter>08.Map_Manager\Zone\08_99.Zone_Raid</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="01.MainApp">
@@ -290,9 +296,6 @@
     </Filter>
     <Filter Include="08.Map_Manager\Tiles">
       <UniqueIdentifier>{77d4ba1c-26fa-41ba-970e-39d2bbd0ae54}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="08.Map_Manager\Zone\08_00.Zone_Test">
-      <UniqueIdentifier>{8a81b394-aa2e-456a-a4d5-eb13a2773b9b}</UniqueIdentifier>
     </Filter>
     <Filter Include="03.Img_Manager">
       <UniqueIdentifier>{9e79e224-dc62-419e-9820-d11e4d75f9cc}</UniqueIdentifier>
@@ -405,6 +408,24 @@
     <Filter Include="06.UI_Manager\UIs\UI_ConfirmDialog">
       <UniqueIdentifier>{bd1a2b8a-d965-40ff-a749-f6f4489b34ae}</UniqueIdentifier>
     </Filter>
+    <Filter Include="08.Map_Manager\Zone\08_02.Zone_Field_E">
+      <UniqueIdentifier>{c29bd1b7-0ff9-4fa0-a004-560e693f9ace}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="08.Map_Manager\Zone\08_04.Zone_Field_N">
+      <UniqueIdentifier>{8a81b394-aa2e-456a-a4d5-eb13a2773b9b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="08.Map_Manager\Zone\08_03.Zone_Field_W">
+      <UniqueIdentifier>{d887da2e-a3b2-4da1-b526-9811031ff216}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="08.Map_Manager\Zone\08_05.Zone_Field_S">
+      <UniqueIdentifier>{322dbd9e-46b3-4c88-a613-fa5efc1e304a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="08.Map_Manager\Zone\08_99.Zone_Raid">
+      <UniqueIdentifier>{58206d3b-df90-41a4-abc1-4d7b63709ce0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="06.UI_Manager\UIs\UI_ZoneSelect">
+      <UniqueIdentifier>{510be85c-5ee9-4a51-96a5-2a045572f205}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MainApp.h">
@@ -503,20 +524,11 @@
     <ClInclude Include="Zone.h">
       <Filter>08.Map_Manager\Zone</Filter>
     </ClInclude>
-    <ClInclude Include="Zone_Test.h">
-      <Filter>08.Map_Manager\Zone\08_00.Zone_Test</Filter>
+    <ClInclude Include="Zone_Field_N.h">
+      <Filter>08.Map_Manager\Zone\08_04.Zone_Field_N</Filter>
     </ClInclude>
     <ClInclude Include="Zone_Town.h">
       <Filter>08.Map_Manager\Zone\08_01.Zone_Town</Filter>
-    </ClInclude>
-    <ClInclude Include="Zone_Field_E.h">
-      <Filter>08.Map_Manager\Zone</Filter>
-    </ClInclude>
-    <ClInclude Include="Zone_Field_S.h">
-      <Filter>08.Map_Manager\Zone</Filter>
-    </ClInclude>
-    <ClInclude Include="Zone_Field_W.h">
-      <Filter>08.Map_Manager\Zone</Filter>
     </ClInclude>
     <ClInclude Include="ActiveObject.h">
       <Filter>05.Object_Manager\GameObjects\05_03.ActiveObjects</Filter>
@@ -632,6 +644,24 @@
     </ClInclude>
     <ClInclude Include="Item_define.h">
       <Filter>05.Object_Manager\GameObjects\05_06.Item</Filter>
+    </ClInclude>
+    <ClInclude Include="Zone_Field_E.h">
+      <Filter>08.Map_Manager\Zone\08_02.Zone_Field_E</Filter>
+    </ClInclude>
+    <ClInclude Include="Zone_Field_S.h">
+      <Filter>08.Map_Manager\Zone\08_05.Zone_Field_S</Filter>
+    </ClInclude>
+    <ClInclude Include="Zone_Field_W.h">
+      <Filter>08.Map_Manager\Zone\08_03.Zone_Field_W</Filter>
+    </ClInclude>
+    <ClInclude Include="UI_ZoneSelect.h">
+      <Filter>06.UI_Manager\UIs\UI_ZoneSelect</Filter>
+    </ClInclude>
+    <ClInclude Include="Zone_Raid.h">
+      <Filter>08.Map_Manager\Zone\08_99.Zone_Raid</Filter>
+    </ClInclude>
+    <ClInclude Include="RaidMap.h">
+      <Filter>08.Map_Manager\Zone\08_99.Zone_Raid</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
