@@ -16,12 +16,14 @@
 1. **인코딩 함정(매우 중요)**: 대부분의 소스는 **CP949(BOM 없음)**로 저장돼 있다 (그래서 Read 도구로 보면 한글 주석이 mojibake로 보임). 이런 CP949 파일을 **Edit/Write 도구로 수정하면 UTF-8로 재저장되어 기존 한글이 전부 깨진다**(주석·`L"..."` 문자열 포함). 따라서 한글이 든 파일을 편집하기 전, 먼저 **UTF-8+BOM으로 변환**할 것:
    - 손상됐으면 `git checkout HEAD -- <file>`로 원본(CP949) 복원 → PowerShell로 `GetEncoding(949)`로 읽어 `UTF8Encoding($true)`(BOM)로 다시 써서 변환 → 그 다음 Edit 사용.
    - 편집 후 BOM이 유지됐는지 확인(Edit가 BOM을 떼면 다시 CP949로 오인됨). UTF-8+BOM이면 MSVC가 로케일 무관하게 UTF-8로 읽으므로 안전.
+
    - **새로 만드는 파일도 반드시 UTF-8+BOM으로 저장할 것.** BOM 없이 한글 주석이 들어가면 MSVC가 CP949로 오독해, 주석의 바이트가 다음 줄 선언을 삼켜 **"선언되지 않은 식별자"** 같은 엉뚱한 컴파일 에러가 난다(실제로 `RaidMap.h`에서 겪음).
    - **이미 UTF-8+BOM으로 변환 완료된 파일**(자유롭게 편집 가능): 양쪽 `Protocol.h`/`RaidMap.h`, 서버 `Zone.cpp`/`Zone_Manager.{h,cpp}`/`Packet_Handler.{h,cpp}`/`Player.h`/`Monster.h`/`SaveData.h`/`AccountDB.h`/`DB_Manager.cpp`, 클라 `Network_Manager.{h,cpp}`/`Map_Manager.cpp`/`Portal.cpp`/`Zone_Field_N.{h,cpp}`/`Zone_Town.cpp`/`Zone_Raid.{h,cpp}`/`UI_ZoneSelect.{h,cpp}`/`GameObject.h`/`Player.cpp`/`UI_HUD.{h,cpp}`/`UI_QuickSlot.{h,cpp}`/`define.h`/`Object_Manager.h`/`UI_Manager.{h,cpp}`/`NPC_Angel.{h,cpp}`. 나머지(예: 클라 `Zone.h`)는 아직 CP949이므로 편집 전 변환 필요.
 2. **`Protocol.h`는 클라/서버 양쪽에 복제본이 있다.** (`MMO_Client/.../Protocol.h`, `MMO_GameServer/.../Protocol.h`) 패킷 구조를 바꾸면 **양쪽 파일을 동시에 똑같이** 수정해야 한다. 한쪽만 고치면 직렬화가 깨진다. `#pragma pack(push,1)` 유지 필수. **`RaidMap.h`도 같은 복제본 규칙**(한쪽만 고치면 대형 맵이 달라져 이동 검증이 깨짐).
 3. 클라 `define.h`에 `#define NO_SERVER`가 있음 — 이름과 정반대다. 정의돼 있어도 서버 접속은 항상 하며(온라인 모드), 실제 효과는 `Monster::Set_ServerPos`의 위치 스냅뿐. **끄면 `Monster.h`의 `#else` 분기가 미선언 멤버를 참조해 컴파일이 깨진다**(한 번도 빌드된 적 없는 죽은 코드). 온라인 테스트한다고 끄지 말 것.
 4. enum 값은 클라/서버가 **숫자까지 일치**해야 함 (예: `ZONE_ID`, `PLAYER_STATE`, `MONSTER_STATE`, `DIRECTION/MONSTER_DIR`, `TILE_TYPE`). 단, `TILE_TYPE`은 클라(`TILE_BLOCK=10`)와 서버(`TILE_BLOCK=1`)의 숫자가 다르니 주의 — 타일 동기화 시 매핑 확인.
 5. **입력 함정 — `CInput_Manager::Key_Down()`은 클릭을 "소비"한다.** 호출하는 순간 `m_bKeyState`를 true로 바꿔서, **한 프레임에 처음 부른 쪽만 true를 받고 나머지는 전부 false**를 받는다(`Mouse_Down()`은 프레임 시작에 한 번 계산된 값이라 여러 번 읽어도 안전). 프레임 순서가 `Object_Manager::Update` → `UI_Manager::Update`이고 `CPlayer::Update`가 `Key_Down(VK_LBUTTON)`을 먼저 부르므로, **새 UI를 만들 때 `Open()`에서 `Set_InputMode(INPUT_MODE_UI)`를, `Close()`에서 `INPUT_MODE_GAME`을 반드시 호출해야 한다**(`CPlayer::Update`는 `!Is_GameMode()`면 즉시 리턴 → 클릭을 양보). 안 하면 그 UI의 버튼이 **영원히 안 눌린다**. `CUI_Shop`/`CUI_Auction`/`CUI_ZoneSelect`가 모두 이 규약을 따른다.
+
 
 ## 네트워크 프로토콜 (핵심 계약)
 
@@ -51,7 +53,7 @@
 - `CSession` (`SessionRef=shared_ptr`) — 소켓당 세션. `CIOEvent`(WSAOVERLAPPED 확장, `IOType`으로 Accept/Recv/Send/MonsterAI/MonsterRespawn/MonsterAttackHit 구분). recv 링버퍼 + send 락.
 - `CPacket_Handler::Handle` — 패킷 ID로 디스패치(static). `Handle_CS_*` / `Send_SC_*`.
 - 매니저 싱글턴: `CSession_Manager`(세션ID 발급/관리), `CZone_Manager`(zoneID→`CZone*`), `CPlayer_Manager`, `CMonster_Manager`.
-- `CZone` — 맵 한 칸. 타일맵 보유, 플레이어/몬스터 ID 집합, **시야처리**(VIEW_RANGE=5, `GetNearPlayers`/`CanSee`/`UpdateViewAndBroadcast`), 이동 브로드캐스트, **몬스터 AI**(Chase/Attack/Patrol 상태머신, A*/Theta* 길찾기 `PathFinder`), 전투(`OnPlayerAttackMonster`, 타이머 기반 공격모션→Hit 분기).
+- `CZone` — 맵 한 칸. 타일맵 보유, 플레이어/몬스터 ID 집합, **시야처리**(VIEW_RANGE=5, `GetNearPlayers`/`CanSee`/`UpdateViewAndBroadcast`), 이동 브로드캐스트, **몬스터 AI**(Chase/Attack/Patrol 상태머신, A*/Theta* 길찾기 `PathFinder`), 전투(`OnPlayerAttackMonster`, 타이머 기반 공격모션→Hit 분기). **몬스터 타입별 이동**: `MONSTER_ORC`은 `PathFinder` 길찾기, `MONSTER_WING`(부유 몬스터)은 `Monster_Chase`에서 `m_eType==MONSTER_WING` 분기로 길찾기 없이 플레이어를 향해 **직선 이동(장애물 무시)**. 스폰은 `Zone_Manager.cpp::SpawnRandomMonsters(zone,id,cnt,type)`로 각 필드에 오크+윙 혼합.
 - `CPlayer`(서버) — 위치/이동/HP/시야리스트(`m_viewList`, `m_monsterViewList` + 각 mutex)/공격쿨다운/사망플래그.
 - `CMonster` — 상태(IDLE/WALK/ATTACK_0/1/HIT/DEAD), 어그로/공격 사거리, 공격쿨, hit delay, 타겟ID.
 - `CTimer` — IOCP에 타이머 이벤트를 던져 워커가 처리(공격 모션 후 실제 Hit, 리스폰, AI 틱).
@@ -62,8 +64,9 @@
 - 매니저 싱글턴 패턴(`Get_Instance`/`Destroy_Instance`): `CLevel_Manager`, `CObject_Manager`, `CUI_Manager`, `CImg_Manager`, `CInput_Manager`, `CMap_Manager`, `CCollision_Manager`, `CTimer_Manager`, `CNetwork_Manager`.
 - **레벨**: `CLevel` 기반 — `LEVEL_MENU/LOGIN/CHOICE/TEST`. `CLevel_Manager::Level_Change`.
 - **오브젝트**: `CGameObject`(추상, 순수가상 Initialize/Update/Late_Update/Render/Release) 기반. `OBJ_ID` = PORTAL/PLAYER/OTHER_PLAYER/NPC/MONSTER. `CObject_Manager`가 `m_ObjectList[OBJ_END]` 리스트로 관리, `Find_OtherPlayer(id)`/`Find_Monster(id)`/`Pick_Monster(mouse)`.
-- 주요 오브젝트: `Player`, `Other_Player`, `Monster`/`Monster_Orc`, `NPC`/`NPC_Shop`, `Portal`. 아이소 좌표는 `ISO_INFO{fWorldX,fWorldZ,fHeight}`, 충돌 `COLLIDER`, 마우스픽 `MOUSE_COLLIDER`.
+- 주요 오브젝트: `Player`, `Other_Player`, `Monster`/`Monster_Orc`/`Monster_Wing`, `NPC`/`NPC_Shop`/`NPC_Market`/`NPC_OldMan`/`NPC_Knight`/`NPC_Angel`, `Portal`. 몬스터 타입은 `MONSTER_TYPE`(클라 `define.h` / 서버 `Monster.h`, 숫자 일치: ORC=0,WING=1)로 구분하고 `SC_ADD_MONSTER_PACKET.monsterType`으로 전달 → 클라 `Handle_SC_ADD_MONSTER`가 타입별 서브클래스 생성. 스프라이트는 `Resource/Monster/<이름>/action(WxHxframesxdirs).png` 규칙(방향행 순서 D,LB,L,LT,T,RT,R,RB), 마젠타 배경은 투명 처리. `Monster_Wing`은 오크와 동일 모션 세트에 부유 높이(HoverHeight)만 다름. 아이소 좌표는 `ISO_INFO{fWorldX,fWorldZ,fHeight}`, 충돌 `COLLIDER`, 마우스픽 `MOUSE_COLLIDER`.
 - **네트워크**: `CNetwork_Manager` — recv 전용 스레드가 패킷을 파싱해 `std::function` task로 큐에 push, 메인스레드가 `Dispatch()`로 pop 실행(D2D 싱글스레드 안전성 확보). `Handle_SC_*` 핸들러들.
+- **NPC**: `CNPC` 상속. 이동 없음, 플레이어 근접(`On_Collision`) 시 좌클릭 `On_Click`. 스프라이트는 **가로 1줄 스트립**(투명 배경, `Render_Sprite`가 `fCX`폭으로 슬라이스), `Motion_Change`에서 `Set_Frame(끝idx,ms)`+`m_bLoopAnim`. 마을 전용(`Zone_Town::Spawn_Objects`에서 `Insert_Png`+생성). 장식/대화 NPC는 타입별 개별 클래스(추후 역할 확장): `NPC_OldMan`(Idle만), `NPC_Knight`(Idle+Talk=Special, 클릭 시 Talk 1회 후 Idle 복귀), `NPC_Angel`(Idle+Effect, 클릭 시 NPC 뒤에 이펙트를 독립 프레임으로 표시). 리소스는 `Resource/NPC/<이름>/<이름>_Idle|Talk|Effect.png`(배경 원본: OldMan 흰색/Knight 마젠타/Angel 마젠타+이펙트 검정 → 투명 처리). 클릭 시 특별 창 없이 모션/말풍선만.
 - **UI**: `CUI`(`UI_BUTTON/INVENTORY/QUICKSLOT/HUD/BOX`), `CUI_Manager`. HUD/퀵슬롯/인벤토리/로그인박스 완성.
 - **아이템**: `CItemData` 기반 상속(Equipment/Potion/Scroll/Etc/UseItem), `Inventory`, `Equipment`.
 - 이미지: `MyBmp`/`MyPng`, `CImg_Manager`.
