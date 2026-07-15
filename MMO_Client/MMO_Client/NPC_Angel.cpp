@@ -2,6 +2,7 @@
 #include "Npc_Angel.h"
 #include "Img_Manager.h"
 #include "Camera.h"
+#include "UI_Manager.h"
 
 // Angel: Idle 47x102x24ea (마젠타 배경 제거) / Effect 68x98x24ea (검정 배경 제거)
 
@@ -101,16 +102,20 @@ void CNPC_Angel::Render(ID2D1RenderTarget* pRT)
 
 void CNPC_Angel::On_Click()
 {
-    // 특별 창 없이 뒤에 이펙트 표시 + 말풍선
+    // 이펙트 + 말풍선
     m_bClick = true;
     m_bShowBubble = true;
     m_fBubbleTimer = 3.f;
-    lstrcpy(m_szBubbleText, L"축복이 있기를.");
+    lstrcpy(m_szBubbleText, L"어디로 인도할까요?");
 
     m_bEffectActive = true;
     m_fEffectTimer = s_fEffectShowSec;
     m_fEffectFrameTimer = 0.f;
     m_iEffectFrame = 0;
+
+    // 대형 맵 선택창을 연다. 실제 이동(CS_PORTAL)은 선택창이 처리한다.
+    // NPC_Shop → Open_Shop, NPC_Market → Open_Auction 과 같은 패턴.
+    CUI_Manager::Get_Instance()->Open_ZoneSelect();
 }
 
 void CNPC_Angel::On_Interact() {}

@@ -172,6 +172,7 @@
     <ClInclude Include="Zone.h" />
     <ClInclude Include="Zone_Manager.h" />
     <ClInclude Include="DB_Manager.h" />
+    <ClInclude Include="RaidMap.h" />
     <ClInclude Include="SaveData.h" />
     <ClInclude Include="nanodbc.h" />
   </ItemGroup>

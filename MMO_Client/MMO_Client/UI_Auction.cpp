@@ -87,14 +87,14 @@ void CUI_Auction::Item_Display(int code, TCHAR* outName, int nameCap,
     delete p;
 }
 
-// 검색어와 이름이 일치하는 아이템 코드들을 수집(코드-이름은 클라만 앎).
-// 서버는 이 코드 목록으로 item_code IN(...) 필터. 반환=수집 개수.
+// 검색어와 이름이 일치하는 아이템 코드들을 수집
+// 서버는 이 코드 목록으로 item_code IN(...)반환=  수집 개수.
 int CUI_Auction::Resolve_Search(int32_t* outCodes, int cap)
 {
     int cnt = 0;
-    if (m_szSearch[0] == 0) return 0;   // 검색어 없음 - 필터 없음
+    if (m_szSearch[0] == 0) return 0;
 
-    // 카테고리별 (코드 = cat*1000 + sub) 열거. sub 상한은 각 enum의 _END.
+    // 카테고리별 (코드 = cat*1000 + sub) 열거.
     struct { int cat; int end; } cats[] = {
         { 1, POTION_END }, { 2, SCROLL_END }, { 3, EQUIP_TYPE_END }, { 4, ETC_END }
     };
@@ -112,7 +112,7 @@ int CUI_Auction::Resolve_Search(int32_t* outCodes, int cap)
             }
         }
     }
-    // 검색어는 있는데 일치 코드가 0개 - 아무것도 안 나오게 불가능 코드 하나 전송
+    // 검색어는 있는데 일치 코드가 0개 -? 불가능 코드
     if (cnt == 0 && cap > 0) { outCodes[0] = -1; cnt = 1; }
     return cnt;
 }
@@ -178,7 +178,7 @@ int CUI_Auction::Update(float dt)
     if (in->Key_Down(VK_ESCAPE)) { Close(); return OBJ_NOEVENT; }
     if (m_closeBtn.Update(m, bClick)) { Close(); return OBJ_NOEVENT; }
 
-    // 새로고침(모든 탭 공통) — 현재 탭/페이지/검색 그대로 재요청
+    // 새로고침(모든 탭 공통) 현재 탭/페이지/검색 그대로 재요청
     RECT rRefresh = R(PANEL_W - 100.f, 44.f, 80.f, 30.f);
     if (bClick && PtInRect(&rRefresh, m))
     {

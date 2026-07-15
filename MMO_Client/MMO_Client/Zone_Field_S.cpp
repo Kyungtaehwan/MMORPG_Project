@@ -8,17 +8,17 @@ void CZone_Field_S::Build()
 {
     // 잔디 타일셋 (테스트 필드와 동일 키 재사용)
     CImg_Manager* pImg = CImg_Manager::Get_Instance();
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Normal_Grass.png", L"TEST_GRASS");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Block_Grass.png", L"TEST_BLOCK");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"TEST_BORDER_LT");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"TEST_BORDER_RT");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"TEST_BORDER_RB");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"TEST_BORDER_LB");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"TEST_BORDER_T");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"TEST_BORDER_R");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"TEST_BORDER_B");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"TEST_BORDER_L");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutBlock_Grass.png", L"TEST_OUTSIDE");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Normal_Grass.png", L"GRASS_GRASS");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Block_Grass.png", L"GRASS_BLOCK");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"GRASS_BORDER_LT");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"GRASS_BORDER_RT");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"GRASS_BORDER_RB");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"GRASS_BORDER_LB");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"GRASS_BORDER_T");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"GRASS_BORDER_R");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"GRASS_BORDER_B");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"GRASS_BORDER_L");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutBlock_Grass.png", L"GRASS_OUTSIDE");
 
     // 가운데 십자(+) 장애물 (서버 BLOCK_MAP_FIELD_S와 반드시 동일)
     static const int BLOCK_MAP[30][20] =
@@ -58,17 +58,17 @@ void CZone_Field_S::Build()
     Build_TileGrid(20, 30, &BLOCK_MAP[0][0]);
 
     Apply_ImgKeys({
-        { TILE_GRASS,     L"TEST_GRASS"     },
-        { TILE_BLOCK,     L"TEST_BLOCK"     },
-        { TILE_BORDER_LT, L"TEST_BORDER_LT" },
-        { TILE_BORDER_RT, L"TEST_BORDER_RT" },
-        { TILE_BORDER_RB, L"TEST_BORDER_RB" },
-        { TILE_BORDER_LB, L"TEST_BORDER_LB" },
-        { TILE_BORDER_T,  L"TEST_BORDER_T"  },
-        { TILE_BORDER_R,  L"TEST_BORDER_R"  },
-        { TILE_BORDER_B,  L"TEST_BORDER_B"  },
-        { TILE_BORDER_L,  L"TEST_BORDER_L"  },
-        { TILE_OUTSIDE,   L"TEST_OUTSIDE"   },
+        { TILE_GRASS,     L"GRASS_GRASS"     },
+        { TILE_BLOCK,     L"GRASS_BLOCK"     },
+        { TILE_BORDER_LT, L"GRASS_BORDER_LT" },
+        { TILE_BORDER_RT, L"GRASS_BORDER_RT" },
+        { TILE_BORDER_RB, L"GRASS_BORDER_RB" },
+        { TILE_BORDER_LB, L"GRASS_BORDER_LB" },
+        { TILE_BORDER_T,  L"GRASS_BORDER_T"  },
+        { TILE_BORDER_R,  L"GRASS_BORDER_R"  },
+        { TILE_BORDER_B,  L"GRASS_BORDER_B"  },
+        { TILE_BORDER_L,  L"GRASS_BORDER_L"  },
+        { TILE_OUTSIDE,   L"GRASS_OUTSIDE"   },
         });
 }
 

@@ -17,8 +17,7 @@ public:
 public:
 
 	std::list<CUI*>* Get_List(UI_ID eID) {
-		if (!List_Empty(eID))
-			return &m_UIList[eID];
+		return &m_UIList[eID];
 	}
 
 	bool List_Empty(UI_ID eID) {
@@ -35,6 +34,7 @@ public:
 	void		On_Char(wchar_t ch);
 	void		Open_Shop(int iShopType);   // NPC_Shop 클릭 시 상점 UI 열기
 	void		Open_Auction();             // NPC_Market 클릭 시 경매장 UI 열기
+	void		Open_ZoneSelect();          // NPC_Angel 클릭 시 대형 맵 선택창 열기
 
 private:
 

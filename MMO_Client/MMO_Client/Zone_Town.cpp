@@ -25,17 +25,17 @@ void CZone_Town::Build()
     // 마을은 같은 타일셋이지만 키를 분리해서 관리
     // 추후 마을 전용 타일로 교체 시 이미지 경로만 바꾸면 됨
     CImg_Manager* pImg = CImg_Manager::Get_Instance();
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Normal_Grass.png", L"TEST_GRASS");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Block_Grass.png", L"TEST_BLOCK");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"TEST_BORDER_LT");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"TEST_BORDER_RT");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"TEST_BORDER_RB");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"TEST_BORDER_LB");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"TEST_BORDER_T");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"TEST_BORDER_R");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"TEST_BORDER_B");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"TEST_BORDER_L");
-    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutBlock_Grass.png", L"TEST_OUTSIDE");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Normal_Grass.png", L"GRASS_GRASS");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/Block_Grass.png", L"GRASS_BLOCK");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"GRASS_BORDER_LT");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"GRASS_BORDER_RT");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"GRASS_BORDER_RB");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"GRASS_BORDER_LB");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LT_Grass.png", L"GRASS_BORDER_T");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RT_Grass.png", L"GRASS_BORDER_R");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_RB_Grass.png", L"GRASS_BORDER_B");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutlineBlock_LB_Grass.png", L"GRASS_BORDER_L");
+    pImg->Insert_Png(L"../Resource/Tile/Grassfield/OutBlock_Grass.png", L"GRASS_OUTSIDE");
 
     // 마을: 맵 테두리만 유지하고 가운데 장애물은 전부 제거 (전부 잔디).
     // 서버 BLOCK_MAP_TOWN(전부 0)과 일치해야 한다.
@@ -44,17 +44,17 @@ void CZone_Town::Build()
     Build_TileGrid(30, 30, &BLOCK_MAP[0][0]);
 
     Apply_ImgKeys({
-       { TILE_GRASS,     L"TEST_GRASS"     },
-       { TILE_BLOCK,     L"TEST_BLOCK"     },
-       { TILE_BORDER_LT, L"TEST_BORDER_LT" },
-       { TILE_BORDER_RT, L"TEST_BORDER_RT" },
-       { TILE_BORDER_RB, L"TEST_BORDER_RB" },
-       { TILE_BORDER_LB, L"TEST_BORDER_LB" },
-       { TILE_BORDER_T,  L"TEST_BORDER_T"  },
-       { TILE_BORDER_R,  L"TEST_BORDER_R"  },
-       { TILE_BORDER_B,  L"TEST_BORDER_B"  },
-       { TILE_BORDER_L,  L"TEST_BORDER_L"  },
-       { TILE_OUTSIDE,   L"TEST_OUTSIDE"   },
+       { TILE_GRASS,     L"GRASS_GRASS"     },
+       { TILE_BLOCK,     L"GRASS_BLOCK"     },
+       { TILE_BORDER_LT, L"GRASS_BORDER_LT" },
+       { TILE_BORDER_RT, L"GRASS_BORDER_RT" },
+       { TILE_BORDER_RB, L"GRASS_BORDER_RB" },
+       { TILE_BORDER_LB, L"GRASS_BORDER_LB" },
+       { TILE_BORDER_T,  L"GRASS_BORDER_T"  },
+       { TILE_BORDER_R,  L"GRASS_BORDER_R"  },
+       { TILE_BORDER_B,  L"GRASS_BORDER_B"  },
+       { TILE_BORDER_L,  L"GRASS_BORDER_L"  },
+       { TILE_OUTSIDE,   L"GRASS_OUTSIDE"   },
         });
 
     // ── 오브젝트가 실제 가리는 칸 블락 (이동 차단). 렌더는 잔디 유지(오브젝트가 덮음). ──
@@ -112,6 +112,8 @@ void CZone_Town::Spawn_Objects()
     pKnight->Initialize();
     CObject_Manager::Get_Instance()->Add_Object(OBJ_NPC, pKnight);
 
+    // 천사 — 대형 맵(150x150) 입구. 클릭하면 선택창(CUI_ZoneSelect)이 열리고,
+    // 거기서 고른 존으로 포탈과 같은 서버 권위 경로(CS_PORTAL)를 태운다.
     CNPC_Angel* pAngel = new CNPC_Angel;
     pAngel->Set_WorldPos(25.f, 22.f);  // 중심 우하단 빈 공간(노인과 함께)
     pAngel->Initialize();
@@ -165,7 +167,7 @@ void CZone_Town::Spawn_Objects()
     };
 
     // 정사각형 마을(30x30)의 네 모서리에 배치
-    AddPortal(3.f,  3.f,  ZONE_TEST,    16.f, 26.f);  // 북서 → 북쪽 필드
+    AddPortal(3.f,  3.f,  ZONE_FIELD_N,    16.f, 26.f);  // 북서 → 북쪽 필드
     AddPortal(32.f, 3.f,  ZONE_FIELD_E,  9.f, 26.f);  // 북동 → 동쪽 필드
     AddPortal(32.f, 32.f, ZONE_FIELD_S,  9.f,  9.f);  // 남동 → 남쪽 필드
     AddPortal(3.f,  32.f, ZONE_FIELD_W, 16.f,  9.f);  // 남서 → 서쪽 필드
