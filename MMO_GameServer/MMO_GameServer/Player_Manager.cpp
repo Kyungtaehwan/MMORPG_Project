@@ -56,6 +56,11 @@ void CPlayer_Manager::AutoSaveNext()
         {
             int32_t idx = (m_saveCursor + n) % MAX_PLAYER;
             PlayerRef p = m_players[idx];
+#ifdef STRESS_TEST
+            // 부하 봇(bot_*)은 DB 계정이 없으므로 자동저장에서 제외
+            // (측정 오염·워커 블로킹·DB 오염 방지)
+            if (p && strncmp(p->m_szName, "bot_", 4) == 0) continue;
+#endif
             if (p && p->m_szName[0] != '\0')
             {
                 target = p;

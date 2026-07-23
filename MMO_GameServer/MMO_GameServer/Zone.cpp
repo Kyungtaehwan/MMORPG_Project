@@ -4,7 +4,43 @@
 #include "Session_Manager.h"
 #include "Protocol.h"
 #include "ServerItem.h"
+#include "StressMetrics.h"
 #include <atomic>
+#include <iostream>
+#include <cstring>
+#include <cstdlib>
+
+// 부하 테스트 빌드에선 전투/AI 이벤트 로그를 무음 처리한다.
+//   이유: 이 std::cout 들이 패킷 핸들러 안에서 실행돼 "처리시간"에 포함되고,
+//   콘솔 I/O는 느려서 고부하에서 지배적이 되어 p50/p99 측정을 왜곡한다.
+//   SLOG 로 바꾼 줄만 조용해지고, 시작/계측 출력(std::cout)은 그대로 둔다.
+#ifdef STRESS_TEST
+struct NullSink {
+    template <class T> NullSink& operator<<(const T&) { return *this; }
+    NullSink& operator<<(std::ostream& (*)(std::ostream&)) { return *this; }
+};
+#define SLOG (NullSink{})
+#else
+#define SLOG std::cout
+#endif
+
+#ifdef STRESS_TEST
+// 몬스터 리스폰 간격(ms). 환경변수 STRESS_MON_RESPAWN_MS 로 조절(기본 15초).
+//   부하 테스트에선 길게 잡아 봇이 스폰지점을 캠핑하며 즉사시키는 걸 완화.
+static int StressMonRespawnMs()
+{
+    static int ms = [] {
+        char buf[32]; size_t len = 0;
+        if (getenv_s(&len, buf, sizeof(buf), "STRESS_MON_RESPAWN_MS") == 0 && len > 0)
+        {
+            int v = atoi(buf);
+            if (v >= 1000 && v <= 120000) return v;
+        }
+        return 15000;
+    }();
+    return ms;
+}
+#endif
 
 // 전역 드롭 ID 발급 (존 공통)
 static std::atomic<int32_t> g_nextDropId{ 1 };
@@ -68,6 +104,24 @@ bool CZone::IsMovable(int32_t nTileX, int32_t nTileZ) const
     if (nTileZ < 0 || nTileZ >= m_nTileCountZ) return false;
     return Is_MovableTile(static_cast<TILE_TYPE>(
         m_tileMap[nTileZ * m_nTileCountX + nTileX]));
+}
+
+// 부하 테스트: 이동 가능한 랜덤 타일을 골라 타일 중심 월드좌표로 반환.
+bool CZone::FindWalkableSpawn(float& fOutX, float& fOutZ) const
+{
+    if (m_nTileCountX <= 0 || m_nTileCountZ <= 0) return false;
+    for (int nTry = 0; nTry < 256; ++nTry)
+    {
+        int nTx = rand() % m_nTileCountX;
+        int nTz = rand() % m_nTileCountZ;
+        if (IsMovable(nTx, nTz))
+        {
+            fOutX = static_cast<float>(nTx) + 0.5f;
+            fOutZ = static_cast<float>(nTz) + 0.5f;
+            return true;
+        }
+    }
+    return false;
 }
 
 // 오브젝트가 가리는 칸을 이동 불가로 지정 (마을용, 클라 Zone_Town과 동일 목록)
@@ -372,19 +426,25 @@ void CZone::OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ)
 // ================================================================
 std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
 {
+    // 부하 계측: 락 대기 + O(N) 전체 순회 시간을 기록 (섹터 AOI 개선 전/후 비교용)
+    const int64_t nAoiT0 = StressMetrics::Now();
     std::vector<int32_t> vResult;
-
-    std::lock_guard<std::mutex> lock(m_zoneLock);
-    for (int32_t nID : m_playerIDs)
+    uint32_t nScanned = 0;
     {
-        if (nID == pPlayer->m_nPlayerID) continue;
+        std::lock_guard<std::mutex> lock(m_zoneLock);
+        nScanned = static_cast<uint32_t>(m_playerIDs.size());
+        for (int32_t nID : m_playerIDs)
+        {
+            if (nID == pPlayer->m_nPlayerID) continue;
 
-        PlayerRef pOther = CPlayer_Manager::Get_Instance()->Get_Player(nID);
-        if (!pOther) continue;
+            PlayerRef pOther = CPlayer_Manager::Get_Instance()->Get_Player(nID);
+            if (!pOther) continue;
 
-        if (CanSee(pPlayer, pOther))
-            vResult.push_back(nID);
+            if (CanSee(pPlayer, pOther))
+                vResult.push_back(nID);
+        }
     }
+    StressMetrics::RecordAoi(StressMetrics::ElapsedUs(nAoiT0), nScanned);
     return vResult;
 }
 
@@ -525,7 +585,7 @@ void CZone::SpawnMonster(int32_t nID, MONSTER_TYPE eType, float fX, float fZ)
     // 스폰 시 시야 범위 내 플레이어에게 알림
     Broadcast_AddMonster(pMonster);
 
-    std::cout << "[Zone] 몬스터 스폰. ID=" << nID
+    SLOG << "[Zone] 몬스터 스폰. ID=" << nID
         << " pos=(" << fX << ", " << fZ << ")" << std::endl;
 }
 
@@ -1217,7 +1277,7 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
 
     if (fDist > PLAYER_ATK_TOLERANCE)
     {
-        std::cout << "[경고] 공격 거리 초과. PlayerID="
+        SLOG << "[경고] 공격 거리 초과. PlayerID="
             << pPlayer->m_nPlayerID
             << " 거리=" << fDist << std::endl;
         return;
@@ -1274,7 +1334,7 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
     // ---- HP 감소 (플레이어 공격력 = 기본 + 장비 + 버프) ----
     pMonster->m_nHp -= pPlayer->Get_Atk();
 
-    std::cout << "[Zone] 몬스터 피격. ID=" << nMonsterID
+    SLOG << "[Zone] 몬스터 피격. ID=" << nMonsterID
         << " HP=" << pMonster->m_nHp
         << "/" << pMonster->m_nMaxHp << std::endl;
 
@@ -1288,7 +1348,11 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
 
         Broadcast_MonsterState(pMonster);
 
+#ifdef STRESS_TEST
+        AddTimer(nMonsterID, EEventType::MonsterRespawn, StressMonRespawnMs());
+#else
         AddTimer(nMonsterID, EEventType::MonsterRespawn, 5000);
+#endif
 
         // 사망 위치에 아이템 드롭 추첨
         FDropRoll roll = RollDrop();
@@ -1303,14 +1367,14 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
         if (nLevelUp > 0)
         {
             Send_PlayerHp(pPlayer);
-            std::cout << "[Zone] 레벨업! PlayerID=" << pPlayer->m_nPlayerID
+            SLOG << "[Zone] 레벨업! PlayerID=" << pPlayer->m_nPlayerID
                 << " Lv=" << pPlayer->m_nLevel
                 << " (Atk=" << pPlayer->Get_Atk()
                 << " Def=" << pPlayer->Get_Def()
                 << " MaxHp=" << pPlayer->m_iMaxHp << ")" << std::endl;
         }
 
-        std::cout << "[Zone] 몬스터 사망. ID=" << nMonsterID
+        SLOG << "[Zone] 몬스터 사망. ID=" << nMonsterID
             << " - PlayerID=" << pPlayer->m_nPlayerID
             << " 경험치 +" << pMonster->m_nExpReward
             << " (Lv" << pPlayer->m_nLevel
@@ -1349,6 +1413,22 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
     pMonster->m_nHp = pMonster->m_nMaxHp;
     pMonster->m_eState = MON_IDLE;
     pMonster->m_eDir = MON_DIR_B;
+
+#ifdef STRESS_TEST
+    // 부하 테스트: 대형(레이드) 맵은 죽은 자리에 다시 살지 않고 랜덤 위치로 부활.
+    //   봇이 스폰지점을 캠핑해 몬스터가 즉사하는 것을 막고, 몬스터를 계속 분산시킨다.
+    //   (일반 필드 20×30 은 그대로 제자리 부활 — m_nTileCountX 로 대형 맵만 구분)
+    if (m_nTileCountX >= 100)
+    {
+        float rx = pMonster->m_fSpawnX, rz = pMonster->m_fSpawnZ;
+        if (FindWalkableSpawn(rx, rz))
+        {
+            pMonster->m_fSpawnX = rx;   // 순찰 홈도 새 위치로
+            pMonster->m_fSpawnZ = rz;
+        }
+    }
+#endif
+
     pMonster->m_fCurX = pMonster->m_fSpawnX;
     pMonster->m_fCurZ = pMonster->m_fSpawnZ;
     pMonster->m_fDestX = pMonster->m_fSpawnX;
@@ -1360,7 +1440,7 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
     pMonster->m_bActive = false;
     pMonster->UpdateTilePos();
 
-    std::cout << "[Zone] 몬스터 리스폰. ID=" << nMonsterID << std::endl;
+    SLOG << "[Zone] 몬스터 리스폰. ID=" << nMonsterID << std::endl;
 
     bool bActivated = false;  // AI 중복 활성화 방지
 
@@ -1463,7 +1543,7 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
         Broadcast_PlayerState(pTarget, PLAYER_DEAD);
     }
 
-    std::cout << "[Zone] 몬스터 타격 적용. 몬스터ID=" << nMonsterID
+    SLOG << "[Zone] 몬스터 타격 적용. 몬스터ID=" << nMonsterID
         << " 플레이어ID=" << pTarget->m_nPlayerID
         << " HP=" << pTarget->m_iHp << std::endl;
 }
@@ -1549,8 +1629,18 @@ void CZone::Broadcast_MonsterHit(MonsterRef pMonster)
 }
 void CZone::OnPlayerRespawn(PlayerRef pPlayer)
 {
-    constexpr float SPAWN_X = 10.f;
-    constexpr float SPAWN_Z = 10.f;
+    float SPAWN_X = 10.f;
+    float SPAWN_Z = 10.f;
+
+#ifdef STRESS_TEST
+    // 부하 봇(bot_*)은 랜덤 이동가능 타일로 부활 → 오픈 필드에 계속 흩어진 상태 유지.
+    // (실제 플레이어는 그대로 (10,10) 고정)
+    if (strncmp(pPlayer->m_szName, "bot_", 4) == 0)
+    {
+        float rx = SPAWN_X, rz = SPAWN_Z;
+        if (FindWalkableSpawn(rx, rz)) { SPAWN_X = rx; SPAWN_Z = rz; }
+    }
+#endif
 
     std::unordered_set<int32_t> viewCopy;
     {
@@ -1634,7 +1724,7 @@ void CZone::SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ)
     }
     Broadcast_AddDrop(made);
 
-    std::cout << "[Zone] 아이템 드롭. id=" << made.id
+    SLOG << "[Zone] 아이템 드롭. id=" << made.id
         << " code=" << made.code << " amount=" << made.amount << std::endl;
 }
 

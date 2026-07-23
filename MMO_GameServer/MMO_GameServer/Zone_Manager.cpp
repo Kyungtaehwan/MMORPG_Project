@@ -157,17 +157,26 @@ static const int BLOCK_MAP_FIELD_W[30][20] =
 //  fAggroRange > 0 이면 그 값으로 어그로/해제 범위를 덮어쓴다(레이드 필드의 장거리 추격용).
 static void SpawnRandomMonsters(CZone* pZone, int32_t& nNextId, int nCount,
     MONSTER_TYPE eType, int32_t nInnerX, int32_t nInnerZ,
-    float fAggroRange = 0.f)
+    float fAggroRange = 0.f, uint32_t nSeed = 0)
 {
     if (!pZone) return;
     int nPlaced = 0, nAttempts = 0;
     const int nMaxAttempts = nCount * 30 + 300;
 
+    // nSeed != 0 이면 전역 rand 대신 고정 시드 LCG 사용 → 매 실행 몬스터 위치 동일
+    // (부하 테스트 재현성. 전역 rand는 안 건드려 드롭 등 게임 랜덤성은 유지).
+    uint32_t nRng = nSeed;
+    auto NextRand = [&]() -> int {
+        if (nSeed == 0) return rand();
+        nRng = nRng * 1664525u + 1013904223u;
+        return static_cast<int>((nRng >> 16) & 0x7fff);
+    };
+
     while (nPlaced < nCount && nAttempts < nMaxAttempts)
     {
         ++nAttempts;
-        int x = 3 + rand() % nInnerX;
-        int z = 3 + rand() % nInnerZ;
+        int x = 3 + NextRand() % nInnerX;
+        int z = 3 + NextRand() % nInnerZ;
         if (!pZone->IsMovable(x, z)) continue;
 
         int32_t nID = nNextId++;
@@ -222,13 +231,30 @@ CZone_Manager::CZone_Manager()
     SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 3, MONSTER_ORC,  20, 30);
     SpawnRandomMonsters(m_zones[ZONE_FIELD_W], nNextId, 2, MONSTER_WING, 20, 30);
 
-    // ---- 대형 맵 몬스터 ----
-    // 전부 오크(A* 길찾기 사용)
-    for (int32_t zoneID : { (int32_t)ZONE_RAID, (int32_t)ZONE_RAID_FLAT })
-    {
-        SpawnRandomMonsters(m_zones[zoneID], nNextId, RAID_MONSTER_COUNT,
-            MONSTER_ORC, RAID_INNER_X, RAID_INNER_Z, RAID_AGGRO_RANGE);
+    // ================= 부하 테스트: 레이드 몬스터 수 (여기 숫자만 고치면 됨) =================
+    //   0   = 몬스터 없음(전투X, 순수 AOI 한계 측정)
+    //   200 = 전투 포함.  범위 0 ~ 230 (MAX_MONSTER=500 안: 필드20 + 레이드 2존 = 20+2*230=480)
+    //   두 맵은 별개 실험: 평지(6)=Wing(A*X) / 장애물(5)=Orc(A*). 고정 시드로 배치 재현.
+    constexpr int CFG_MON_COUNT = 0;
+    // =====================================================================================
+    int nMonCount = CFG_MON_COUNT;
+    if (nMonCount < 0)   nMonCount = 0;
+    if (nMonCount > 230) nMonCount = 230;
+    {   // (선택) 환경변수 STRESS_MON_COUNT 를 주면 그게 우선 — 안 쓰면 위 상수 사용
+        char szBuf[32]; size_t nLen = 0;
+        if (getenv_s(&nLen, szBuf, sizeof(szBuf), "STRESS_MON_COUNT") == 0 && nLen > 0)
+        {
+            int v = atoi(szBuf);
+            if (v >= 0 && v <= 230) nMonCount = v;
+        }
     }
+    std::cout << "[Stress] 레이드 몬스터 " << nMonCount
+        << " 마리 (평지=Wing / 장애물=Orc, 고정시드)\n";
+
+    SpawnRandomMonsters(m_zones[ZONE_RAID_FLAT], nNextId, nMonCount,
+        MONSTER_WING, RAID_INNER_X, RAID_INNER_Z, RAID_AGGRO_RANGE, 0xC0FFEE01u);
+    SpawnRandomMonsters(m_zones[ZONE_RAID], nNextId, nMonCount,
+        MONSTER_ORC, RAID_INNER_X, RAID_INNER_Z, RAID_AGGRO_RANGE, 0xC0FFEE02u);
 
     // 마을 오브젝트 블락 (클라 Zone_Town::Build 의 s_block 목록과 반드시 동일)
     {
