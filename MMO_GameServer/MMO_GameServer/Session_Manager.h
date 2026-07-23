@@ -3,7 +3,7 @@
 #include <array>
 #include <mutex>
 
-constexpr int32_t MAX_SESSION = 1000;
+constexpr int32_t MAX_SESSION = 20000;
 
 // ================================================================
 //  CSessionManager ººº« ΩΩ∑‘ «Æ (ΩÃ±€≈Ê)

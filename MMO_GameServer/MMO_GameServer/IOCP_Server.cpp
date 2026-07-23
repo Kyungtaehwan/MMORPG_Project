@@ -6,6 +6,7 @@
 #include "Monster_Manager.h" 
 #include "Zone_Manager.h"
 #include "Protocol.h"
+#include "StressMetrics.h"
 #include <iostream>
 #include <cstring>
 
@@ -424,28 +425,81 @@ void CIOCP_Server::DebugConsoleThread()
         }
         std::cout << "          \n";  // 이전 내용 덮어쓰기용 공백
 
-        // 접속 중인 플레이어
-        std::cout << "------------------------------------------\n";
-        std::cout << "[접속 중 플레이어]\n";
+        // ---- 부하 계측 스냅샷(직전 구간) ----
+        static int64_t s_prevTick = StressMetrics::Now();
+        int64_t nNowTick = StressMetrics::Now();
+        double  dtSec = static_cast<double>(nNowTick - s_prevTick)
+            / static_cast<double>(StressMetrics::QpcFreq());
+        s_prevTick = nNowTick;
+        if (dtSec < 0.001) dtSec = 0.001;
 
+        StressMetrics::Snapshot ms = StressMetrics::SnapshotAndReset();
+        double pps = static_cast<double>(ms.count) / dtSec;
+
+        // 먼저 접속 수만 카운트(리스트 출력 여부 판단)
         for (int i = 0; i < MAX_SESSION; ++i)
         {
             SessionRef pSession = pSM->Get_Session(i);
-            if (!pSession || !pSession->IsConnected()) continue;
-
-            PlayerRef pPlayer = pPM->Get_Player(i);
-            std::string name = pPlayer ? pPlayer->m_szName : "?";
-
-            std::cout << "  ID=" << std::setw(3) << i
-                << "  name=" << std::setw(12) << std::left << name
-                << "  pos=(" << std::fixed << std::setprecision(1)
-                << (pPlayer ? pPlayer->m_fCurX : 0.f) << ", "
-                << (pPlayer ? pPlayer->m_fCurZ : 0.f) << ")   \n";
-            nConnected++;
+            if (pSession && pSession->IsConnected()) nConnected++;
         }
 
-        // 빈 줄로 이전 내용 덮어쓰기
-        for (int i = nConnected; i < 5; ++i)
+        std::cout << "------------------------------------------\n";
+        std::cout << "[부하 계측]  최근 " << std::fixed << std::setprecision(2)
+            << dtSec << "s\n";
+        std::cout << "  패킷 처리량 : " << std::setprecision(0) << pps
+            << " pkt/s   (구간 " << ms.count << "건)        \n";
+        std::cout << "  처리 지연   : avg " << std::setprecision(1)
+            << (ms.avgUs / 1000.0) << "ms  p50 " << (ms.p50Us / 1000.0)
+            << "ms  p99 " << (ms.p99Us / 1000.0) << "ms  max "
+            << (ms.maxUs / 1000.0) << "ms      \n";
+        std::cout << "  워커별 처리 : ";
+        for (int w = 0; w < ms.workerCount && w < 12; ++w)
+            std::cout << ms.worker[w] << " ";
+        std::cout << "                    \n";
+
+        // ---- AOI(GetNearPlayers) 계측 : 섹터 AOI 개선 전/후 비교 핵심 지표 ----
+        StressMetrics::AoiSnapshot aoi = StressMetrics::SnapshotAoiAndReset();
+        double aoiCps   = aoi.calls / dtSec;                                   // 초당 호출
+        double aoiAvgUs = aoi.calls ? (double)aoi.sumUs / aoi.calls : 0.0;     // 1회당 us
+        double aoiScan  = aoi.calls ? (double)aoi.sumScanned / aoi.calls : 0.0;// 1회당 순회 N
+        double aoiMsPs  = (aoi.sumUs / 1000.0) / dtSec;                        // 초당 총 소요 ms
+        std::cout << "[AOI GetNearPlayers]                      \n";
+        std::cout << "  호출 " << std::setprecision(0) << aoiCps << "/s"
+            << "  평균순회 N=" << aoiScan
+            << "  1회 " << std::setprecision(1) << aoiAvgUs << "us"
+            << "  총 " << aoiMsPs << "ms/s"
+            << "  (CPU " << std::setprecision(1) << (aoiMsPs / 10.0) << "%코어)"
+            << "  max " << aoi.maxUs << "us        \n";
+
+        // ---- 접속 플레이어 목록: 소수일 때만(부하 중엔 생략) ----
+        constexpr int LIST_LINES = 12;   // 항상 이 줄 수만큼 출력(잔상 덮어쓰기)
+        std::cout << "------------------------------------------\n";
+        int nPrinted = 0;
+        if (nConnected <= LIST_LINES)
+        {
+            std::cout << "[접속 중 플레이어]                        \n";
+            for (int i = 0; i < MAX_SESSION && nPrinted < LIST_LINES; ++i)
+            {
+                SessionRef pSession = pSM->Get_Session(i);
+                if (!pSession || !pSession->IsConnected()) continue;
+
+                PlayerRef pPlayer = pPM->Get_Player(i);
+                std::string name = pPlayer ? pPlayer->m_szName : "?";
+                std::cout << "  ID=" << std::setw(3) << i
+                    << "  name=" << std::setw(12) << std::left << name
+                    << "  pos=(" << std::fixed << std::setprecision(1)
+                    << (pPlayer ? pPlayer->m_fCurX : 0.f) << ", "
+                    << (pPlayer ? pPlayer->m_fCurZ : 0.f) << ")   \n";
+                nPrinted++;
+            }
+        }
+        else
+        {
+            std::cout << "[접속 중 플레이어] " << nConnected
+                << "명 (부하 중 목록 생략)                 \n";
+            nPrinted = 1;
+        }
+        for (int i = nPrinted; i < LIST_LINES + 1; ++i)
             std::cout << "                                          \n";
 
         std::cout << "------------------------------------------\n";

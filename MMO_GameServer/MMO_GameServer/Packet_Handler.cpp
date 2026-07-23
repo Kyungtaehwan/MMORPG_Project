@@ -8,11 +8,15 @@
 #include "AccountDB.h"
 #include "DB_Manager.h"
 #include "ServerItem.h"
+#include "StressMetrics.h"
 
 void CPacket_Handler::Handle(std::shared_ptr<CSession> pSession,
     uint8_t* pBuffer, int32_t nSize)
 {
     PacketHeader* pHeader = reinterpret_cast<PacketHeader*>(pBuffer);
+
+    // 부하 계측: 핸들러 처리 시간(락 대기·시야계산 포함)을 us 단위로 기록
+    const int64_t nMetricStart = StressMetrics::Now();
 
     switch (pHeader->id)
     {
@@ -40,6 +44,8 @@ void CPacket_Handler::Handle(std::shared_ptr<CSession> pSession,
             << pHeader->id << std::endl;
         break;
     }
+
+    StressMetrics::Record(StressMetrics::ElapsedUs(nMetricStart));
 }
 
 void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
@@ -51,6 +57,39 @@ void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
     // 널 종단 보장 (클라가 꽉 채워 보냈을 경우 대비)
     pPkt->id[sizeof(pPkt->id) - 1] = '\0';
     pPkt->pw[sizeof(pPkt->pw) - 1] = '\0';
+
+#ifdef STRESS_TEST
+    // ---- 부하 테스트 우회 ----
+    // id 가 "bot_" 로 시작하면 DB(sp_login)를 건너뛰고 기본 스탯으로 즉시 입장.
+    // DB 를 변수에서 제외해 순수 월드 로직(AOI/브로드캐스트) 부하만 측정한다.
+    // (STRESS_TEST 매크로가 정의된 빌드에서만 컴파일 — 일반 빌드엔 없음)
+    if (strncmp(pPkt->id, "bot_", 4) == 0)
+    {
+        PlayerRef pBot = CPlayer_Manager::Get_Instance()->Create(pSession->GetID());
+        if (!pBot) { Send_SC_LOGIN_FAIL(pSession, 0); return; }
+
+        strncpy_s(pBot->m_szName, pPkt->id, sizeof(pBot->m_szName) - 1);
+        pBot->SetLevelExp(1, 0);   // 레벨1 기본 스탯(HP/MP) 적용
+        pBot->m_gold = 0;
+
+        // 봇이 들어갈 존은 pw 로 지정(봇이 존 번호 문자열을 pw 에 담아 보냄).
+        //   재빌드 없이 맵을 바꿔가며 측정하기 위함.
+        //   1=마을(몬스터 없음, 순수 AOI) / 5=레이드(장애물·A*) / 6=레이드평지(대조군).
+        int32_t nBotZone = atoi(pPkt->pw);
+        CZone* pZone = CZone_Manager::Get_Instance()->GetZone(nBotZone);
+        if (!pZone) pZone = CZone_Manager::Get_Instance()->GetZone(ZONE_TOWN);
+        if (!pZone) { Send_SC_LOGIN_FAIL(pSession, 0); return; }
+
+        // 봇을 존 전역에 분산 배치(한 점에 뭉치면 시야리스트가 N 이라 비현실적)
+        float fSpawnX = 12.5f, fSpawnZ = 15.5f;
+        pZone->FindWalkableSpawn(fSpawnX, fSpawnZ);
+        pZone->EnterZone(pBot, fSpawnX, fSpawnZ);
+
+        Send_SC_LOGIN_OK(pSession, pBot->m_nPlayerID);
+        Send_SC_ENTER_GAME(pSession);
+        return;   // 인벤/장비/퀵슬롯 등 무거운 초기 전송은 생략(봇은 불필요)
+    }
+#endif
 
     // ---- 인증 + 계정 데이터 로드 (DB: sp_login 호출) ----
     // sp_login 이 결과셋 3개(character/inventory/equipment)를 돌려주고

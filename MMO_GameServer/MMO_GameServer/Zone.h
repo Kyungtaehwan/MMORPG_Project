@@ -70,6 +70,10 @@ public:
     void SetBlock(int32_t nTileX, int32_t nTileZ);   // 오브젝트 블락(마을) - 클라와 동일해야 함
     int32_t GetZoneID() { return m_nZoneID; }
 
+    // 부하 테스트: 이동 가능한 랜덤 타일을 찾아 월드좌표(타일 중심)로 반환.
+    // 봇을 존 전역에 분산 배치하는 용도. 실패 시 outX/outZ 는 그대로 두고 false.
+    bool FindWalkableSpawn(float& fOutX, float& fOutZ) const;
+
 
 public:
     void SpawnMonster(int32_t nID, MONSTER_TYPE eType, float fX, float fZ);

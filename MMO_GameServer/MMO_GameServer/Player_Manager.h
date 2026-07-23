@@ -3,7 +3,7 @@
 #include <array>
 #include <mutex>
 
-constexpr int32_t MAX_PLAYER = 1000;
+constexpr int32_t MAX_PLAYER = 20000;
 
 class CPlayer_Manager
 {
