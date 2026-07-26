@@ -71,8 +71,8 @@ void CPlayer_Manager::AutoSaveNext()
     }
     if (!target) return;   // 접속자 없음 - 이번 틱은 그냥 넘어감
 
-    // 락 밖: 스냅샷 뜨고(플레이어 자체 락) DB에 저장(락 없음)
+    // 락 밖: 스냅샷 뜨고(플레이어 자체 락) 저장 전용 스레드에 넘김(워커 블로킹 없음)
     FSaveSnapshot snap;
     target->TakeSnapshot(snap);
-    CDB_Manager::Get_Instance()->Save(snap);
+    CDB_Manager::Get_Instance()->EnqueueSave(snap);
 }
