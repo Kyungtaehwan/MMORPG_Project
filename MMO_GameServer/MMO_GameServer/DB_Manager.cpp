@@ -3,10 +3,124 @@
 #include "nanodbc.h"
 #include <cstring>
 #include <iostream>
+#include <memory>
 
 #pragma comment(lib, "odbc32.lib")   // ODBC 네이티브 API 링크 (nanodbc 백엔드)
 
+// 부하 테스트 빌드에선 저장 성공/실패 로그를 무음 처리
+
+#ifdef STRESS_TEST
+struct DbNullSink {
+    template <class T> DbNullSink& operator<<(const T&) { return *this; }
+    DbNullSink& operator<<(std::ostream& (*)(std::ostream&)) { return *this; }
+};
+#define SLOG (DbNullSink{})
+#else
+#define SLOG std::cout
+#endif
+
 CDB_Manager* CDB_Manager::m_pInstance = nullptr;
+
+// ----------------------------------------------------------------
+//주어진 커넥션으로 저장 트랜잭션 1건 실행(공통 SQL).
+//   동기 Save호출마다 새 커넥션)와 전용 스레드가 공유한다.
+//   - 실패 시 예외를 던진다
+// ----------------------------------------------------------------
+static void SaveWithConn(nanodbc::connection& conn, const FSaveSnapshot& snap)
+{
+    const char* id = snap.id;
+
+    nanodbc::transaction tx(conn);   // 시작: commit 안 하고 소멸되면 자동 롤백
+
+    // 1) character UPDATE 계정당 1행 보장
+    {
+        nanodbc::statement s(conn);
+        nanodbc::prepare(s, NANODBC_TEXT(
+            "UPDATE `character` SET zone_id=?, spawn_x=?, spawn_z=?, gold=?, level=?, exp=? "
+            "WHERE account_id=?"));
+        int   zone  = snap.zoneID;
+        float x     = snap.x;
+        float z     = snap.z;
+        int   gold  = snap.gold;
+        int   level = snap.level;
+        int   exp   = snap.exp;
+        s.bind(0, &zone);
+        s.bind(1, &x);
+        s.bind(2, &z);
+        s.bind(3, &gold);
+        s.bind(4, &level);
+        s.bind(5, &exp);
+        s.bind(6, id);
+        nanodbc::execute(s);
+    }
+
+    // 2) inventory : 전부 지우고 다시 채우기
+    {
+        nanodbc::statement d(conn);
+        nanodbc::prepare(d, NANODBC_TEXT("DELETE FROM inventory WHERE account_id=?"));
+        d.bind(0, id);
+        nanodbc::execute(d);
+    }
+    for (int i = 0; i < FSaveSnapshot::INVEN; ++i)
+    {
+        if (snap.invenCode[i] <= 0) continue;   // 빈 칸은 저장 안 함
+        nanodbc::statement s(conn);
+        nanodbc::prepare(s, NANODBC_TEXT(
+            "INSERT INTO inventory (account_id, slot, item_code, count) VALUES (?,?,?,?)"));
+        int slot = i;
+        int code = snap.invenCode[i];
+        int cnt  = snap.invenCount[i];
+        s.bind(0, id);
+        s.bind(1, &slot);
+        s.bind(2, &code);
+        s.bind(3, &cnt);
+        nanodbc::execute(s);
+    }
+
+    // 3) equipment : 전부 지우고 착용한 것만
+    {
+        nanodbc::statement d(conn);
+        nanodbc::prepare(d, NANODBC_TEXT("DELETE FROM equipment WHERE account_id=?"));
+        d.bind(0, id);
+        nanodbc::execute(d);
+    }
+    for (int i = 0; i < FSaveSnapshot::EQUIP; ++i)
+    {
+        if (snap.equipCode[i] <= 0) continue;
+        nanodbc::statement s(conn);
+        nanodbc::prepare(s, NANODBC_TEXT(
+            "INSERT INTO equipment (account_id, slot, item_code) VALUES (?,?,?)"));
+        int slot = i;
+        int code = snap.equipCode[i];
+        s.bind(0, id);
+        s.bind(1, &slot);
+        s.bind(2, &code);
+        nanodbc::execute(s);
+    }
+
+    // 4) quickslot : 전부 지우고 등록된 칸만 (인벤/장비와 같은 스냅샷 방식)
+    {
+        nanodbc::statement d(conn);
+        nanodbc::prepare(d, NANODBC_TEXT("DELETE FROM quickslot WHERE account_id=?"));
+        d.bind(0, id);
+        nanodbc::execute(d);
+    }
+    for (int i = 0; i < FSaveSnapshot::QUICK; ++i)
+    {
+        if (snap.quickCode[i] <= 0) continue;   // 빈 칸은 저장 안 함
+        nanodbc::statement s(conn);
+        nanodbc::prepare(s, NANODBC_TEXT(
+            "INSERT INTO quickslot (account_id, slot, item_code) VALUES (?,?,?)"));
+        int slot = i;
+        int code = snap.quickCode[i];
+        s.bind(0, id);
+        s.bind(1, &slot);
+        s.bind(2, &code);
+        nanodbc::execute(s);
+    }
+
+    tx.commit();   // 여기까지 다 성공 - 확정
+}
 
 // ----------------------------------------------------------------
 //  Init : 연결 문자열 세팅 + 접속 테스트
@@ -22,7 +136,7 @@ bool CDB_Manager::Init()
         "Database=mmorpg;"
         "User=mmo_server;"
         "Password=1234;"
-        "CHARSET=utf8mb4;";   // 텍스트를 UTF-8로 주고받기(경매 판매자 한글 "경매장")
+        "CHARSET=utf8mb4;";//텍스트 UTF8
 
     try
     {
@@ -119,7 +233,7 @@ bool CDB_Manager::Login(const char* id, const char* pw, FAccountData& out)
 }
 
 // ----------------------------------------------------------------
-//  Save : 플레이어 상태를 DB에 저장 (트랜잭션)
+//   플레이어 상태를 DB 저장 (트랜잭션)
 //   1) character 1행 UPDATE (존/위치/골드)
 //   2) inventory : 그 계정 행 전부 DELETE - 채워진 칸만 INSERT (스냅샷)
 //   3) equipment : 그 계정 행 전부 DELETE - 착용한 것만 INSERT
@@ -127,111 +241,102 @@ bool CDB_Manager::Login(const char* id, const char* pw, FAccountData& out)
 // ----------------------------------------------------------------
 bool CDB_Manager::Save(const FSaveSnapshot& snap)
 {
-    const char* id = snap.id;
-
     try
     {
-        nanodbc::connection conn(m_connStr);
-        nanodbc::transaction tx(conn);   // 시작: commit 안 하고 소멸되면 자동 롤백
-
-        // 1) character UPDATE (계정당 1행 보장돼 있음)
-        {
-            nanodbc::statement s(conn);
-            nanodbc::prepare(s, NANODBC_TEXT(
-                "UPDATE `character` SET zone_id=?, spawn_x=?, spawn_z=?, gold=?, level=?, exp=? "
-                "WHERE account_id=?"));
-            int   zone  = snap.zoneID;
-            float x     = snap.x;
-            float z     = snap.z;
-            int   gold  = snap.gold;
-            int   level = snap.level;
-            int   exp   = snap.exp;
-            s.bind(0, &zone);
-            s.bind(1, &x);
-            s.bind(2, &z);
-            s.bind(3, &gold);
-            s.bind(4, &level);
-            s.bind(5, &exp);
-            s.bind(6, id);
-            nanodbc::execute(s);
-        }
-
-        // 2) inventory : 전부 지우고 다시 채우기
-        {
-            nanodbc::statement d(conn);
-            nanodbc::prepare(d, NANODBC_TEXT("DELETE FROM inventory WHERE account_id=?"));
-            d.bind(0, id);
-            nanodbc::execute(d);
-        }
-        for (int i = 0; i < FSaveSnapshot::INVEN; ++i)
-        {
-            if (snap.invenCode[i] <= 0) continue;   // 빈 칸은 저장 안 함
-            nanodbc::statement s(conn);
-            nanodbc::prepare(s, NANODBC_TEXT(
-                "INSERT INTO inventory (account_id, slot, item_code, count) VALUES (?,?,?,?)"));
-            int slot = i;
-            int code = snap.invenCode[i];
-            int cnt  = snap.invenCount[i];
-            s.bind(0, id);
-            s.bind(1, &slot);
-            s.bind(2, &code);
-            s.bind(3, &cnt);
-            nanodbc::execute(s);
-        }
-
-        // 3) equipment : 전부 지우고 착용한 것만
-        {
-            nanodbc::statement d(conn);
-            nanodbc::prepare(d, NANODBC_TEXT("DELETE FROM equipment WHERE account_id=?"));
-            d.bind(0, id);
-            nanodbc::execute(d);
-        }
-        for (int i = 0; i < FSaveSnapshot::EQUIP; ++i)
-        {
-            if (snap.equipCode[i] <= 0) continue;
-            nanodbc::statement s(conn);
-            nanodbc::prepare(s, NANODBC_TEXT(
-                "INSERT INTO equipment (account_id, slot, item_code) VALUES (?,?,?)"));
-            int slot = i;
-            int code = snap.equipCode[i];
-            s.bind(0, id);
-            s.bind(1, &slot);
-            s.bind(2, &code);
-            nanodbc::execute(s);
-        }
-
-        // 4) quickslot : 전부 지우고 등록된 칸만 (인벤/장비와 같은 스냅샷 방식)
-        {
-            nanodbc::statement d(conn);
-            nanodbc::prepare(d, NANODBC_TEXT("DELETE FROM quickslot WHERE account_id=?"));
-            d.bind(0, id);
-            nanodbc::execute(d);
-        }
-        for (int i = 0; i < FSaveSnapshot::QUICK; ++i)
-        {
-            if (snap.quickCode[i] <= 0) continue;   // 빈 칸은 저장 안 함
-            nanodbc::statement s(conn);
-            nanodbc::prepare(s, NANODBC_TEXT(
-                "INSERT INTO quickslot (account_id, slot, item_code) VALUES (?,?,?)"));
-            int slot = i;
-            int code = snap.quickCode[i];
-            s.bind(0, id);
-            s.bind(1, &slot);
-            s.bind(2, &code);
-            nanodbc::execute(s);
-        }
-
-        tx.commit();   // 여기까지 다 성공 - 확정
-        std::cout << "[DB] saved: " << id << " (zone=" << snap.zoneID
-                  << " gold=" << snap.gold
-                  << " Lv" << snap.level << " exp=" << snap.exp << ")\n";
+        nanodbc::connection conn(m_connStr);   // 동기 경로: 호출마다 새 연결
+        SaveWithConn(conn, snap);
+        SLOG << "[DB] saved: " << snap.id << " (zone=" << snap.zoneID
+             << " gold=" << snap.gold
+             << " Lv" << snap.level << " exp=" << snap.exp << ")\n";
         return true;
     }
     catch (const std::exception& e)
     {
         // tx 소멸자가 롤백 - DB는 저장 전 상태 그대로
-        std::cout << "[DB] Save error(" << id << "): " << e.what() << "\n";
+        SLOG << "[DB] Save error(" << snap.id << "): " << e.what() << "\n";
         return false;
+    }
+}
+
+// ----------------------------------------------------------------
+//  저장 전용 스레드
+// ----------------------------------------------------------------
+void CDB_Manager::StartSaveThread()
+{
+    if (m_saveRunning.exchange(true)) return;   // 이미 돌고 있으면 무시
+    m_saveThread = std::thread(&CDB_Manager::SaveThreadFunc, this);
+    std::cout << "[DB] 저장 전용 스레드 시작\n";
+}
+
+void CDB_Manager::StopSaveThread()
+{
+    if (!m_saveRunning.exchange(false)) return;
+    m_queueCv.notify_all();                      // 대기 중이면 깨워서 종료 확인
+    if (m_saveThread.joinable()) m_saveThread.join();
+    std::cout << "[DB] 저장 전용 스레드 종료\n";
+}
+
+void CDB_Manager::EnqueueSave(const FSaveSnapshot& snap)
+{
+    {
+        std::lock_guard<std::mutex> lk(m_queueLock);
+        m_saveQueue.push(snap);                  // 스냅샷 복사본을 큐에(호출 스레드는 즉시 반환)
+    }
+    m_queueCv.notify_one();
+}
+
+void CDB_Manager::SaveThreadFunc()
+{
+    // 이 스레드 전용 영속 커넥션 1개 — 재사용해서 connection-per-call 비용 제거.
+    // 연결 실패/끊김 시 다음 저장 때 재연결을 시도한다.
+    std::unique_ptr<nanodbc::connection> conn;
+    auto EnsureConn = [&]() -> bool
+    {
+        if (conn && conn->connected()) return true;
+        try
+        {
+            conn = std::make_unique<nanodbc::connection>(m_connStr);
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            std::cout << "[DB thread] connect FAILED: " << e.what() << "\n";
+            conn.reset();
+            return false;
+        }
+    };
+
+    while (true)
+    {
+        FSaveSnapshot snap;
+        {
+            std::unique_lock<std::mutex> lk(m_queueLock);
+            m_queueCv.wait(lk, [&] { return !m_saveQueue.empty() || !m_saveRunning.load(); });
+            // 종료 요청 + 큐 비었으면 루프 탈출(남은 건 아래에서 처리됨)
+            if (m_saveQueue.empty())
+            {
+                if (!m_saveRunning.load()) break;
+                continue;
+            }
+            snap = m_saveQueue.front();
+            m_saveQueue.pop();
+        }
+
+        if (!EnsureConn())
+            continue;   // DB 미접속: 이 저장은 버림(스트레스 편의). 재시도는 추후.
+
+        try
+        {
+            SaveWithConn(*conn, snap);
+            SLOG << "[DB] saved: " << snap.id << " (zone=" << snap.zoneID
+                 << " gold=" << snap.gold
+                 << " Lv" << snap.level << " exp=" << snap.exp << ")\n";
+        }
+        catch (const std::exception& e)
+        {
+            SLOG << "[DB thread] save error(" << snap.id << "): " << e.what() << "\n";
+            conn.reset();   // 커넥션이 깨졌을 수 있으니 다음 루프에서 재연결
+        }
     }
 }
 

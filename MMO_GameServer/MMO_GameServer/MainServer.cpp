@@ -14,6 +14,9 @@ int main()
     if (!CDB_Manager::Get_Instance()->Init())
         std::cout << "[경고] DB 연결 실패 - 로그인이 동작하지 않습니다." << std::endl;
 
+    // 저장 전용 스레드 기동(주기/접속종료 저장을 IOCP 워커에서 떼어내 비동기 처리).
+    CDB_Manager::Get_Instance()->StartSaveThread();
+
     CZone_Manager::Get_Instance();  // 생성자에서 맵 생성
     std::cout << "맵 초기화 완료" << std::endl;
     // 워커 스레드 뜨기 전에 미리 생성
@@ -30,6 +33,7 @@ int main()
 
     server.Run();
     // 서버 종료 시 명시적 해제
+    CDB_Manager::Get_Instance()->StopSaveThread();   // 남은 저장 큐 비우고 조인
     CSession_Manager::Destroy_Instance();
     return 0;
 }

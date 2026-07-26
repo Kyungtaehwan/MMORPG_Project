@@ -3,6 +3,11 @@
 #include "SaveData.h"    // FSaveSnapshot
 #include "Protocol.h"    // FAuctionEntry
 #include <string>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <atomic>
 
 // ================================================================
 //  CDB_Manager — MySQL(ODBC/nanodbc) 접속 담당 싱글턴
@@ -52,7 +57,19 @@ public:
     // 전부 성공하면 commit, 중간 실패 시 롤백(부분 저장으로 DB가 깨지지 않음).
     // 스냅샷은 CPlayer::TakeSnapshot()으로 락 잡고 미리 복사해온 것.
     // 계정 식별은 snap.id(=account_id). 성공 true / 실패 false.
+    // (동기 경로: 호출 스레드에서 connect-저장-close. 개선 전 베이스라인용으로 남겨둠.)
     bool Save(const FSaveSnapshot& snap);
+
+    // ---------------- 저장 전용 스레드 (비동기 저장) ----------------
+    //  IOCP 워커가 Save()에서 블로킹되지 않도록, 저장 요청을 큐에 넣고
+    //  전용 스레드 1개가 영속 커넥션(재사용)으로 순차 처리한다.
+    //   - StartSaveThread() : 서버 시작 시 1회. 스레드 기동.
+    //   - StopSaveThread()  : 종료 시. 큐를 비우고 조인.
+    //   - EnqueueSave()     : 워커에서 논블로킹으로 저장 요청(스냅샷 복사본을 큐에).
+    //  (커넥션 풀/역압/계측은 추후 스레드 풀 승격 때 추가.)
+    void StartSaveThread();
+    void StopSaveThread();
+    void EnqueueSave(const FSaveSnapshot& snap);
 
     // ---------------- 경매장 (DB 정본, write-through) ----------------
     // 한 페이지 조회(최신 등록순). outEntries[AUCTION_PAGE_SIZE]에 채우고 개수 반환.
@@ -87,7 +104,17 @@ public:
         int32_t& outCode, int32_t& outCount, int32_t& outGold);
 
 private:
+    // 저장 전용 스레드 루프. 큐에서 스냅샷을 꺼내 영속 커넥션으로 저장.
+    void SaveThreadFunc();
+
     static CDB_Manager* m_pInstance;
 
     std::string m_connStr;   // ODBC 연결 문자열
+
+    // ---- 저장 전용 스레드/큐 ----
+    std::thread               m_saveThread;
+    std::mutex                m_queueLock;
+    std::condition_variable   m_queueCv;
+    std::queue<FSaveSnapshot> m_saveQueue;      // 대기 중인 저장 요청(스냅샷 복사본)
+    std::atomic<bool>         m_saveRunning{ false };
 };

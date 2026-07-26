@@ -131,9 +131,11 @@ void CSession::Disconnect()
             // (이름이 있어야 = 로그인 성공한 플레이어만 저장 대상)
             if (pPlayer->m_szName[0] != '\0')
             {
+                // 접속종료 저장: 스냅샷을 저장 전용 스레드에 넘김.
+                // (동기 저장이 워커를 블로킹하던 것이 대량 disconnect 시 크래시 원인이었음)
                 FSaveSnapshot snap;
                 pPlayer->TakeSnapshot(snap);
-                CDB_Manager::Get_Instance()->Save(snap);
+                CDB_Manager::Get_Instance()->EnqueueSave(snap);
             }
 
             CZone* pZone = CZone_Manager::Get_Instance()->GetZone(pPlayer->m_nZoneID);
