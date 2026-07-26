@@ -66,3 +66,9 @@ x86/
 *.user
 *.suo
 .vs/
+
+# 포트폴리오/기획 문서 (git 추적 제외, 로컬 보관)
+PORTFOLIO.md
+PORTFOLIO_Server.md
+PROGRESS.md
+부하테스트_측정방식.md
