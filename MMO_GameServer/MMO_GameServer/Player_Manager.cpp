@@ -6,7 +6,7 @@ CPlayer_Manager* CPlayer_Manager::m_pInstance = nullptr;
 
 PlayerRef CPlayer_Manager::Create(int32_t nSessionID)
 {
-    std::lock_guard<std::mutex> lock(m_lock);
+    WRITE_LOCK(m_lock);     // 배열에 삽입 - 배타
 
     // 세션 ID와 동일한 슬롯 사용
     // - CSession_Manager와 인덱스가 맞아서 조회가 단순해짐
@@ -25,7 +25,9 @@ PlayerRef CPlayer_Manager::Get_Player(int32_t nPlayerID)
 {
     if (nPlayerID < 0 || nPlayerID >= MAX_PLAYER) return nullptr;
 
-    std::lock_guard<std::mutex> lock(m_lock);
+    // 읽기 전용. 이 함수가 이 락의 사용처 중 압도적으로 많이 불린다
+    // (브로드캐스트 루프가 존 인원수만큼 호출) - RW 락의 주 수혜 지점.
+    READ_LOCK(m_lock);
     return m_players[nPlayerID];
 }
 
@@ -33,7 +35,7 @@ void CPlayer_Manager::Remove(int32_t nPlayerID)
 {
     if (nPlayerID < 0 || nPlayerID >= MAX_PLAYER) return;
 
-    std::lock_guard<std::mutex> lock(m_lock);
+    WRITE_LOCK(m_lock);     // 배열에서 제거 - 배타
     if (m_players[nPlayerID] != nullptr)
     {
         m_players[nPlayerID] = nullptr;
@@ -50,7 +52,8 @@ void CPlayer_Manager::AutoSaveNext()
 {
     PlayerRef target = nullptr;
     {
-        std::lock_guard<std::mutex> lock(m_lock);
+        // 읽기처럼 보이지만 아래에서 m_saveCursor를 갱신하므로 쓰기다.
+        WRITE_LOCK(m_lock);
         // 커서부터 한 바퀴 돌며 다음 "로그인된" 플레이어를 찾는다.
         for (int32_t n = 0; n < MAX_PLAYER; ++n)
         {

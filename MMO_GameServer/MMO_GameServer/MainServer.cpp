@@ -9,12 +9,14 @@ int main()
 {
     std::cout << "=== MMO GameServer ===" << std::endl;
 
-    // DB 연결 테스트 (sp_login 등 저장 프로시저 호출용 ODBC 연결).
-    // 실패해도 서버는 뜨지만, 로그인은 전부 실패하게 된다 - 즉시 경고.
+    // 어떤 최적화가 켜진 빌드인지 먼저 출력
+    PrintServerConfig();
+
+    // DB 연결 테스트 (저장 프로시저 호출용 ODBC 연결).
     if (!CDB_Manager::Get_Instance()->Init())
         std::cout << "[경고] DB 연결 실패 - 로그인이 동작하지 않습니다." << std::endl;
 
-    // 저장 전용 스레드 기동(주기/접속종료 저장을 IOCP 워커에서 떼어내 비동기 처리).
+    // 저장 전용 스레드(주기/접속종료 저장을 IOCP 워커에서 떼어내 비동기 처리).
     CDB_Manager::Get_Instance()->StartSaveThread();
 
     CZone_Manager::Get_Instance();  // 생성자에서 맵 생성

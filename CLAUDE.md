@@ -18,12 +18,36 @@
    - 편집 후 BOM이 유지됐는지 확인(Edit가 BOM을 떼면 다시 CP949로 오인됨). UTF-8+BOM이면 MSVC가 로케일 무관하게 UTF-8로 읽으므로 안전.
 
    - **새로 만드는 파일도 반드시 UTF-8+BOM으로 저장할 것.** BOM 없이 한글 주석이 들어가면 MSVC가 CP949로 오독해, 주석의 바이트가 다음 줄 선언을 삼켜 **"선언되지 않은 식별자"** 같은 엉뚱한 컴파일 에러가 난다(실제로 `RaidMap.h`에서 겪음).
-   - **이미 UTF-8+BOM으로 변환 완료된 파일**(자유롭게 편집 가능): 양쪽 `Protocol.h`/`RaidMap.h`, 서버 `Zone.cpp`/`Zone_Manager.{h,cpp}`/`Packet_Handler.{h,cpp}`/`Player.h`/`Monster.h`/`SaveData.h`/`AccountDB.h`/`DB_Manager.cpp`, 클라 `Network_Manager.{h,cpp}`/`Map_Manager.cpp`/`Portal.cpp`/`Zone_Field_N.{h,cpp}`/`Zone_Town.cpp`/`Zone_Raid.{h,cpp}`/`UI_ZoneSelect.{h,cpp}`/`GameObject.h`/`Player.cpp`/`UI_HUD.{h,cpp}`/`UI_QuickSlot.{h,cpp}`/`define.h`/`Object_Manager.h`/`UI_Manager.{h,cpp}`/`NPC_Angel.{h,cpp}`. 나머지(예: 클라 `Zone.h`)는 아직 CP949이므로 편집 전 변환 필요.
+   - **이미 UTF-8+BOM으로 변환 완료된 파일**(자유롭게 편집 가능): 양쪽 `Protocol.h`/`RaidMap.h`, 서버 `Zone.cpp`/`Zone_Manager.{h,cpp}`/`Packet_Handler.{h,cpp}`/`Player.h`/`Monster.h`/`SaveData.h`/`AccountDB.h`/`DB_Manager.cpp`/`Session_Manager.h`(2026-08-02 변환)/`ServerConfig.h`/`RWLock.h`(신규, BOM으로 생성), 클라 `Network_Manager.{h,cpp}`/`Map_Manager.cpp`/`Portal.cpp`/`Zone_Field_N.{h,cpp}`/`Zone_Town.cpp`/`Zone_Raid.{h,cpp}`/`UI_ZoneSelect.{h,cpp}`/`GameObject.h`/`Player.cpp`/`UI_HUD.{h,cpp}`/`UI_QuickSlot.{h,cpp}`/`define.h`/`Object_Manager.h`/`UI_Manager.{h,cpp}`/`NPC_Angel.{h,cpp}`. 나머지(예: 클라 `Zone.h`)는 아직 CP949이므로 편집 전 변환 필요.
 2. **`Protocol.h`는 클라/서버 양쪽에 복제본이 있다.** (`MMO_Client/.../Protocol.h`, `MMO_GameServer/.../Protocol.h`) 패킷 구조를 바꾸면 **양쪽 파일을 동시에 똑같이** 수정해야 한다. 한쪽만 고치면 직렬화가 깨진다. `#pragma pack(push,1)` 유지 필수. **`RaidMap.h`도 같은 복제본 규칙**(한쪽만 고치면 대형 맵이 달라져 이동 검증이 깨짐).
 3. 클라 `define.h`에 `#define NO_SERVER`가 있음 — 이름과 정반대다. 정의돼 있어도 서버 접속은 항상 하며(온라인 모드), 실제 효과는 `Monster::Set_ServerPos`의 위치 스냅뿐. **끄면 `Monster.h`의 `#else` 분기가 미선언 멤버를 참조해 컴파일이 깨진다**(한 번도 빌드된 적 없는 죽은 코드). 온라인 테스트한다고 끄지 말 것.
 4. enum 값은 클라/서버가 **숫자까지 일치**해야 함 (예: `ZONE_ID`, `PLAYER_STATE`, `MONSTER_STATE`, `DIRECTION/MONSTER_DIR`, `TILE_TYPE`). 단, `TILE_TYPE`은 클라(`TILE_BLOCK=10`)와 서버(`TILE_BLOCK=1`)의 숫자가 다르니 주의 — 타일 동기화 시 매핑 확인.
 5. **입력 함정 — `CInput_Manager::Key_Down()`은 클릭을 "소비"한다.** 호출하는 순간 `m_bKeyState`를 true로 바꿔서, **한 프레임에 처음 부른 쪽만 true를 받고 나머지는 전부 false**를 받는다(`Mouse_Down()`은 프레임 시작에 한 번 계산된 값이라 여러 번 읽어도 안전). 프레임 순서가 `Object_Manager::Update` → `UI_Manager::Update`이고 `CPlayer::Update`가 `Key_Down(VK_LBUTTON)`을 먼저 부르므로, **새 UI를 만들 때 `Open()`에서 `Set_InputMode(INPUT_MODE_UI)`를, `Close()`에서 `INPUT_MODE_GAME`을 반드시 호출해야 한다**(`CPlayer::Update`는 `!Is_GameMode()`면 즉시 리턴 → 클릭을 양보). 안 하면 그 UI의 버튼이 **영원히 안 눌린다**. `CUI_Shop`/`CUI_Auction`/`CUI_ZoneSelect`가 모두 이 규약을 따른다.
 
+
+## 최적화 토글 (`ServerConfig.h`) — 부하 테스트 before/after 비교용
+
+서버의 모든 최적화는 **`MMO_GameServer/MMO_GameServer/ServerConfig.h`의 `USE_*` 매크로 하나로 켜고 끈다.** `pch.h`가 이 헤더를 include하므로 **모든 TU가 같은 값을 본다**(플래그가 클래스 멤버의 *타입*을 바꾸므로 이 일관성이 필수 — 일부만 재컴파일되면 ODR 위반으로 메모리가 조용히 깨진다). **값을 바꾸면 전체 리빌드**할 것.
+
+- 현재 플래그(전부 **기본값 = BASE**): `USE_RW_LOCK`, `USE_MEMORY_POOL`, `USE_SECTOR_AOI`. **구현이 없는 플래그는 미리 만들지 말 것**(한 번 부풀렸다가 걷어냈다).
+- **`USE_RW_LOCK`은 0/1이 아니라 3자 선택**: `RW_LOCK_MUTEX`(기준선) / `RW_LOCK_SPIN`(직접 구현 `FRWSpinLock`, `RWLock.h`) / `RW_LOCK_SHARED`(`std::shared_mutex`). 세 방식을 같은 코드로 갈아끼워 비교하는 게 목적.
+- **락은 `#if`를 코드에 뿌리지 말고 추상화된 별칭/매크로를 쓸 것**: 멤버는 `FRWLock`, 획득은 `READ_LOCK(m)` / `WRITE_LOCK(m)`. 세 모드 모두 같은 호출부로 동작한다. 매크로는 `__LINE__`으로 변수명을 만들어 한 스코프에서 여러 번 잠글 수 있다.
+- **`FRWSpinLock`(`RWLock.h`) 구조**: `atomic<uint32>` 하나에 **상위 16비트=쓰기 스레드 번호, 하위 16비트=읽기 개수**를 담아 한 번의 CAS로 상태 전이. 쓰기 재귀 허용(`m_writeCount`), `MAX_SPIN_COUNT`(4000) 후 `yield`, 스핀 중 `_mm_pause()`. 알고리즘은 루키스 강의 `Lock`과 동일하고, 아래 두 가지만 이 프로젝트에 맞게 바꿨다.
+  - **스레드 번호는 `GetLockThreadId()`가 함수 지역 `thread_local`로 첫 사용 시 자동 발급**한다. 루키스 원본은 전역 `LThreadId`를 `ThreadManager::InitTLS()`가 채우는 방식인데, **이 프로젝트엔 ThreadManager가 없고 `std::thread`로 직접 스레드를 만들므로** 그대로 쓰면 모든 스레드가 `LThreadId==0`이 되고 `desired == EMPTY_FLAG`라 **쓰기 락이 조용히 무력화된다**(여러 스레드가 동시에 쓰기 진입 + 서로를 자기 자신으로 오인해 재귀 통과). 옮겨올 때 반드시 주의할 함정.
+  - **`RWLOCK_CRASH`로 실패를 즉시 죽인다**(루키스 방식 채택): 10초(`ACQUIRE_TIMEOUT_MS`) 안에 못 잡으면 데드락으로 보고 크래시, `WriteUnlock` 전에 읽기가 남아 있어도 크래시, `ReadUnlock` 언더플로는 `fetch_sub` **반환값**으로 검사해 크래시. `assert`가 아니라 매크로인 이유는 **Release에서도 검사가 살아 있어야** 하기 때문. 콘솔에 원인을 찍고 죽으므로 행보다 원인 파악이 쉽다.
+  - 도입 안 한 것: 루키스의 `DeadLockProfiler`(락마다 전역 뮤텍스+맵 조회라 Debug 측정을 오염시킴), `USE_LOCK`/`_locks[]` 무인자 매크로(이 프로젝트는 `CPlayer`처럼 **클래스당 락이 여러 개**라 `READ_LOCK_IDX(1)`이 되면 이름이 사라짐).
+- **⚠️ 스핀락 적용 금지 구간**: 락을 쥔 채 `Send()`/DB 호출/O(N) 순회를 하는 곳(특히 `CZone`의 `Broadcast_*`, `GetNearPlayers`). 대기 스레드가 CPU를 태우므로 손해다. 그런 곳은 `RW_LOCK_SHARED`로 비교할 것.
+- **적용 완료(읽기 12 / 쓰기 7)**:
+  - `CPlayer_Manager::m_lock` — `Get_Player`=READ / `Create`·`Remove`·`AutoSaveNext`=WRITE (**`AutoSaveNext`는 읽기처럼 보이지만 `m_saveCursor`를 갱신하므로 쓰기**)
+  - `CSession_Manager::m_lock` — `Get_Session`=READ / `Assign`·`Release`=WRITE
+  - `CZone::m_zoneLock` — 순회 10곳 전부 READ / `EnterZone`·`LeaveZone`만 WRITE
+- **아직 mutex인 곳(의도적)**: `CSession::m_sendLock`, `g_timerLock` — 큐 넣고 빼기가 **전부 변경**이라 "동시 읽기"라는 개념이 없어 RW 락으로 바꿔도 이득이 0이다. `CPlayer::m_viewLock`/`m_saveLock`은 읽기·쓰기 비율이 비슷해 후순위.
+- 타입이 안 바뀌고 함수 본문만 갈라지는 곳은 `#if` 대신 **`if constexpr (kUseSectorAoi)`** 를 쓰는 편이 낫다(꺼진 쪽도 문법 검사를 받아 코드가 썩지 않음). `kUse*` constexpr 상수가 플래그마다 준비돼 있다.
+- 튜닝값: `SECTOR_SIZE`(8, **`VIEW_RANGE`=5 이상이어야 3×3으로 시야를 덮음**), `MEMORY_POOL_CHUNK`(1024).
+- `main()`이 `PrintServerConfig()`로 활성 플래그를 출력하고, `GetServerConfigTag()`가 `"BASE"`/`"RW+SECTOR"` 같은 태그를 준다. **측정 로그에 이 태그를 남겨야 나중에 비교가 된다.**
+- **측정 원칙: 한 번에 하나씩만 켜고 BASE와 비교**한다(둘을 동시에 켜면 원인 분리가 안 됨).
+- 프로젝트는 **C++17**(`LanguageStandard=stdcpp17`, 4개 구성 전부). 이전엔 미지정이라 기본 C++14로 빌드되고 있었고, `std::shared_mutex`/`if constexpr`/inline 변수가 모두 C++17이라 2026-08-02에 명시적으로 올렸다.
+- x64 구성에는 기존 `STRESS_TEST` 전처리기 정의도 있다(계측 코드용, `ServerConfig.h`와는 별개).
 
 ## 네트워크 프로토콜 (핵심 계약)
 
@@ -50,6 +74,9 @@
 ## 서버 아키텍처 (IOCP)
 
 - `CIOCP_Server` — 리슨소켓 + AcceptEx 풀, 워커스레드 풀, 타이머 스레드, 디버그 콘솔 스레드.
+  - **디버그 콘솔(2026-08-02 재작성)**: 스레드 시작 시 `ClearConsoleAll()`로 기동 로그를 한 번 지우고 대시보드로 전환. 매 프레임 `ostringstream`에 **프레임 전체를 만들어 한 번에 출력**하며, 줄마다 콘솔 폭까지 공백을 채우므로 **줄 끝에 공백을 손으로 붙일 필요가 없다**(잔상 방지). 줄 수는 항상 고정. 제목에 `GetServerConfigTag()`를 찍어 **어느 빌드의 측정치인지** 남긴다.
+  - **⚠️ 접속 수는 반드시 `CSession_Manager::GetConnectedCount()`(O(1) 원자 카운터)를 쓸 것.** 예전엔 `m_sessions` 20000칸을 매 0.5초 **두 번** 순회하며 `Get_Session`을 4만 번 호출했는데, 그게 곧 **측정 대상인 `m_lock`을 초당 8만 번 잡는 것**이라 부하 측정을 오염시켰다. 카운터 증감 지점은 `ProcessAccept`(`SetConnected(true)` 직후)와 `CSession::Disconnect`(`exchange` 통과 직후) 두 곳뿐. 대기 수 = `GetCount() - GetConnectedCount()`.
+  - `m_acceptSessions` 벡터는 **제거됨**. 세션 소유자는 `CSession_Manager::m_sessions` 하나뿐이며, 이 벡터는 초기 64개 세션을 영구 참조해 소멸을 막던 누수였다. (대기 세션은 `m_connected==false`라 `Disconnect`가 즉시 리턴 → `Release`까지 안 가므로, **AcceptEx가 걸린 동안 세션이 파괴되는 일은 구조적으로 불가능**하다.)
 - `CSession` (`SessionRef=shared_ptr`) — 소켓당 세션. `CIOEvent`(WSAOVERLAPPED 확장, `IOType`으로 Accept/Recv/Send/MonsterAI/MonsterRespawn/MonsterAttackHit 구분). recv 링버퍼 + send 락.
 - `CPacket_Handler::Handle` — 패킷 ID로 디스패치(static). `Handle_CS_*` / `Send_SC_*`.
 - 매니저 싱글턴: `CSession_Manager`(세션ID 발급/관리), `CZone_Manager`(zoneID→`CZone*`), `CPlayer_Manager`, `CMonster_Manager`.

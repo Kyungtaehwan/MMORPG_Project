@@ -48,6 +48,11 @@ private:
     static CPlayer_Manager* m_pInstance;
 
     std::array<PlayerRef, MAX_PLAYER> m_players;
-    std::mutex                        m_lock;
+
+    // 읽기/쓰기 락. 실제 타입은 ServerConfig.h의 USE_RW_LOCK이 정한다.
+    // - Get_Player(읽기)는 브로드캐스트 루프에서 존 인원수만큼 불린다
+    // - Create/Remove(쓰기)는 접속과 종료 때 한 번씩뿐이다
+    FRWLock                           m_lock;
+
     int32_t                           m_saveCursor = 0;   // 라운드로빈 커서
 };
