@@ -145,7 +145,12 @@ private:
     std::vector<uint8_t> m_tileMap;
 
     std::unordered_set<int32_t> m_playerIDs;
-    std::mutex                  m_zoneLock;
+
+    // 읽기/쓰기 락. 실제 타입은 ServerConfig.h의 USE_RW_LOCK이 정한다.
+    // - 쓰기는 EnterZone/LeaveZone 2곳뿐이고 나머지 10곳은 전부 순회(읽기)다.
+    // - 주의: 이 락은 브로드캐스트가 Send()를 쥔 채로 잡는다. 임계구역이 길어서
+    //   RW_LOCK_SPIN(스핀락)에는 불리하다. SHARED와 비교하는 편이 낫다.
+    FRWLock                     m_zoneLock;
 
     // ---- 드롭 풀 (고정 배열, new 없음) ----
     static constexpr int32_t MAX_DROPS = 256;

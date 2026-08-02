@@ -146,7 +146,7 @@ void CZone::EnterZone(PlayerRef pPlayer, float fSpawnX, float fSpawnZ)
     pPlayer->UpdateTilePos();
 
     {
-        std::lock_guard<std::mutex> lock(m_zoneLock);
+        WRITE_LOCK(m_zoneLock);     // 존 인원 추가 - 배타
         m_playerIDs.insert(pPlayer->m_nPlayerID);
     }
 
@@ -188,7 +188,7 @@ void CZone::EnterZone(PlayerRef pPlayer, float fSpawnX, float fSpawnZ)
 void CZone::LeaveZone(PlayerRef pPlayer)
 {
     {
-        std::lock_guard<std::mutex> lock(m_zoneLock);
+        WRITE_LOCK(m_zoneLock);     // 존 인원 제거 - 배타
         m_playerIDs.erase(pPlayer->m_nPlayerID);
     }
 
@@ -431,7 +431,7 @@ std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
     std::vector<int32_t> vResult;
     uint32_t nScanned = 0;
     {
-        std::lock_guard<std::mutex> lock(m_zoneLock);
+        READ_LOCK(m_zoneLock);      // 순회만 - 읽기 (AOI 최다 호출 지점)
         nScanned = static_cast<uint32_t>(m_playerIDs.size());
         for (int32_t nID : m_playerIDs)
         {
@@ -1063,7 +1063,7 @@ PlayerRef CZone::FindNearestPlayer(MonsterRef pMonster)
 
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
@@ -1093,7 +1093,7 @@ bool CZone::PlayerExistNear(MonsterRef pMonster)
 {
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
@@ -1152,7 +1152,7 @@ void CZone::Send_RemoveMonster(PlayerRef pTo, int32_t nMonsterID)
 
 void CZone::Broadcast_AddMonster(MonsterRef pMonster)
 {
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
@@ -1181,7 +1181,7 @@ void CZone::Broadcast_MoveMonster(MonsterRef pMonster)
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     pkt.moveTime = static_cast<uint32_t>(GetTickCount64());
 
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
@@ -1233,7 +1233,7 @@ void CZone::Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID)
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     pkt.targetID = nTargetID;
 
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
@@ -1444,7 +1444,7 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
 
     bool bActivated = false;  // AI 중복 활성화 방지
 
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nPlayerID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()
@@ -1610,7 +1610,7 @@ void CZone::Broadcast_MonsterHit(MonsterRef pMonster)
     pkt.nMaxHp = pMonster->m_nMaxHp;
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
 
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
@@ -1783,7 +1783,7 @@ void CZone::Send_AddDrop(PlayerRef pTo, const FDrop& drop)
 
 void CZone::Broadcast_AddDrop(const FDrop& drop)
 {
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
@@ -1798,7 +1798,7 @@ void CZone::Broadcast_RemoveDrop(int32_t nDropId)
     pkt.header.id = SC_REMOVE_DROP;
     pkt.dropId = nDropId;
 
-    std::lock_guard<std::mutex> lock(m_zoneLock);
+    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
     for (int32_t nID : m_playerIDs)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);

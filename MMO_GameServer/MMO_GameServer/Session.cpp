@@ -19,12 +19,18 @@ void CSession::Initialize()
     m_recvEvent.m_owner = this;
     m_sendEvent.m_owner = this;
     m_acceptEvent.m_owner = this;
-    m_prevRemain = 0;
-    m_connected = false;
+    // 이번트의 오너를 나로 설정
 
-    // 버퍼 초기화
+    m_prevRemain = 0;
+    // 수신 버퍼 잔여물 지우기
+
+    m_connected = false;
+    // 아직 연결X
+
+
     ZeroMemory(m_recvBuf, sizeof(m_recvBuf));
     ZeroMemory(m_sendBuf, sizeof(m_sendBuf));
+    // 버퍼 초기화
 }
 
 void CSession::RegisterRecv()
@@ -121,6 +127,9 @@ void CSession::Disconnect()
 {
     if (m_connected.exchange(false) == false) return;
 
+    // exchange를 통과한 스레드는 하나뿐이므로 여기서 딱 한 번만 줄어든다.
+    CSession_Manager::Get_Instance()->OnDisconnected();
+
     std::cout << "[CSession] 연결 해제. ID=" << m_id << std::endl;
 
     {
@@ -175,6 +184,19 @@ void CSession::ProcessRecvData(int32_t nNewBytes)
             break;
 
         PacketHeader* pHeader = reinterpret_cast<PacketHeader*>(pCursor);
+
+        // 헤더의 size는 클라가 보낸 값이라 그대로 믿으면 안 된다.
+        // - size가 0이면 아래 커서 전진이 0이라 while이 같은 자리를 무한 반복한다
+        //   (워커 스레드 1개가 CPU를 100% 물고 영영 안 돌아옴 = 4바이트짜리 DoS)
+        // - size가 수신버퍼보다 크면 영원히 조립이 끝나지 않는다
+        if (pHeader->size < sizeof(PacketHeader) ||
+            pHeader->size > RECV_BUF_SIZE)
+        {
+            std::cout << "[CSession] 비정상 패킷 크기=" << pHeader->size
+                << " ID=" << m_id << " - 연결 종료" << std::endl;
+            Disconnect();
+            return;
+        }
 
         if (nRemainData < pHeader->size)
             break;

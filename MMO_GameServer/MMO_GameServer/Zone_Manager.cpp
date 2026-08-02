@@ -43,11 +43,11 @@ static const int BLOCK_MAP_FIELD_N[30][20] =
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
 };
 
-// 마을 맵: 테두리만 있고 가운데 장애물 없음 (전부 잔디).
-// 클라이언트 CZone_Town::Build()의 블록맵(20x30 전부 0)과 일치해야 함.
+// 마을 맵: 테두리만 있고 가운데 장애물 없음.
+// 클라 CZone_Town
 static const int BLOCK_MAP_TOWN[30][30] = { 0 };
 
-// 동쪽 필드: 가로 막대 2개 (클라 CZone_Field_E::Build()와 동일해야 함)
+// 동쪽 필드: 가로 막대 2개 (클라 CZone_Field_E)
 static const int BLOCK_MAP_FIELD_E[30][20] =
 {
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
@@ -82,7 +82,7 @@ static const int BLOCK_MAP_FIELD_E[30][20] =
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
 };
 
-// 남쪽 필드: 가운데 십자(+) (클라 CZone_Field_S::Build()와 동일해야 함)
+// 남쪽 필드: 가운데 십자(+) (클라 CZone_Field_S)
 static const int BLOCK_MAP_FIELD_S[30][20] =
 {
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
@@ -117,7 +117,7 @@ static const int BLOCK_MAP_FIELD_S[30][20] =
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
 };
 
-// 서쪽 필드: 세로 막대 2개 (클라 CZone_Field_W::Build()와 동일해야 함)
+// 서쪽 필드: 세로 막대 2개 (클라 CZone_Field_W)
 static const int BLOCK_MAP_FIELD_W[30][20] =
 {
     { 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0 },
@@ -153,7 +153,6 @@ static const int BLOCK_MAP_FIELD_W[30][20] =
 };
 
 // 필드 안 이동 가능한 타일에 몬스터를 랜덤 배치.
-//  내부 좌표는 OUTER(2) + BORDER(1) = 3 부터 시작하므로 3 .. 3+inner-1 범위를 뽑는다.
 //  fAggroRange > 0 이면 그 값으로 어그로/해제 범위를 덮어쓴다(레이드 필드의 장거리 추격용).
 static void SpawnRandomMonsters(CZone* pZone, int32_t& nNextId, int nCount,
     MONSTER_TYPE eType, int32_t nInnerX, int32_t nInnerZ,
@@ -204,7 +203,6 @@ CZone_Manager::CZone_Manager()
 {
     srand(static_cast<unsigned int>(time(nullptr)));
 
-    // 클라이언트 Build_TileGrid(20, 30, ...) 와 동일한 인자
     // 북쪽 필드(기존) + 동/남/서 필드, 그리고 허브인 마을
     m_zones[ZONE_FIELD_N]    = new CZone(ZONE_FIELD_N,    "FieldN", 20, 30, &BLOCK_MAP_FIELD_N[0][0]);
     m_zones[ZONE_TOWN]    = new CZone(ZONE_TOWN,    "Town",   30, 30, &BLOCK_MAP_TOWN[0][0]);
@@ -213,7 +211,7 @@ CZone_Manager::CZone_Manager()
     m_zones[ZONE_FIELD_W] = new CZone(ZONE_FIELD_W, "FieldW", 20, 30, &BLOCK_MAP_FIELD_W[0][0]);
 
     // ---- 대형 맵 2개 (150x150). 블록맵은 RaidMap.h 가 고정 시드로 생성 ----
-    // 클라 CZone_Raid / CZone_Raid_Flat 도 같은 함수를 호출하므로 맵이 반드시 일치한다.
+    // 클라 CZone_Raid / CZone_Raid_Flat 도 같은 함수를 호출하므로 맵이 반드시 일치
     m_zones[ZONE_RAID]      = new CZone(ZONE_RAID,      "Raid",
         RAID_INNER_X, RAID_INNER_Z, GetRaidBlockMap(false));   // 장애물 있음
     m_zones[ZONE_RAID_FLAT] = new CZone(ZONE_RAID_FLAT, "RaidFlat",

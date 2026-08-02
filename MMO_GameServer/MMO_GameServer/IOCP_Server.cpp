@@ -8,6 +8,9 @@
 #include "Protocol.h"
 #include "StressMetrics.h"
 #include <iostream>
+#include <sstream>
+#include <string>
+#include <iomanip>
 #include <cstring>
 
 // 주기 저장 틱 간격(ms). 한 틱에 온라인 1명씩 라운드로빈 저장.
@@ -37,8 +40,7 @@ bool CIOCP_Server::Start(uint16_t nPort)
     if (!InitSocket(nPort)) return false;
 
     // AcceptEx 함수 포인터 획득
-    // 교수님 코드는 전역 AcceptEx를 바로 쓰지만
-    // 우리는 런타임에 포인터를 받아야 함
+    // 확장 함수인 AcceptEx는 MS 권장대로 함수 주소를 받아 씀
     GUID guidAcceptEx = WSAID_ACCEPTEX;
     DWORD dwBytes = 0;
     WSAIoctl(m_listenSocket, SIO_GET_EXTENSION_FUNCTION_POINTER,
@@ -67,14 +69,11 @@ bool CIOCP_Server::Start(uint16_t nPort)
     for (int32_t i = 0; i < nThreadCount; ++i)
         m_workerThreads.emplace_back(&CIOCP_Server::WorkerThread, this);
 
-    //std::cout << "[CIOCPServer] 시작. 포트=" << nPort
-    //    << " Worker스레드=" << nThreadCount << std::endl;
     return true;
 }
 
 void CIOCP_Server::Run()
 {
-
 
     for (auto& t : m_workerThreads)
         t.join();
@@ -101,13 +100,13 @@ bool CIOCP_Server::InitSocket(uint16_t nPort)
         return false;
     }
 
+    // 개발 단계에서 서버 재시작시 OS가 포트를 붙잡아 bind 거부되는 상황을 막기위해 붙잡는 상태에서도 Bind 허용 옵션 설정
     BOOL bReuseAddr = TRUE;
     setsockopt(m_listenSocket, SOL_SOCKET, SO_REUSEADDR,
         reinterpret_cast<const char*>(&bReuseAddr), sizeof(bReuseAddr));
 
-    // 리슨 소켓을 IOCP에 등록
-    // 교수님 코드: CreateIoCompletionPort(g_s_socket, h_iocp, 9999, 0)
-    // key=0으로 등록 (Accept 완료는 key가 아닌 IOEvent로 구분)
+    //  리슨 소켓을 IOCP에 등록
+    //  key=0으로 등록 (Accept 완료는 key가 아닌 IOEvent로 구분)
     CreateIoCompletionPort(
         reinterpret_cast<HANDLE>(m_listenSocket), m_hIOCP, 0, 0);
 
@@ -116,32 +115,28 @@ bool CIOCP_Server::InitSocket(uint16_t nPort)
     addr.sin_port = htons(nPort);
     addr.sin_addr.s_addr = INADDR_ANY;
 
+    //바인딩
     if (bind(m_listenSocket,
         reinterpret_cast<SOCKADDR*>(&addr), sizeof(addr)) == SOCKET_ERROR)
     {
         std::cout << "[CIOCPServer] bind 실패: " << WSAGetLastError() << std::endl;
         return false;
     }
-
+    
+    //  접속 받는 소켓으로 전환
+    //  SOMAXCONN은 OS가 허용하는 합리적 최대치
     if (listen(m_listenSocket, SOMAXCONN) == SOCKET_ERROR)
     {
         std::cout << "[CIOCPServer] listen 실패: " << WSAGetLastError() << std::endl;
         return false;
     }
 
-    //std::cout << "[CIOCPServer] 리슨 소켓 준비 완료" << std::endl;
     return true;
 }
 
-// ================================================================
-//  StartAccept
-//
-//  교수님 코드와 비교:
-//    교수님: g_c_socket 하나 + g_a_over 하나
-//    우리:   세션 슬롯 ACCEPT_POOL_SIZE개 미리 준비
-//
+
+//  세션 슬롯 ACCEPT_POOL_SIZE개 미리 준비
 //  Accept 완료 후 재등록 시 새 세션 슬롯을 Assign해서 사용
-// ================================================================
 void CIOCP_Server::StartAccept()
 {
     for (int32_t i = 0; i < ACCEPT_POOL_SIZE; ++i)
@@ -161,29 +156,17 @@ void CIOCP_Server::StartAccept()
             m_hIOCP,
             static_cast<ULONG_PTR>(nID), 0);
 
-        m_acceptSessions.push_back(pSession);
         ReRegisterAccept(pSession);
     }
 }
 
-// ================================================================
-//  ReRegisterAccept
-//
-//  교수님 코드와 비교:
-//    교수님:
-//      CreateIoCompletionPort(g_c_socket, h_iocp, client_id, 0)  // Accept 후
-//      AcceptEx(g_s_socket, g_c_socket, g_a_over._send_buf, ...)
-//
-//    우리:
-//      IOCP 등록 - AcceptEx 순서
-//      g_a_over._send_buf 역할 = pSession->GetAcceptBuf()
-//                              = m_acceptEvent.m_acceptBuf
-//                              (CIOEvent 안에 포함된 버퍼)
-// ================================================================
+
+
+//  IOCP 등록 - AcceptEx 순서
+//  pSession->GetAcceptBuf() = m_acceptEvent.m_acceptBuf(CIOEvent 안에 포함된 버퍼)
+    
 void CIOCP_Server::ReRegisterAccept(SessionRef pSession)
 {
-    //std::cout << "[ReRegisterAccept] SessionID=" << pSession->GetID()
-    //    << " Socket=" << pSession->GetSocket() << std::endl;
 
     pSession->GetAcceptEvent()->Reset();
     pSession->Initialize();
@@ -209,18 +192,11 @@ void CIOCP_Server::ReRegisterAccept(SessionRef pSession)
             std::cout << "[ReRegisterAccept] AcceptEx 실패: " << nErr
             << " Socket=" << pSession->GetSocket() << std::endl;
     }
-    else
-    {
-        //std::cout << "[ReRegisterAccept] AcceptEx 성공 즉시완료" << std::endl;
-    }
+
 }
 
-// ================================================================
-//  WorkerThread
-//
-//  교수님 코드의 worker_thread()와 동일한 구조
-//  GQCS - IOType으로 분기
-// ================================================================
+//  워커 쓰레드
+//  GQCS -> IOType으로 분기
 void CIOCP_Server::WorkerThread()
 {
     while (true)
@@ -346,25 +322,18 @@ void CIOCP_Server::WorkerThread()
 // ================================================================
 void CIOCP_Server::ProcessAccept(SessionRef pSession)
 {
-    //std::cout << "[ProcessAccept] SessionID=" << pSession->GetID()
-    //    << " Socket=" << pSession->GetSocket()
-    //    << " ListenSocket=" << m_listenSocket << std::endl;
 
     int nResult = setsockopt(pSession->GetSocket(),
         SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
         reinterpret_cast<const char*>(&m_listenSocket),
         sizeof(m_listenSocket));
 
-    //std::cout << "[ProcessAccept] setsockopt 결과=" << nResult
-    //    << " err=" << WSAGetLastError() << std::endl;
-    // AcceptEx 필수 후처리 실패하면 소켓 연결이 안 된 상태
-
     pSession->SetConnected(true);
+    CSession_Manager::Get_Instance()->OnConnected();
     pSession->RegisterRecv();
 
     // 새 슬롯 보충
     int32_t nNewID = CSession_Manager::Get_Instance()->Assign();
-    //std::cout << "[ProcessAccept] 새 슬롯 nNewID=" << nNewID << std::endl;
     if (nNewID != -1)
     {
         SessionRef pNewSession = CSession_Manager::Get_Instance()->Get_Session(nNewID);
@@ -391,6 +360,31 @@ void CIOCP_Server::ProcessSend(SessionRef pSession)
     pSession->OnSendComplete();
 }
 
+// 콘솔 전체를 공백으로 덮고 커서를 좌상단으로 되돌린다.
+// 기동 로그(존 생성, 몬스터 스폰 등)를 한 번에 치우는 용도.
+static void ClearConsoleAll(HANDLE hConsole)
+{
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (!GetConsoleScreenBufferInfo(hConsole, &csbi)) return;
+
+    const DWORD cells = static_cast<DWORD>(csbi.dwSize.X) * csbi.dwSize.Y;
+    const COORD home = { 0, 0 };
+    DWORD written = 0;
+
+    FillConsoleOutputCharacterA(hConsole, ' ', cells, home, &written);
+    FillConsoleOutputAttribute(hConsole, csbi.wAttributes, cells, home, &written);
+    SetConsoleCursorPosition(hConsole, home);
+}
+
+static int GetConsoleWidth(HANDLE hConsole)
+{
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (!GetConsoleScreenBufferInfo(hConsole, &csbi)) return 80;
+
+    const int w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    return (w < 50) ? 50 : w;
+}
+
 void CIOCP_Server::DebugConsoleThread()
 {
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -399,31 +393,18 @@ void CIOCP_Server::DebugConsoleThread()
     CONSOLE_CURSOR_INFO cursorInfo = { 1, FALSE };
     SetConsoleCursorInfo(hConsole, &cursorInfo);
 
+    // 준비가 끝났으니 기동 로그를 싹 지우고 대시보드로 전환한다.
+    ClearConsoleAll(hConsole);
+
+    auto* pSM = CSession_Manager::Get_Instance();
+    auto* pPM = CPlayer_Manager::Get_Instance();
+
+    // 목록에 보여줄 최대 인원. 이 수를 넘으면 숫자만 표시한다.
+    constexpr int LIST_MAX = 8;
+
     while (true)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-        COORD pos = { 0, 0 };
-        SetConsoleCursorPosition(hConsole, pos);
-
-        auto* pSM = CSession_Manager::Get_Instance();
-        auto* pPM = CPlayer_Manager::Get_Instance();
-
-        int nConnected = 0;
-        int nWaiting = (int)m_acceptSessions.size();
-
-        std::cout << "=== MMO Server Debug =====================\n";
-        std::cout << "포트: 7777  워커: " << m_workerThreads.size() << "\n";
-        std::cout << "------------------------------------------\n";
-
-        // Accept 대기 슬롯 한줄 출력
-        std::cout << "[Accept 대기] ";
-        for (auto& pSession : m_acceptSessions)
-        {
-            if (pSession && !pSession->IsConnected())
-                std::cout << pSession->GetID() << " ";
-        }
-        std::cout << "          \n";  // 이전 내용 덮어쓰기용 공백
 
         // ---- 부하 계측 스냅샷(직전 구간) ----
         static int64_t s_prevTick = StressMetrics::Now();
@@ -436,77 +417,119 @@ void CIOCP_Server::DebugConsoleThread()
         StressMetrics::Snapshot ms = StressMetrics::SnapshotAndReset();
         double pps = static_cast<double>(ms.count) / dtSec;
 
-        // 먼저 접속 수만 카운트(리스트 출력 여부 판단)
-        for (int i = 0; i < MAX_SESSION; ++i)
-        {
-            SessionRef pSession = pSM->Get_Session(i);
-            if (pSession && pSession->IsConnected()) nConnected++;
-        }
-
-        std::cout << "------------------------------------------\n";
-        std::cout << "[부하 계측]  최근 " << std::fixed << std::setprecision(2)
-            << dtSec << "s\n";
-        std::cout << "  패킷 처리량 : " << std::setprecision(0) << pps
-            << " pkt/s   (구간 " << ms.count << "건)        \n";
-        std::cout << "  처리 지연   : avg " << std::setprecision(1)
-            << (ms.avgUs / 1000.0) << "ms  p50 " << (ms.p50Us / 1000.0)
-            << "ms  p99 " << (ms.p99Us / 1000.0) << "ms  max "
-            << (ms.maxUs / 1000.0) << "ms      \n";
-        std::cout << "  워커별 처리 : ";
-        for (int w = 0; w < ms.workerCount && w < 12; ++w)
-            std::cout << ms.worker[w] << " ";
-        std::cout << "                    \n";
-
         // ---- AOI(GetNearPlayers) 계측 : 섹터 AOI 개선 전/후 비교 핵심 지표 ----
         StressMetrics::AoiSnapshot aoi = StressMetrics::SnapshotAoiAndReset();
         double aoiCps   = aoi.calls / dtSec;                                   // 초당 호출
         double aoiAvgUs = aoi.calls ? (double)aoi.sumUs / aoi.calls : 0.0;     // 1회당 us
         double aoiScan  = aoi.calls ? (double)aoi.sumScanned / aoi.calls : 0.0;// 1회당 순회 N
         double aoiMsPs  = (aoi.sumUs / 1000.0) / dtSec;                        // 초당 총 소요 ms
-        std::cout << "[AOI GetNearPlayers]                      \n";
-        std::cout << "  호출 " << std::setprecision(0) << aoiCps << "/s"
-            << "  평균순회 N=" << aoiScan
-            << "  1회 " << std::setprecision(1) << aoiAvgUs << "us"
-            << "  총 " << aoiMsPs << "ms/s"
-            << "  (CPU " << std::setprecision(1) << (aoiMsPs / 10.0) << "%코어)"
-            << "  max " << aoi.maxUs << "us        \n";
+
+        // 접속/대기 수는 카운터라 O(1)이다. 배열을 훑지 않는다.
+        const int nConnected = pSM->GetConnectedCount();
+        const int nAlloc     = pSM->GetCount();
+        const int nWaiting   = nAlloc - nConnected;
+
+        // ---- 프레임을 문자열로 다 만든 뒤 한 번에 출력한다 ----
+        //  줄마다 콘솔 폭까지 공백을 채우므로 이전 화면의 잔상이 남지 않는다.
+        //  (예전처럼 줄 끝에 공백을 손으로 붙일 필요가 없다)
+        const int width = GetConsoleWidth(hConsole);
+        const int barLen = (width - 1 < 66) ? width - 1 : 66;
+        const std::string barDouble(barLen, '=');
+        const std::string barSingle(barLen, '-');
+
+        std::ostringstream frame;
+        auto Line = [&](const std::string& s)
+        {
+            std::string t = s;
+            if (static_cast<int>(t.size()) > width - 1)
+                t.resize(width - 1);
+            t.append((width - 1) - t.size(), ' ');
+            frame << t << '\n';
+        };
+        auto Num = [](double v, int prec)
+        {
+            std::ostringstream o;
+            o << std::fixed << std::setprecision(prec) << v;
+            return o.str();
+        };
+
+        Line(barDouble);
+        Line(" MMO GameServer  [" + GetServerConfigTag() + "]"
+             + "   포트 7777   워커 " + std::to_string(m_workerThreads.size()));
+        Line(barDouble);
+        Line(" 접속 " + std::to_string(nConnected) + " 명"
+             + "    Accept 대기 " + std::to_string(nWaiting)
+             + "    전체 슬롯 " + std::to_string(nAlloc));
+        Line(barSingle);
+        Line(" 패킷  " + Num(pps, 0) + " pkt/s"
+             + "   (구간 " + std::to_string(ms.count) + " 건 / " + Num(dtSec, 2) + "s)");
+        Line(" 지연  avg " + Num(ms.avgUs / 1000.0, 2) + "ms"
+             + "   p50 " + Num(ms.p50Us / 1000.0, 2) + "ms"
+             + "   p99 " + Num(ms.p99Us / 1000.0, 2) + "ms"
+             + "   max " + Num(ms.maxUs / 1000.0, 2) + "ms");
+
+        std::string workerLine = " 워커  ";
+        if (ms.workerCount == 0)
+        {
+            workerLine += "(처리 없음)";
+        }
+        else
+        {
+            for (int w = 0; w < ms.workerCount && w < 12; ++w)
+                workerLine += std::to_string(ms.worker[w]) + " ";
+        }
+        Line(workerLine);
+
+        Line(barSingle);
+        Line(" AOI   " + Num(aoiCps, 0) + " 회/s"
+             + "   평균N " + Num(aoiScan, 1)
+             + "   1회 " + Num(aoiAvgUs, 1) + "us"
+             + "   " + Num(aoiMsPs / 10.0, 1) + "%코어"
+             + "   max " + std::to_string(aoi.maxUs) + "us");
+        Line(barSingle);
 
         // ---- 접속 플레이어 목록: 소수일 때만(부하 중엔 생략) ----
-        constexpr int LIST_LINES = 12;   // 항상 이 줄 수만큼 출력(잔상 덮어쓰기)
-        std::cout << "------------------------------------------\n";
-        int nPrinted = 0;
-        if (nConnected <= LIST_LINES)
+        int nListed = 0;
+        if (nConnected == 0)
         {
-            std::cout << "[접속 중 플레이어]                        \n";
-            for (int i = 0; i < MAX_SESSION && nPrinted < LIST_LINES; ++i)
+            Line(" 접속 중인 플레이어 없음");
+        }
+        else if (nConnected <= LIST_MAX)
+        {
+            Line(" 접속 중 플레이어");
+            // 접속 수를 이미 알고 있으므로 다 찾으면 바로 멈춘다.
+            for (int i = 0; i < MAX_SESSION && nListed < nConnected; ++i)
             {
                 SessionRef pSession = pSM->Get_Session(i);
                 if (!pSession || !pSession->IsConnected()) continue;
 
                 PlayerRef pPlayer = pPM->Get_Player(i);
-                std::string name = pPlayer ? pPlayer->m_szName : "?";
-                std::cout << "  ID=" << std::setw(3) << i
-                    << "  name=" << std::setw(12) << std::left << name
-                    << "  pos=(" << std::fixed << std::setprecision(1)
+                std::ostringstream row;
+                row << "   ID " << std::setw(4) << i << "  "
+                    << std::setw(14) << std::left
+                    << (pPlayer ? pPlayer->m_szName : "?")
+                    << "  Zone " << (pPlayer ? pPlayer->m_nZoneID : -1)
+                    << "  (" << std::fixed << std::setprecision(1)
                     << (pPlayer ? pPlayer->m_fCurX : 0.f) << ", "
-                    << (pPlayer ? pPlayer->m_fCurZ : 0.f) << ")   \n";
-                nPrinted++;
+                    << (pPlayer ? pPlayer->m_fCurZ : 0.f) << ")";
+                Line(row.str());
+                nListed++;
             }
         }
         else
         {
-            std::cout << "[접속 중 플레이어] " << nConnected
-                << "명 (부하 중 목록 생략)                 \n";
-            nPrinted = 1;
+            Line(" 접속 중 플레이어 " + std::to_string(nConnected) + " 명 (목록 생략)");
         }
-        for (int i = nPrinted; i < LIST_LINES + 1; ++i)
-            std::cout << "                                          \n";
 
-        std::cout << "------------------------------------------\n";
-        std::cout << "접속: " << nConnected
-            << "  대기: " << nWaiting
-            << "  총 슬롯: " << (nConnected + nWaiting) << "   \n";
-        std::cout << "==========================================\n";
+        // 줄 수를 항상 같게 맞춰야 아래쪽에 이전 프레임이 남지 않는다.
+        for (int i = nListed; i < LIST_MAX; ++i)
+            Line("");
+
+        Line(barDouble);
+
+        // 커서를 좌상단으로 되돌리고 한 번에 찍는다(깜빡임 최소화).
+        SetConsoleCursorPosition(hConsole, COORD{ 0, 0 });
+        std::cout << frame.str() << std::flush;
     }
 }
 
@@ -553,7 +576,6 @@ void CIOCP_Server::TimerThread()
                 eIOType = IOType::PlayerAutoSave;
                 break;
             default:
-                eIOType = IOType::MonsterAI;
                 break;
 
             }

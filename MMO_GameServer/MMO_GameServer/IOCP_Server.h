@@ -33,7 +33,6 @@ private:
     SOCKET  m_listenSocket = INVALID_SOCKET;
 
     static constexpr int32_t ACCEPT_POOL_SIZE = 64;
-    std::vector<SessionRef>  m_acceptSessions;
     std::vector<std::thread> m_workerThreads;
 
     void DebugConsoleThread();

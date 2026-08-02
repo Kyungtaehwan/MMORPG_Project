@@ -1,18 +1,18 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "Session_Manager.h"
 #include <iostream>
 
-// Á¤Àû ¸â¹ö ÃÊ±âÈ­ Å¬¶óÀÌ¾ğÆ® ÄÚµå¿Í µ¿ÀÏÇÑ ÆĞÅÏ
+// ì •ì  ë©¤ë²„ ì´ˆê¸°í™” í´ë¼ì´ì–¸íŠ¸ ì½”ë“œì™€ ë™ì¼í•œ íŒ¨í„´
 CSession_Manager* CSession_Manager::m_pInstance = nullptr;
 
 CSession_Manager::CSession_Manager()
 {
-    // m_sessions ¹è¿­Àº shared_ptr ±âº»°ª(nullptr)À¸·Î ÀÚµ¿ ÃÊ±âÈ­
+    // m_sessions ë°°ì—´ì€ shared_ptr ê¸°ë³¸ê°’(nullptr)ìœ¼ë¡œ ìë™ ì´ˆê¸°í™”
 }
 
 int32_t CSession_Manager::Assign()
 {
-    std::lock_guard<std::mutex> lock(m_lock);
+    WRITE_LOCK(m_lock); // ë¹ˆ ìŠ¬ë¡¯ì„ ì°¾ì•„ ì°¨ì§€í•œë‹¤ - ë°°íƒ€ (ë‘ ì›Œì»¤ê°€ ê°™ì€ ì¹¸ì„ ì¡ìœ¼ë©´ ì•ˆ ë¨)
 
     for (int32_t i = 0; i < MAX_SESSION; ++i)
     {
@@ -31,7 +31,8 @@ SessionRef CSession_Manager::Get_Session(int32_t nID)
 {
     if (nID < 0 || nID >= MAX_SESSION) return nullptr;
 
-    std::lock_guard<std::mutex> lock(m_lock);
+    // ì½ê¸° ì „ìš©. ì›Œì»¤ê°€ ëª¨ë“  ì™„ë£Œ(Accept/Recv/Send)ë§ˆë‹¤ ë¶€ë¥´ëŠ” ìµœë‹¤ í˜¸ì¶œ ì§€ì .
+    READ_LOCK(m_lock);
     return m_sessions[nID];
 }
 
@@ -39,13 +40,13 @@ void CSession_Manager::Release(int32_t nID)
 {
     if (nID < 0 || nID >= MAX_SESSION) return;
 
-    std::lock_guard<std::mutex> lock(m_lock);
+    WRITE_LOCK(m_lock);     // ìŠ¬ë¡¯ ë°˜ë‚© - ë°°íƒ€
 
     if (m_sessions[nID] != nullptr)
     {
         m_sessions[nID] = nullptr;
         m_count--;
-        std::cout << "[CSessionManager] ¼¼¼Ç ¹İ³³. ID=" << nID
-            << " ÇöÀç Á¢¼Ó=" << m_count << std::endl;
+        std::cout << "[CSessionManager] ì„¸ì…˜ ë°˜ë‚©. ID=" << nID
+            << " í˜„ì¬ ì ‘ì†=" << m_count << std::endl;
     }
 }
