@@ -5,7 +5,7 @@
 // ================================================================
 //      150x150 블록맵 생성기
 //    - 장애물 맵 : A* 길찾기 부하 측정용 (+ 레이드 필드)
-//    - 평지 맵   : 장애물 0개. A* 개선(직선 시야 조기반환 등) 
+//    - 평지 맵   : 장애물 X A* 개선(직선 시야 조기반환 등) 
 // ================================================================
 
 constexpr int32_t RAID_INNER_X = 150;   // 내부(잔디) 가로
@@ -28,7 +28,6 @@ constexpr uint32_t RAID_MAP_SEED = 20260714u;   // 클라와 똑같은 씨드값
 constexpr int32_t  RAID_BLOB_COUNT = 900;       // 장애물 덩어리 개수
 
 // ---- 대형 맵 몬스터 설정
-constexpr int32_t RAID_MONSTER_COUNT = 120;     // 존당 몬스터 수(Max 500)
 constexpr float RAID_AGGRO_RANGE = 8.f;         // 몬스터 어그로  범위
 
 struct FRaidRand
@@ -92,7 +91,7 @@ inline std::vector<int> MakeRaidBlockMap(bool bFlat)
     return map;
 }
 
-// 최초 1회만 생성해서 캐시. (함수 지역 static은 C++11부터 스레드 안전하게 초기화된다)
+// 최초 1회만 생성해서 캐시 -함수 지역 static은 쓰레드 안전 초기화(C++11)
 inline const int* GetRaidBlockMap(bool bFlat)
 {
     static const std::vector<int> s_obstacle = MakeRaidBlockMap(false);

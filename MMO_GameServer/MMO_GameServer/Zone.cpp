@@ -25,8 +25,7 @@ struct NullSink {
 #endif
 
 #ifdef STRESS_TEST
-// 몬스터 리스폰 간격(ms). 환경변수 STRESS_MON_RESPAWN_MS 로 조절(기본 15초).
-//   부하 테스트에선 길게 잡아 봇이 스폰지점을 캠핑하며 즉사시키는 걸 완화.
+// 몬스터 리스폰 간격
 static int StressMonRespawnMs()
 {
     static int ms = [] {
@@ -44,6 +43,10 @@ static int StressMonRespawnMs()
 
 // 전역 드롭 ID 발급 (존 공통)
 static std::atomic<int32_t> g_nextDropId{ 1 };
+
+// 몬스터 브로드캐스트에서 후보 플레이어를 모을 범위
+//  시야 이탈을 보내려면 여유 필요
+static constexpr int32_t MON_BROADCAST_RANGE = VIEW_RANGE + 3;
 
 
 
@@ -92,11 +95,103 @@ CZone::CZone(int32_t nZoneID, const char* pszName,
         }
     }
 
+#if USE_SECTOR_AOI
+    // 타일 그리드를 SECTOR_SIZE 로 나눠 올림
+    m_nSectorCountX = (m_nTileCountX + SECTOR_SIZE - 1) / SECTOR_SIZE;
+    m_nSectorCountZ = (m_nTileCountZ + SECTOR_SIZE - 1) / SECTOR_SIZE;
+    m_sectors.resize(static_cast<size_t>(m_nSectorCountX) * m_nSectorCountZ);
+#endif
+
     std::cout << "[CZone] '" << m_szName << "' 생성. "
-        << m_nTileCountX << "x" << m_nTileCountZ << std::endl;
+        << m_nTileCountX << "x" << m_nTileCountZ;
+#if USE_SECTOR_AOI
+    std::cout << "  섹터 " << m_nSectorCountX << "x" << m_nSectorCountZ
+              << "(" << SECTOR_SIZE << "타일)";
+#endif
+    std::cout << std::endl;
 }
 
 CZone::~CZone() {}
+
+#if USE_SECTOR_AOI
+int32_t CZone::SectorIndexOf(int32_t nTileX, int32_t nTileZ) const
+{
+    if (nTileX < 0 || nTileX >= m_nTileCountX) return -1;
+    if (nTileZ < 0 || nTileZ >= m_nTileCountZ) return -1;
+    return (nTileZ / SECTOR_SIZE) * m_nSectorCountX + (nTileX / SECTOR_SIZE);
+}
+
+// 현재 타일에 맞는 섹터로 이동. 섹터가 안 바뀌면 락 X
+void CZone::UpdatePlayerSector(PlayerRef pPlayer)
+{
+    const int32_t nNew = SectorIndexOf(pPlayer->m_nTileX, pPlayer->m_nTileZ);
+    const int32_t nOld = pPlayer->m_nSectorIdx;
+    if (nNew == nOld) return;
+
+    WRITE_LOCK(m_zoneLock);
+
+    // 이 존 소속일 때만 섹터에 넣는다.
+    if (m_playerIDs.find(pPlayer->m_nPlayerID) == m_playerIDs.end())
+        return;
+
+    if (nOld >= 0 && nOld < static_cast<int32_t>(m_sectors.size()))
+        m_sectors[nOld].erase(pPlayer->m_nPlayerID);
+    if (nNew >= 0)
+        m_sectors[nNew].insert(pPlayer->m_nPlayerID);
+    pPlayer->m_nSectorIdx = nNew;
+}
+
+void CZone::CollectPlayersNear(int32_t nTileX, int32_t nTileZ, int32_t nRange,
+                               std::vector<int32_t>& outIDs)
+{
+    outIDs.clear();
+
+    // 반경이 걸치는 섹터 범위를 좌표에서 직접 구함
+    int32_t sxMin = (nTileX - nRange) / SECTOR_SIZE;
+    int32_t sxMax = (nTileX + nRange) / SECTOR_SIZE;
+    int32_t szMin = (nTileZ - nRange) / SECTOR_SIZE;
+    int32_t szMax = (nTileZ + nRange) / SECTOR_SIZE;
+
+    // C++ 정수 나눗셈은 음수를 0 방향으로 자르지만(floor 아님),
+    // 어차피 0 미만은 아래에서 0으로 잘라내므로 결과가 같다.
+    if (sxMin < 0) sxMin = 0;
+    if (szMin < 0) szMin = 0;
+    if (sxMax >= m_nSectorCountX) sxMax = m_nSectorCountX - 1;
+    if (szMax >= m_nSectorCountZ) szMax = m_nSectorCountZ - 1;
+
+    READ_LOCK(m_zoneLock);
+    for (int32_t sz = szMin; sz <= szMax; ++sz)
+    {
+        for (int32_t sx = sxMin; sx <= sxMax; ++sx)
+        {
+            const auto& sector = m_sectors[sz * m_nSectorCountX + sx];
+            outIDs.insert(outIDs.end(), sector.begin(), sector.end());
+        }
+    }
+}
+
+void CZone::RemovePlayerFromSector(PlayerRef pPlayer)
+{
+    const int32_t nOld = pPlayer->m_nSectorIdx;
+    if (nOld < 0) return;
+
+    WRITE_LOCK(m_zoneLock);
+    if (nOld < static_cast<int32_t>(m_sectors.size()))
+        m_sectors[nOld].erase(pPlayer->m_nPlayerID);
+    pPlayer->m_nSectorIdx = -1;
+}
+#else
+void CZone::UpdatePlayerSector(PlayerRef)      {}
+void CZone::RemovePlayerFromSector(PlayerRef)  {}
+
+// 섹터가 없으면 존 전원 탐색
+void CZone::CollectPlayersNear(int32_t, int32_t, int32_t,
+                               std::vector<int32_t>& outIDs)
+{
+    READ_LOCK(m_zoneLock);
+    outIDs.assign(m_playerIDs.begin(), m_playerIDs.end());
+}
+#endif
 
 bool CZone::IsMovable(int32_t nTileX, int32_t nTileZ) const
 {
@@ -107,13 +202,29 @@ bool CZone::IsMovable(int32_t nTileX, int32_t nTileZ) const
 }
 
 // 부하 테스트: 이동 가능한 랜덤 타일을 골라 타일 중심 월드좌표로 반환.
+// 스레드마다 독립적인 난수
+static uint32_t NextSpawnRand()
+{
+    thread_local uint32_t s_state = [] {
+        static std::atomic<uint32_t> s_seq{ 0 };
+        uint32_t v = 0x9E3779B9u * (s_seq.fetch_add(1, std::memory_order_relaxed) + 1)
+                   ^ static_cast<uint32_t>(GetTickCount64());
+        return v ? v : 1u;      // xorshift 는 0이면 영원히 0이다
+    }();
+
+    s_state ^= s_state << 13;
+    s_state ^= s_state >> 17;
+    s_state ^= s_state << 5;
+    return s_state;
+}
+
 bool CZone::FindWalkableSpawn(float& fOutX, float& fOutZ) const
 {
     if (m_nTileCountX <= 0 || m_nTileCountZ <= 0) return false;
     for (int nTry = 0; nTry < 256; ++nTry)
     {
-        int nTx = rand() % m_nTileCountX;
-        int nTz = rand() % m_nTileCountZ;
+        int nTx = static_cast<int>(NextSpawnRand() % m_nTileCountX);
+        int nTz = static_cast<int>(NextSpawnRand() % m_nTileCountZ);
         if (IsMovable(nTx, nTz))
         {
             fOutX = static_cast<float>(nTx) + 0.5f;
@@ -149,6 +260,9 @@ void CZone::EnterZone(PlayerRef pPlayer, float fSpawnX, float fSpawnZ)
         WRITE_LOCK(m_zoneLock);     // 존 인원 추가 - 배타
         m_playerIDs.insert(pPlayer->m_nPlayerID);
     }
+    // 락을 놓은 뒤에 부른다(m_zoneLock 은 재귀 불가). GetNearPlayers 보다 먼저
+    // 넣어야 자기 자신이 섹터에 있는 상태로 시야를 계산한다.
+    UpdatePlayerSector(pPlayer);
 
     std::vector<int32_t> vNewView = GetNearPlayers(pPlayer);
 
@@ -191,6 +305,7 @@ void CZone::LeaveZone(PlayerRef pPlayer)
         WRITE_LOCK(m_zoneLock);     // 존 인원 제거 - 배타
         m_playerIDs.erase(pPlayer->m_nPlayerID);
     }
+    RemovePlayerFromSector(pPlayer);   // 락 밖에서(재귀 불가)
 
     std::unordered_set<int32_t> viewCopy;
     {
@@ -217,7 +332,7 @@ void CZone::LeaveZone(PlayerRef pPlayer)
 }
 
 // ================================================================
-//  OnMoveDest ? 마우스 클릭 시 1번 호출
+//  OnMoveDest 마우스 클릭 시 1번 호출
 //
 //  1) 목적지 타일이 이동 가능한지 검증
 //  2) 플레이어 목적지 저장
@@ -356,6 +471,10 @@ void CZone::OnMovePos(PlayerRef pPlayer,
     }
 
     // ---- 타일 바뀜 → 시야 재계산 ----
+    // 섹터 경계를 넘었으면 먼저 옮긴다. 시야 계산 전에 해야 내가 올바른
+    // 섹터에 있는 상태로 상대에게도 보인다.
+    UpdatePlayerSector(pPlayer);
+
     std::vector<int32_t> vOldView;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
@@ -411,6 +530,7 @@ void CZone::OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ)
     pPlayer->m_bMoving = false;
     pPlayer->m_nLastMoveTime = nNow;
     pPlayer->UpdateTilePos();
+    UpdatePlayerSector(pPlayer);   // 위치 커밋으로 섹터가 바뀔 수 있다
 
     // 다른 플레이어들도 정지(cur=dest)로 보이도록 브로드캐스트
     std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
@@ -423,6 +543,7 @@ void CZone::OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ)
 
 // ================================================================
 //  GetNearPlayers 존 전체 순회 + 타일 거리로 시야 판정
+//  - 섹터 ON 이면 전체 순회 대신 CollectPlayersNear(범위 계산은 그쪽에 있다)
 // ================================================================
 std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
 {
@@ -430,6 +551,25 @@ std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
     const int64_t nAoiT0 = StressMetrics::Now();
     std::vector<int32_t> vResult;
     uint32_t nScanned = 0;
+
+#if USE_SECTOR_AOI
+    // 시야 사각형이 실제로 걸치는 섹터 범위만 탐색
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pPlayer->m_nTileX, pPlayer->m_nTileZ, VIEW_RANGE, vCandidates);
+
+    nScanned = static_cast<uint32_t>(vCandidates.size());
+    for (int32_t nID : vCandidates)
+    {
+        if (nID == pPlayer->m_nPlayerID) continue;
+
+        PlayerRef pOther = CPlayer_Manager::Get_Instance()->Get_Player(nID);
+        if (!pOther) continue;
+
+        // 거리 검사
+        if (CanSee(pPlayer, pOther))
+            vResult.push_back(nID);
+    }
+#else
     {
         READ_LOCK(m_zoneLock);      // 순회만 - 읽기 (AOI 최다 호출 지점)
         nScanned = static_cast<uint32_t>(m_playerIDs.size());
@@ -444,6 +584,8 @@ std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
                 vResult.push_back(nID);
         }
     }
+#endif
+
     StressMetrics::RecordAoi(StressMetrics::ElapsedUs(nAoiT0), nScanned);
     return vResult;
 }
@@ -1063,8 +1205,21 @@ PlayerRef CZone::FindNearestPlayer(MonsterRef pMonster)
 
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    // 반경은 시야(5)가 아니라 어그로 범위다. 이 값은 존마다 다르다.
+    //  - 일반 필드 : 3 (Monster.h 기본값. 시야보다 짧다)
+    //  - 레이드    : 8 (Zone_Manager 가 덮어씀. 시야보다 길다)
+    // 그래서 3x3 같은 고정 섹터 수로 짜면 안 되고 몬스터에서 값을 읽어야 한다.
+    // 시야 기준으로 좁히면 레이드에서만 어그로 안의 플레이어를 못 찾아
+    // 몬스터가 멍하니 서 있는, 존별로만 재현되는 버그가 된다.
+    //  +1 은 부동소수 반경을 타일로 올림하면서 경계에서 놓치지 않기 위한 여유.
+    const int32_t nRange = static_cast<int32_t>(pMonster->m_fAggroRange) + 1;
+
+    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
+    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ, nRange, vCandidates);
+
+    for (int32_t nID : vCandidates)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
@@ -1093,8 +1248,18 @@ bool CZone::PlayerExistNear(MonsterRef pMonster)
 {
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    // 여긴 어그로 "해제" 판정이라 어그로보다 반경이 크다(히스테리시스).
+    //  - 일반 필드 : 4  (어그로 3)
+    //  - 레이드    : 13 (어그로 8 + 5)
+    // 이걸 좁게 잡으면 근처에 플레이어가 있는데도 추격을 그만두고 복귀해 버린다.
+    const int32_t nRange = static_cast<int32_t>(pMonster->m_fDeAggroRange) + 1;
+
+    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
+    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ, nRange, vCandidates);
+
+    for (int32_t nID : vCandidates)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
@@ -1152,8 +1317,13 @@ void CZone::Send_RemoveMonster(PlayerRef pTo, int32_t nMonsterID)
 
 void CZone::Broadcast_AddMonster(MonsterRef pMonster)
 {
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
+    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
+                       MON_BROADCAST_RANGE, vCandidates);
+
+    for (int32_t nID : vCandidates)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
@@ -1181,17 +1351,17 @@ void CZone::Broadcast_MoveMonster(MonsterRef pMonster)
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     pkt.moveTime = static_cast<uint32_t>(GetTickCount64());
 
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    // 몬스터 주변 섹터의 플레이어만 후보
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
+                       MON_BROADCAST_RANGE, vCandidates);
+
+    for (int32_t nID : vCandidates)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
 
-        // 몬스터 이동에 따른 시야 진입/이탈 처리.
-        // 기존엔 "이미 시야에 있는" 플레이어에게만 보냈다. 그래서 몬스터가 다른
-        // 플레이어를 쫓아와 가만히 있는 관찰자의 시야로 들어와도, 관찰자의
-        // m_monsterViewList엔 없으니 영영 안 보였다(플레이어 이동 때만 시야 갱신).
-        // 여기서 몬스터 기준으로도 시야를 대칭 갱신한다.
+        // 몬스터 이동에 따른 시야 진입/이탈 처리
         int32_t nDX = abs(pPlayer->m_nTileX - pMonster->m_nTileX);
         int32_t nDZ = abs(pPlayer->m_nTileZ - pMonster->m_nTileZ);
         bool bInRange = (nDX <= VIEW_RANGE && nDZ <= VIEW_RANGE);
@@ -1233,8 +1403,14 @@ void CZone::Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID)
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     pkt.targetID = nTargetID;
 
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    // 이 몬스터가 시야에 든 플레이어만 대상이므로 주변 섹터로 좁혀도 안전
+    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
+    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
+                       MON_BROADCAST_RANGE, vCandidates);
+
+    for (int32_t nID : vCandidates)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
@@ -1283,12 +1459,7 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
         return;
     }
 
-    // ---- 공격 시 플레이어 정지 처리 (위치 desync 방지) ----
-    // 클라는 공격 사거리에 들면 그 자리에 멈춰 CS_ATTACK_MONSTER만 보내고
-    // 별도 CS_MOVE_POS를 보내지 않는다. 서버가 이걸 처리하지 않으면
-    // m_bMoving이 true로 남아 GetCurrentPos가 옛 목적지까지 오버슈트하고,
-    // 몬스터 AI가 그 잘못된 위치를 바라보며 공격하게 된다.
-    // 거리 검증을 이미 통과(몬스터 근처)했으므로 보고 위치를 신뢰하고 커밋한다.
+    // 공격 시 플레이어 정지 처리
     pPlayer->m_fCurX  = fPlayerX;
     pPlayer->m_fCurZ  = fPlayerZ;
     pPlayer->m_fDestX = fPlayerX;
@@ -1296,11 +1467,9 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
     pPlayer->m_bMoving = false;
     pPlayer->m_nLastMoveTime = nNow;
     pPlayer->UpdateTilePos();
+    UpdatePlayerSector(pPlayer);   // 위치 커밋으로 섹터가 바뀔 수 있다
 
-    // ---- 공격 방향 계산 (몬스터를 바라봄) ----
-    // 관찰자 클라는 방향값을 못 받으면 마지막 이동 방향으로 공격 모션을 재생해
-    // 방향이 어긋난다. 공격자 자기 클라와 같은 벡터(몬스터-플레이어)로 8방향을 정해
-    // pPlayer->m_eDir에 반영하고, 아래 Broadcast_PlayerState가 이 값을 실어 보낸다.
+    //공격 방향 계산
     {
         float fFaceDX = pMonster->m_fCurX - fPlayerX;
         float fFaceDZ = pMonster->m_fCurZ - fPlayerZ;
@@ -1327,18 +1496,17 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
         }
     }
 
-    // ---- 공격자 모션 브로드캐스트 ----
-    // viewList 내 다른 플레이어들에게 공격 모션 전송 (방향/정지위치 포함)
+    // 공격자 모션 브로드캐스트
     Broadcast_PlayerState(pPlayer, PLAYER_ATTACK);
 
-    // ---- HP 감소 (플레이어 공격력 = 기본 + 장비 + 버프) ----
+    // HP 감소
     pMonster->m_nHp -= pPlayer->Get_Atk();
 
     SLOG << "[Zone] 몬스터 피격. ID=" << nMonsterID
         << " HP=" << pMonster->m_nHp
         << "/" << pMonster->m_nMaxHp << std::endl;
 
-    // ---- 사망 처리 ----
+    // 사망 처리 
     if (pMonster->m_nHp <= 0)
     {
         pMonster->m_nHp = 0;
@@ -1360,8 +1528,7 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
             SpawnDrop(roll.code, roll.amount,
                 pMonster->m_fCurX, pMonster->m_fCurZ);
 
-        // ---- 경험치 지급 (막타 친 플레이어에게) ----
-        // 레벨업하면 MaxHp/MaxMp/기본공방이 바뀌고 풀회복되므로 HP 패킷도 같이 보낸다.
+        // 경험치 지급 (막타플레이어에게만)
         int32_t nLevelUp = pPlayer->AddExp(pMonster->m_nExpReward);
         Send_PlayerExp(pPlayer, nLevelUp > 0);
         if (nLevelUp > 0)
@@ -1396,7 +1563,7 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
     pMonster->m_fDestZ = pMonster->m_fCurZ;
     pMonster->UpdateTilePos();
 
-    // 경직 시간 세팅 (HIT 애니메이션 = 7프레임 × 80ms = 560ms → 600ms)
+    // 경직 시간 세팅
     uint32_t nNow2 = static_cast<uint32_t>(GetTickCount64());
     pMonster->m_nHitStunEndTime = nNow2 + 600;
 
@@ -1416,8 +1583,6 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
 
 #ifdef STRESS_TEST
     // 부하 테스트: 대형(레이드) 맵은 죽은 자리에 다시 살지 않고 랜덤 위치로 부활.
-    //   봇이 스폰지점을 캠핑해 몬스터가 즉사하는 것을 막고, 몬스터를 계속 분산시킨다.
-    //   (일반 필드 20×30 은 그대로 제자리 부활 — m_nTileCountX 로 대형 맵만 구분)
     if (m_nTileCountX >= 100)
     {
         float rx = pMonster->m_fSpawnX, rz = pMonster->m_fSpawnZ;
@@ -1444,8 +1609,13 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
 
     bool bActivated = false;  // AI 중복 활성화 방지
 
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nPlayerID : m_playerIDs)
+    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
+    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
+                       MON_BROADCAST_RANGE, vCandidates);
+
+    for (int32_t nPlayerID : vCandidates)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()
             ->Get_Player(nPlayerID);
@@ -1497,6 +1667,10 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
     if (!pTarget) return;
     if (pTarget->m_iHp <= 0) return;
 
+    // 공격 모션 지연 동안 포탈로 다른 존에 갔을 수 있다.
+    // 좌표는 존마다 따로
+    if (pTarget->m_nZoneID != m_nZoneID) return;
+
     // 실제 거리 재확인 (도망갔을 수도 있음)
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
     float fPlayerX, fPlayerZ;
@@ -1519,6 +1693,7 @@ void CZone::OnMonsterAttackHit(int32_t nMonsterID)
         pTarget->m_fDestZ = fStopZ;
         pTarget->m_bMoving = false;
         pTarget->UpdateTilePos();
+        UpdatePlayerSector(pTarget);   // 피격 정지로 섹터가 바뀔 수 있다
     }
 
     // 무적 버프 중이면 피해 없음
@@ -1610,8 +1785,13 @@ void CZone::Broadcast_MonsterHit(MonsterRef pMonster)
     pkt.nMaxHp = pMonster->m_nMaxHp;
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
 
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
+    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    static thread_local std::vector<int32_t> vCandidates;
+    CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
+                       MON_BROADCAST_RANGE, vCandidates);
+
+    for (int32_t nID : vCandidates)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
@@ -1668,6 +1848,9 @@ void CZone::OnPlayerRespawn(PlayerRef pPlayer)
     pPlayer->m_fDestZ = SPAWN_Z;
     pPlayer->m_bMoving = false;
     pPlayer->UpdateTilePos();
+    // 리스폰은 좌표가 멀리 튀는 대표적인 경우. GetNearPlayers 전에 옮겨야
+    // 옛 섹터에 남아 유령으로 보이지 않는다.
+    UpdatePlayerSector(pPlayer);
 
     SC_RESPAWN_PACKET pkt = {};
     pkt.header.size = sizeof(pkt);
@@ -1781,10 +1964,16 @@ void CZone::Send_AddDrop(PlayerRef pTo, const FDrop& drop)
     pSession->Send(&pkt, sizeof(pkt));
 }
 
+// 드롭은 시야와 무관하게 존 전원에게 보냄
 void CZone::Broadcast_AddDrop(const FDrop& drop)
 {
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    static thread_local std::vector<int32_t> vAll;   // 버퍼 재사용(할당 제거)
+    {
+        READ_LOCK(m_zoneLock);
+        vAll.assign(m_playerIDs.begin(), m_playerIDs.end());
+    }
+
+    for (int32_t nID : vAll)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (pPlayer) Send_AddDrop(pPlayer, drop);
@@ -1798,8 +1987,13 @@ void CZone::Broadcast_RemoveDrop(int32_t nDropId)
     pkt.header.id = SC_REMOVE_DROP;
     pkt.dropId = nDropId;
 
-    READ_LOCK(m_zoneLock);      // 순회만 - 읽기
-    for (int32_t nID : m_playerIDs)
+    static thread_local std::vector<int32_t> vAll;   // 버퍼 재사용(할당 제거)
+    {
+        READ_LOCK(m_zoneLock);
+        vAll.assign(m_playerIDs.begin(), m_playerIDs.end());
+    }
+
+    for (int32_t nID : vAll)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;

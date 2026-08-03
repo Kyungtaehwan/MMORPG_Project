@@ -27,7 +27,6 @@ void CSession::Initialize()
     m_connected = false;
     // 아직 연결X
 
-
     ZeroMemory(m_recvBuf, sizeof(m_recvBuf));
     ZeroMemory(m_sendBuf, sizeof(m_sendBuf));
     // 버퍼 초기화
@@ -86,7 +85,6 @@ void CSession::Send(void* pPacket, int32_t nSize)
 }
 
 // m_sendLock 보유 상태에서 호출. 큐 앞 패킷 1개를 m_sendBuf로 복사해 WSASend.
-//  버퍼/오버랩이 하나뿐이라, 반드시 이전 전송 완료(OnSendComplete) 후에만 다음을 보낸다.
 void CSession::StartSend_Locked()
 {
     if (m_sendQueue.empty())
@@ -185,10 +183,8 @@ void CSession::ProcessRecvData(int32_t nNewBytes)
 
         PacketHeader* pHeader = reinterpret_cast<PacketHeader*>(pCursor);
 
-        // 헤더의 size는 클라가 보낸 값이라 그대로 믿으면 안 된다.
-        // - size가 0이면 아래 커서 전진이 0이라 while이 같은 자리를 무한 반복한다
-        //   (워커 스레드 1개가 CPU를 100% 물고 영영 안 돌아옴 = 4바이트짜리 DoS)
-        // - size가 수신버퍼보다 크면 영원히 조립이 끝나지 않는다
+        // 헤더의 size는 클라가 보낸 값이라 그대로 믿으면 X
+        // size가 수신버퍼보다 크면 영원히 조립이 끝나지 않는다
         if (pHeader->size < sizeof(PacketHeader) ||
             pHeader->size > RECV_BUF_SIZE)
         {
