@@ -1,12 +1,9 @@
-﻿// ================================================================
-//  MMO_StressTest — MMORPG_Project 서버 부하 봇 (IOCP 클라이언트)
-//
-//  교수님 stressTest(NetworkModule)를 우리 프로토콜에 맞춰 이식한 것.
-//  차이:
-//   - 우리 헤더는 PacketHeader{uint16 size; uint16 id} (교수님은 size 1바이트)
+﻿
+//=================================================================
+//   - 우리 헤더는 PacketHeader{uint16 size; uint16 id}
 //   - 로그인은 id="bot_<n>" 로 보내면 서버가 STRESS_TEST 빌드에서 DB 없이 입장시킴
 //   - 좌표는 float 아이소, 플레이어 속도 1타일/초(서버 해킹검증 허용오차 2타일)
-//   - moveTime = (uint32)GetTickCount64() 로 스탬프해야 서버 위치 역산이 맞음
+//   - moveTime = (uint32)GetTickCount64() 로 스탬프 서버 위치 역산
 //
 //  측정(콘솔, 1초 주기):
 //   - 접속 봇 수, 초당 송신/수신 패킷(pps), 수신 KB/s
@@ -34,12 +31,10 @@
 #pragma comment(lib, "ws2_32.lib")
 
 // ==================== 실험 설정 (여기만 고치면 됨) ====================
-//  Visual Studio 에서 솔루션 빌드 후 실행(F5)하면 이 설정대로 바로 동작한다.
-//  (명령줄 인자를 주면 그게 우선 — 노트북에서 배치로 여러 조합 돌릴 때)
 enum class EZone : int { Town = 1, RaidObstacle = 5, RaidFlat = 6 };  // 5=Orc(A*), 6=Wing(A*X)
 enum class EMode : int { Hold = 0, Ramp = 1 };
 
-static const char* CFG_SERVER_IP = "127.0.0.1";       // 노트북에서 붙일 땐 데스크탑 LAN IP
+static const char* CFG_SERVER_IP = "127.0.0.1";       // IP
 static const int   CFG_BOT_COUNT = 100000;               // Hold=목표수 / Ramp=최대상한
 static const EZone CFG_ZONE      = EZone::RaidFlat;   // RaidFlat(6) / RaidObstacle(5) / Town(1)
 static const EMode CFG_MODE      = EMode::Ramp;       // Hold(고정) / Ramp(자동증설)
@@ -422,6 +417,13 @@ static void ConnectOneBot(int idx)
 
     b.sock = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (b.sock == INVALID_SOCKET) return;
+
+    // Nagle 끄기. 서버와 양쪽 다 꺼야 효과가 있다.
+    // 켜져 있으면 LAN 측정에서 지연에 수십 ms 가 인위적으로 깔려
+    // 서버 최적화로 아낀 수 us 가 그 밑에 묻혀버린다.
+    BOOL bNoDelay = TRUE;
+    setsockopt(b.sock, IPPROTO_TCP, TCP_NODELAY,
+               reinterpret_cast<const char*>(&bNoDelay), sizeof(bNoDelay));
 
     sockaddr_in addr;
     ZeroMemory(&addr, sizeof(addr));

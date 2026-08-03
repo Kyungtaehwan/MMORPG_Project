@@ -52,6 +52,10 @@ public:
     int32_t  m_nTileX = 0;
     int32_t  m_nTileZ = 0;
 
+    // 지금 속한 섹터 번호 인덱스
+    // 소속 존이 없으면 -1
+    int32_t  m_nSectorIdx = -1;
+
     // ---- 존 정보 ----
     int32_t  m_nZoneID = 0;
 
@@ -161,8 +165,7 @@ public:
     }
 
     // ---- 퀵슬롯 (표시 전용 - 서버는 값만 보관하고 DB에 저장한다) ----
-    //  인벤과 달리 "권위"랄 게 없다(사용은 CS_USE_ITEM 이 별도로 검증).
-    //  등록 내용이 계정에 남아야 하므로 서버가 들고 있다가 로그인 때 돌려준다.
+    //  등록 내용이 계정에 남아야 하므로 서버가 들고 있다가 로그인 때 돌려준다.(권위X)
     static constexpr int32_t QUICK_SLOTS_N = 8;   // Protocol.h QUICK_SLOTS 와 동일해야 함
     int32_t  m_quickCode[QUICK_SLOTS_N] = {};   // 슬롯별 itemCode (0=빈칸)
 
@@ -191,8 +194,6 @@ public:
     int32_t  m_baseDef = 5;
 
     // ---- 레벨 / 경험치 (서버 권위) ----
-    //  필요 경험치 = 100 * 현재레벨 (1→2 100, 2→3 200 …). 만렙 도달 시 경험치 누적 중단.
-    //  레벨업 보상은 baseAtk/baseDef/MaxHp/MaxMp 상승 + 풀회복 (LevelUp 참고).
     static constexpr int32_t MAX_LEVEL = 50;
     int32_t  m_nLevel = 1;
     int32_t  m_nExp   = 0;
@@ -205,9 +206,7 @@ public:
 
     bool IsMaxLevel() const { return m_nLevel >= MAX_LEVEL; }
 
-    // 레벨에서 파생되는 스탯을 다시 계산한다(증분이 아니라 순수 함수).
-    // 레벨업 때도, DB에서 레벨을 불러올 때도 같은 식을 쓰므로 값이 어긋날 일이 없다.
-    // 최종 공/방은 여기 base 에 장비/버프가 더해진 Get_Atk()/Get_Def().
+    // 레벨에서 파생되는 스탯을 다시 계산
     void ApplyLevelStats()
     {
         int32_t n = m_nLevel - 1;
@@ -232,10 +231,8 @@ public:
         m_iMp = m_iMaxMp;
     }
 
-    // 경험치 획득. 필요치를 넘으면 레벨업(연속 레벨업 가능).
-    // 반환값 = 이번 호출로 오른 레벨 수(0이면 레벨업 없음).
-    // 인벤/장비와 같은 락을 쓴다 - 주기 저장이 반쪽 상태(레벨만 오르고 경험치는 옛값)를
-    // 읽지 않도록. 레벨업 시 HP/MP도 바뀌므로 호출자는 SC_PLAYER_HP도 같이 보낼 것.
+    // 경험치 획득. 필요치를 넘으면 레벨업
+    // 반환값 = 이번 호출로 오른 레벨 수
     int32_t AddExp(int32_t nAmount)
     {
         std::lock_guard<std::recursive_mutex> lk(m_saveLock);

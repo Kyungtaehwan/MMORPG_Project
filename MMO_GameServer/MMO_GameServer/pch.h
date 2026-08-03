@@ -20,6 +20,4 @@
 #include <queue>
 #include <unordered_map>
 
-// Optimization feature toggles. Must be visible to every translation unit,
-// because the flags change class member types (see ServerConfig.h).
 #include "ServerConfig.h"

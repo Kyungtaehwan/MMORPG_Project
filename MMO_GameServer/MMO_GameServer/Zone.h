@@ -30,6 +30,13 @@ inline bool Is_MovableTile(TILE_TYPE eType)
 
 constexpr int32_t VIEW_RANGE = 5;
 
+#if USE_SECTOR_AOI
+// 섹터가 시야보다 작으면 버그
+
+static_assert(SECTOR_SIZE >= VIEW_RANGE,
+              "SECTOR_SIZE 가 VIEW_RANGE 보다 작음");
+#endif
+
 // 월드에 떨어진 아이템 (값 타입, new 없이 풀로 관리)
 struct FDrop
 {
@@ -124,11 +131,19 @@ private:
 private:
     //시야
     std::vector<int32_t> GetNearPlayers(PlayerRef pPlayer);
+
+
+    // 섹터로 1차 거르기 이후 cansee
+    void CollectPlayersNear(int32_t nTileX, int32_t nTileZ, int32_t nRange,
+                            std::vector<int32_t>& outIDs);
+
+    // 플레이어를 현재 타일 좌표에 맞는 섹터로 옮김
+    void UpdatePlayerSector(PlayerRef pPlayer);
+
+    void RemovePlayerFromSector(PlayerRef pPlayer);
     bool CanSee(PlayerRef pA, PlayerRef pB);
-    void UpdateViewAndBroadcast(PlayerRef pPlayer,
-        const std::vector<int32_t>& vOldView,
-        const std::vector<int32_t>& vNewView,
-        uint32_t nMoveTime);
+    void UpdateViewAndBroadcast(PlayerRef pPlayer, const std::vector<int32_t>& vOldView,
+        const std::vector<int32_t>& vNewView,uint32_t nMoveTime);
 
 
     // ---- 패킷 전송 헬퍼 ----
@@ -146,13 +161,19 @@ private:
 
     std::unordered_set<int32_t> m_playerIDs;
 
-    // 읽기/쓰기 락. 실제 타입은 ServerConfig.h의 USE_RW_LOCK이 정한다.
-    // - 쓰기는 EnterZone/LeaveZone 2곳뿐이고 나머지 10곳은 전부 순회(읽기)다.
-    // - 주의: 이 락은 브로드캐스트가 Send()를 쥔 채로 잡는다. 임계구역이 길어서
-    //   RW_LOCK_SPIN(스핀락)에는 불리하다. SHARED와 비교하는 편이 낫다.
+#if USE_SECTOR_AOI
+    int32_t m_nSectorCountX = 0;
+    int32_t m_nSectorCountZ = 0;
+    std::vector<std::unordered_set<int32_t>> m_sectors;
+
+    // 타일 좌표 -> 섹터 인덱스. 맵 밖이면 -1.
+    int32_t SectorIndexOf(int32_t nTileX, int32_t nTileZ) const;
+#endif
+
+    // 읽기/쓰기 락
     FRWLock                     m_zoneLock;
 
-    // ---- 드롭 풀 (고정 배열, new 없음) ----
+    // ---- 드롭 풀
     static constexpr int32_t MAX_DROPS = 256;
     FDrop      m_drops[MAX_DROPS];
     std::mutex m_dropLock;

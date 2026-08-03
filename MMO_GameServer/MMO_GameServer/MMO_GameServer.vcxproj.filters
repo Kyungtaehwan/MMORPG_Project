@@ -58,6 +58,12 @@
     <Filter Include="Network_Level\03.DB_Manager">
       <UniqueIdentifier>{2c9f4a71-6b3e-4f8a-9d21-7e5c0a1b4d6f}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Network_Level\04.RWLock">
+      <UniqueIdentifier>{6327f54a-019a-458f-b6db-96470cadc18d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Contents_Level\03.Zone_Manager\03_01.RaidMap">
+      <UniqueIdentifier>{197bd57d-e425-414d-a04c-afd8ee1efd55}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MainServer.cpp">
@@ -163,6 +169,15 @@
     </ClInclude>
     <ClInclude Include="nanodbc.h">
       <Filter>99.Etc\nanodbc</Filter>
+    </ClInclude>
+    <ClInclude Include="RWLock.h">
+      <Filter>Network_Level\04.RWLock</Filter>
+    </ClInclude>
+    <ClInclude Include="RaidMap.h">
+      <Filter>Contents_Level\03.Zone_Manager\03_01.RaidMap</Filter>
+    </ClInclude>
+    <ClInclude Include="ServerConfig.h">
+      <Filter>00.MainServer</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

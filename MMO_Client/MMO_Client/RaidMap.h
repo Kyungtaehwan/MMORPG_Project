@@ -34,7 +34,8 @@ constexpr uint32_t RAID_MAP_SEED = 20260714u;   // 이 값이 같아야 클라,�
 constexpr int32_t  RAID_BLOB_COUNT = 900;       // 장애물 덩어리 개수
 
 // ---- 대형 맵 몬스터 설정-
-constexpr int32_t RAID_MONSTER_COUNT = 120;   // 존당 몬스터 수 (MAX_MONSTER=500 안에서)
+// 레이드 몬스터 수는 서버가 정한다(Zone_Manager.cpp 의 CFG_MON_COUNT /
+// 환경변수 STRESS_MON_COUNT). 클라는 SC_ADD_MONSTER 로 받으므로 상수가 필요 없다.
 
 // 어그로 범위
 constexpr float RAID_AGGRO_RANGE = 8.f;       // 해제는 +5 = 13타일 (히스테리시스)
