@@ -180,10 +180,11 @@
     <ClInclude Include="DB_Manager.h" />
     <ClInclude Include="RaidMap.h" />
     <ClInclude Include="SaveData.h" />
+    <ClInclude Include="GameLog.h" />
     <ClInclude Include="nanodbc.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\db\procedures.sql" />
+    <None Include="..\..\db\setup.sql" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -19,11 +19,15 @@ int main()
     // 저장 전용 스레드(주기/접속종료 저장을 IOCP 워커에서 떼어내 비동기 처리).
     CDB_Manager::Get_Instance()->StartSaveThread();
 
+    // 로그 전용 스레드(거래 로그를 mmorpg_log 에 배치로 적재).
+    CDB_Manager::Get_Instance()->StartLogThread();
+
     CZone_Manager::Get_Instance();  // 생성자에서 맵 생성
     std::cout << "맵 초기화 완료" << std::endl;
     // 워커 스레드 뜨기 전에 미리 생성
     // 멀티스레드 경합 없이 안전하게 초기화
     CSession_Manager::Get_Instance();
+
     //시작
     CIOCP_Server server;
     if (!server.Start(7777))
@@ -36,6 +40,8 @@ int main()
     server.Run();
     // 서버 종료 시 명시적 해제
     CDB_Manager::Get_Instance()->StopSaveThread();   // 남은 저장 큐 비우고 조인
+    // 저장 과정에서 로그가 더 생길 수 있기에 로그 스레드는 저장보다 뒤에 내린다. 
+    CDB_Manager::Get_Instance()->StopLogThread();
     CSession_Manager::Destroy_Instance();
     return 0;
 }

@@ -392,6 +392,11 @@ void CPacket_Handler::Handle_CS_USE_ITEM(
     FUseResult result = pPlayer->UseItem(pPkt->invenSlot);
     if (result.used)
     {
+        // 거래 로그
+        CDB_Manager::Get_Instance()->EnqueueLog(MakeGameLog(
+            LogType::ITEM_USE, pPlayer->m_szName,
+            result.itemCode, -1, 0, pPlayer->GetGold()));
+
         pZone->Send_InvenUpdate(pPlayer);  // 수량 차감 반영
         pZone->Send_PlayerHp(pPlayer);     // HP/MP 회복 반영
 
@@ -452,7 +457,13 @@ void CPacket_Handler::Handle_CS_BUY(
     if (pPlayer->m_gold < nTotal) return;             // 골드 부족
 
     if (!pPlayer->AddItem(pPkt->itemCode, nCount)) return;  // 인벤 가득
-    pPlayer->SpendGold(nTotal);
+    int32_t nBalance = 0;
+    pPlayer->SpendGold(nTotal, &nBalance);
+
+    // 거래 로그: 골드가 경제에서 빠져나가는 지점(sink).
+    CDB_Manager::Get_Instance()->EnqueueLog(MakeGameLog(
+        LogType::SHOP_BUY, pPlayer->m_szName,
+        pPkt->itemCode, nCount, -nTotal, nBalance));
 
     pZone->Send_InvenUpdate(pPlayer);
 }
@@ -484,7 +495,15 @@ void CPacket_Handler::Handle_CS_SELL(
     if (nUnit <= 0) return;
 
     if (!pPlayer->RemoveItemSlot(nSlot, nCount)) return;  // 수량 부족
-    pPlayer->AddGold(nUnit * nCount);
+    const int32_t nTotal = nUnit * nCount;
+    int32_t nBalance = 0;
+    pPlayer->AddGold(nTotal, &nBalance);
+
+    // 거래 로그: 골드가 새로 유입되는 지점(source). 상점은 무한 매입이라
+    // 드롭 다음으로 인플레이션 기여가 큰 경로다.
+    CDB_Manager::Get_Instance()->EnqueueLog(MakeGameLog(
+        LogType::SHOP_SELL, pPlayer->m_szName,
+        nCode, -nCount, nTotal, nBalance));
 
     pZone->Send_InvenUpdate(pPlayer);
 }
@@ -552,6 +571,17 @@ void CPacket_Handler::Handle_CS_AUCTION_REGISTER(
         return;
     pPlayer->RemoveItemSlot(nSlot, nCount);
 
+    // 거래 로그: 아이템이 인벤에서 나갔다(골드는 아직 안 움직임).
+    // 등록은 DB INSERT 가 성공한 뒤에만 여기 도달하므로 "실패한 등록"은 기록되지 않는다.
+    {
+        char szDetail[64];
+        sprintf_s(szDetail, "unit=%d", nPrice);
+        CDB_Manager::Get_Instance()->EnqueueLog(MakeGameLog(
+            LogType::AUCTION_LIST, pPlayer->m_szName,
+            nCode, -nCount, 0, pPlayer->GetGold(),
+            nullptr, szDetail));
+    }
+
     pZone->Send_InvenUpdate(pPlayer);
     // 등록 후 목록 갱신은 클라가 재요청(보통 0페이지로 이동해 새 매물 확인).
 }
@@ -572,9 +602,10 @@ void CPacket_Handler::Handle_CS_AUCTION_BUY(
 
     CDB_Manager* pDB = CDB_Manager::Get_Instance();
 
-    // 1) 사전조회(비변경): 코드/개당가. 매물 없음/본인매물이면 중단.
-    int32_t nCode = 0, nUnit = 0;
-    if (!pDB->Auction_PeekBuy(pPkt->listingID, pPlayer->m_szName, nCode, nUnit))
+    // 1) 사전조회(비변경): 코드/개당가/판매자. 매물 없음/본인매물이면 중단.
+    int32_t     nCode = 0, nUnit = 0;
+    std::string strSeller;
+    if (!pDB->Auction_PeekBuy(pPkt->listingID, pPlayer->m_szName, nCode, nUnit, &strSeller))
         return;
     int32_t nTotal = nUnit * nQty;
 
@@ -588,8 +619,35 @@ void CPacket_Handler::Handle_CS_AUCTION_BUY(
         return;   // 경쟁에서 밀렸거나 수량 부족 - 아무것도 안 준 상태로 종료
 
     // 4) 확정됐으니 지급(사전 확인했으므로 성공 보장) + 골드 차감
+    int32_t nBalance = 0;
     pPlayer->AddItem(nCode, nQty);
-    pPlayer->SpendGold(nTotal);
+    pPlayer->SpendGold(nTotal, &nBalance);
+
+    // 5) 거래 로그 2건. 3)의 원자 UPDATE 가 1행을 반영한 뒤에만 여기 오므로,
+    //    경쟁에서 밀린(0행) 요청은 기록되지 않는다.
+    {
+        char szDetail[64];
+        sprintf_s(szDetail, "listing=%d unit=%d", pPkt->listingID, nUnit);
+
+        // 구매자: 아이템 +, 골드 -
+        pDB->EnqueueLog(MakeGameLog(
+            LogType::AUCTION_BUY, pPlayer->m_szName,
+            nCode, nQty, -nTotal, nBalance,
+            strSeller.c_str(), szDetail));
+
+        // 판매자: 아이템은 등록 때 이미 인벤에서 빠졌고(AUCTION_LIST),
+        // 대금도 아직 pending 이라 안 받았다. 그래서 수량/골드 증감이 0이다.
+        // 이 로그의 목적은 수치가 아니라 "누가 누구와 거래했나"(target) -
+        // 부정 재화의 전파 범위를 추적하는 쿼리가 여기에 의존한다.
+        // gold_balance 는 판매자가 접속 중이 아닐 수 있어 알 수 없으므로 0.
+        // (연속성 검사는 gold<>0 인 행만 보므로 이 0 이 검사를 깨뜨리지 않는다)
+        char szSold[64];
+        sprintf_s(szSold, "listing=%d qty=%d total=%d", pPkt->listingID, nQty, nTotal);
+        pDB->EnqueueLog(MakeGameLog(
+            LogType::AUCTION_SOLD, strSeller.c_str(),
+            nCode, 0, 0, 0,
+            pPlayer->m_szName, szSold));
+    }
 
     pZone->Send_InvenUpdate(pPlayer);
     // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
@@ -610,7 +668,19 @@ void CPacket_Handler::Handle_CS_AUCTION_COLLECT(
     if (!CDB_Manager::Get_Instance()->Auction_Collect(pPkt->listingID, pPlayer->m_szName, nGold))
         return;
 
-    pPlayer->AddGold(nGold);
+    int32_t nBalance = 0;
+    pPlayer->AddGold(nGold, &nBalance);
+
+    // 거래 로그: 판매대금 수령(골드 +). 판매 시점(AUCTION_SOLD)과 시각이 다르다.
+    {
+        char szDetail[64];
+        sprintf_s(szDetail, "listing=%d", pPkt->listingID);
+        CDB_Manager::Get_Instance()->EnqueueLog(MakeGameLog(
+            LogType::AUCTION_COLLECT, pPlayer->m_szName,
+            0, 0, nGold, nBalance,
+            nullptr, szDetail));
+    }
+
     pZone->Send_InvenUpdate(pPlayer);
     // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
 }
@@ -642,8 +712,20 @@ void CPacket_Handler::Handle_CS_AUCTION_CANCEL(
     if (!pDB->Auction_Cancel(pPkt->listingID, pPlayer->m_szName, aCode, aCount, aGold))
         return;
 
-    if (aCount > 0) pPlayer->AddItem(aCode, aCount);   // 남은 수량 반환
-    if (aGold  > 0) pPlayer->AddGold(aGold);           // 미수령 골드 지급
+    int32_t nBalance = pPlayer->GetGold();
+    if (aCount > 0) pPlayer->AddItem(aCode, aCount);            // 남은 수량 반환
+    if (aGold  > 0) pPlayer->AddGold(aGold, &nBalance);         // 미수령 골드 지급
+
+    // 거래 로그: 아이템 + (에스크로에서 회수), 미수령 대금이 있었으면 골드 +.
+    // 실제로 삭제된 매물의 수량/골드(aCount/aGold)를 쓴다 - 사전조회 값이 아니라.
+    {
+        char szDetail[64];
+        sprintf_s(szDetail, "listing=%d", pPkt->listingID);
+        pDB->EnqueueLog(MakeGameLog(
+            LogType::AUCTION_CANCEL, pPlayer->m_szName,
+            aCode, aCount, aGold, nBalance,
+            nullptr, szDetail));
+    }
 
     pZone->Send_InvenUpdate(pPlayer);
     // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.

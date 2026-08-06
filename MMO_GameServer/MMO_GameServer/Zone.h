@@ -37,7 +37,7 @@ static_assert(SECTOR_SIZE >= VIEW_RANGE,
               "SECTOR_SIZE 가 VIEW_RANGE 보다 작음");
 #endif
 
-// 월드에 떨어진 아이템 (값 타입, new 없이 풀로 관리)
+// 월드에 떨어진 아이템
 struct FDrop
 {
     int32_t  id     = 0;
@@ -45,7 +45,8 @@ struct FDrop
     int32_t  amount = 0;
     float    x      = 0.f;
     float    z      = 0.f;
-    bool     active = false;
+    bool     active = false;// 이 드롭을 떨군 몬스터 종류
+    int32_t  srcMon = -1;
 };
 
 class CZone
@@ -98,7 +99,8 @@ public:
     // 레벨/경험치 동기화. bLevelUp=true면 클라가 레벨업 연출을 띄운다.
     void Send_PlayerExp(PlayerRef pPlayer, bool bLevelUp);
 private:
-    void SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ);
+    void SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ,
+                   int32_t nSrcMon = -1);
     void Send_AllDrops(PlayerRef pTo);
     void Send_AddDrop(PlayerRef pTo, const FDrop& drop);
     void Broadcast_AddDrop(const FDrop& drop);

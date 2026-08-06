@@ -4,6 +4,8 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <vector>
+#include <chrono>
 
 #pragma comment(lib, "odbc32.lib")   // ODBC 네이티브 API 링크 (nanodbc 백엔드)
 
@@ -22,9 +24,8 @@ struct DbNullSink {
 CDB_Manager* CDB_Manager::m_pInstance = nullptr;
 
 // ----------------------------------------------------------------
-//주어진 커넥션으로 저장 트랜잭션 1건 실행(공통 SQL).
-//   동기 Save호출마다 새 커넥션)와 전용 스레드가 공유한다.
-//   - 실패 시 예외를 던진다
+//  주어진 커넥션으로 저장 트랜잭션 1건 실행(공통 SQL).
+//   동기 Save호출마다 새 커넥션와 전용 스레드가 공유한다.
 // ----------------------------------------------------------------
 static void SaveWithConn(nanodbc::connection& conn, const FSaveSnapshot& snap)
 {
@@ -125,7 +126,6 @@ static void SaveWithConn(nanodbc::connection& conn, const FSaveSnapshot& snap)
 // ----------------------------------------------------------------
 //  Init : 연결 문자열 세팅 + 접속 테스트
 //   - DSN 없이 드라이버 이름을 직접 박은 "DSN-less" 연결 문자열.
-//   - 서버 시작 시 1회 불러서, 여기서 실패하면 DB 문제를 즉시 알 수 있다.
 // ----------------------------------------------------------------
 bool CDB_Manager::Init()
 {
@@ -137,6 +137,16 @@ bool CDB_Manager::Init()
         "User=mmo_server;"
         "Password=1234;"
         "CHARSET=utf8mb4;";//텍스트 UTF8
+
+    // 백섭은 mmorpg 만 되돌리고 mmorpg_log 는 손대지 않는다 - 그래서 연결도 따로 잡는다.
+    m_logConnStr =
+        "Driver={MySQL ODBC 9.7 Unicode Driver};"
+        "Server=127.0.0.1;"
+        "Port=3306;"
+        "Database=mmorpg_log;"
+        "User=mmo_server;"
+        "Password=1234;"
+        "CHARSET=utf8mb4;";
 
     try
     {
@@ -341,10 +351,234 @@ void CDB_Manager::SaveThreadFunc()
 }
 
 // ================================================================
+//  로그 전용 스레드 (거래 로그 -> mmorpg_log.game_log)
+// ================================================================
+
+// 배치 튜닝값
+static constexpr size_t LOG_BATCH_MAX = 100;      // 이만큼 모이면 즉시 기록
+static constexpr int    LOG_FLUSH_MS  = 1000;     // 다 안 차도 이 주기로는 기록(한산할 때 지연 방지)
+static constexpr size_t LOG_QUEUE_MAX = 100000;   // 큐 상한. 넘으면 버린다
+static constexpr short  LOG_COLS      = 8;        // 한 행당 바인딩할 컬럼 수
+
+// 파라미터 인덱스가 short 라 배치가 커지면 넘침
+static_assert(LOG_BATCH_MAX * LOG_COLS < 32767, "배치가 너무 커서 파라미터 인덱스가 넘친다");
+
+// N행짜리 다중행 INSERT 문을 만든다.
+// 값을 문자열로 이어붙이지 않고 전부 ? 로 두는 이유: 문자열 조립은 이스케이프를
+// 한 군데만 빠뜨려도 구문이 깨지거나 주입이 된다. 바인딩은 그 여지가 없다.
+static std::string BuildLogInsertSql(size_t rows)
+{
+    std::string sql =
+        "INSERT INTO game_log "
+        "(log_type, actor, target, item_code, quantity, gold, gold_balance, detail) VALUES ";
+    for (size_t i = 0; i < rows; ++i)
+    {
+        if (i > 0) sql += ",";
+        sql += "(?,?,?,?,?,?,?,?)";
+    }
+    return sql;
+}
+
+void CDB_Manager::StartLogThread()
+{
+    if (m_logRunning.exchange(true)) return;   // 이미 돌고 있으면 무시
+    m_logThread = std::thread(&CDB_Manager::LogThreadFunc, this);
+    std::cout << "[LOG] 로그 전용 스레드 시작 (mmorpg_log)\n";
+}
+
+void CDB_Manager::StopLogThread()
+{
+    if (!m_logRunning.exchange(false)) return;
+    m_logQueueCv.notify_all();                   // 대기 중이면 깨워서 종료 확인
+    if (m_logThread.joinable()) m_logThread.join();   // join 안에서 큐 잔여분을 다 쓰고 끝난다
+    std::cout << "[LOG] 로그 전용 스레드 종료 (기록 " << m_logWritten.load()
+              << "건, 유실 " << m_logDropped.load() << "건)\n";
+}
+
+void CDB_Manager::EnqueueLog(const FGameLog& log)
+{
+    {
+        std::lock_guard<std::mutex> lk(m_logQueueLock);
+
+        //  DB 가 죽었거나 느리면 큐가 무한정 자라서 서버가 메모리로 죽는다.
+        //  로그 유실은 나쁘지만, 서버가 죽으면 그 뒤 모든 로그를 잃으므로 상한을 둔다.
+        //  버린 건수를 카운터로 남기는 게 핵심 - "이 구간의 로그는 신뢰할 수 없다"를
+        //  나중에 알 수 있어야 한다. 조용히 버리면 불완전한 로그를 완전한 줄 알고 쓰게 된다.
+        if (m_logQueue.size() >= LOG_QUEUE_MAX)
+        {
+            m_logDropped.fetch_add(1);
+            return;
+        }
+        m_logQueue.push(log);   // 복사본을 큐에 (호출한 IOCP 워커는 즉시 반환)
+    }
+    m_logQueueCv.notify_one();
+}
+
+void CDB_Manager::LogThreadFunc()
+{
+    using clock = std::chrono::steady_clock;
+
+    // 이 스레드 전용 영속 커넥션 1개 (저장 스레드와 같은 이유로 재사용)
+    std::unique_ptr<nanodbc::connection> conn;
+    nanodbc::statement stmt;
+    size_t preparedRows = 0;   // stmt 가 몇 행짜리로 준비돼 있나 (0 = 미준비)
+
+    auto EnsureConn = [&]() -> bool
+    {
+        if (conn && conn->connected()) return true;
+        try
+        {
+            conn = std::make_unique<nanodbc::connection>(m_logConnStr);
+            preparedRows = 0;   // 커넥션이 바뀌면 준비된 문장도 무효
+            std::cout << "[LOG] connected: mmorpg_log\n";
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            std::cout << "[LOG thread] connect FAILED: " << e.what() << "\n";
+            conn.reset();
+            return false;
+        }
+    };
+
+    std::vector<FGameLog> batch;
+    batch.reserve(LOG_BATCH_MAX);
+
+    // 배치 한 덩어리를 다중행 INSERT 한 방으로 기록. 실패하면 예외.
+    auto WriteBatch = [&]() -> bool
+    {
+        if (!EnsureConn()) return false;
+
+        const size_t rows = batch.size();
+        if (preparedRows != rows)
+        {
+            // 행 수가 바뀔 때만 다시 준비한다. 부하가 걸리면 대부분 꽉 찬 배치라
+            // 같은 문장이 계속 재사용된다.
+            stmt.prepare(*conn, BuildLogInsertSql(rows));
+            preparedRows = rows;
+        }
+
+        for (size_t i = 0; i < rows; ++i)
+        {
+            FGameLog&   g    = batch[i];
+            const short base = static_cast<short>(i * LOG_COLS);
+
+            // 바인딩은 값을 복사하지 않고 주소를 잡아둔다.
+            // batch 는 execute 가 끝날 때까지 그대로 살아 있어야 한다(여기서는 그렇다).
+            stmt.bind(base + 0, g.type);
+            stmt.bind(base + 1, g.actor);
+
+            // 거래 상대가 없는 로그(드롭 획득 등)는 빈 문자열이 아니라 NULL 로.
+            // 빈 문자열로 넣으면 "상대가 없음"과 "상대 이름이 비어있음"이 구분되지 않는다.
+            if (g.target[0] != '\0') stmt.bind(base + 2, g.target);
+            else                     stmt.bind_null(base + 2);
+
+            stmt.bind(base + 3, &g.itemCode);
+            stmt.bind(base + 4, &g.quantity);
+            stmt.bind(base + 5, &g.gold);
+            stmt.bind(base + 6, &g.goldBalance);
+
+            if (g.detail[0] != '\0') stmt.bind(base + 7, g.detail);
+            else                     stmt.bind_null(base + 7);
+        }
+
+        nanodbc::result res = nanodbc::execute(stmt);   // 왕복 1번
+
+        // DB 가 실제로 몇 행을 넣었는지 확인한다(추가 왕복 없이 응답에 같이 온다).
+        // 예외 없이 끝났다고 다 들어간 게 아니라서, 이걸 안 보면
+        // 기록 카운터가 사실과 다른 값을 말하게 된다. 감사 로그에선 그게 제일 나쁘다.
+        // 여기서 예외를 던지지 않는 이유: 재시도하면 이미 들어간 행이 중복된다.
+        const long affected = res.affected_rows();
+        if (affected >= 0 && static_cast<size_t>(affected) != rows)
+        {
+            std::cout << "[LOG thread] 경고: " << rows << "건 보냈는데 "
+                      << affected << "행 반영됨\n";
+        }
+        return true;
+    };
+
+    auto Flush = [&]()
+    {
+        if (batch.empty()) return;
+
+        // 커넥션이 끊겼을 수 있으니 재연결 후 한 번 더 시도한다.
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            try
+            {
+                if (WriteBatch())
+                {
+                    m_logWritten.fetch_add(batch.size());
+                    batch.clear();
+                    return;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                // 로그 실패는 SLOG(부하 테스트에서 무음)가 아니라 항상 출력한다.
+                // 기록이 유실됐다는 사실 자체가 절대 묻히면 안 되는 정보다.
+                std::cout << "[LOG thread] insert error: " << e.what() << "\n";
+            }
+            conn.reset();
+            preparedRows = 0;
+        }
+
+        // 두 번 다 실패 - 이 배치는 포기한다. 버린 건수는 반드시 남긴다.
+        m_logDropped.fetch_add(batch.size());
+        std::cout << "[LOG thread] " << batch.size() << "건 기록 실패 - 버림\n";
+        batch.clear();
+    };
+
+    clock::time_point deadline;   // 지금 모으는 중인 배치를 늦어도 언제까지는 써야 하는가
+
+    while (true)
+    {
+        bool stopping = false;
+        {
+            std::unique_lock<std::mutex> lk(m_logQueueLock);
+
+            // 배치가 비었으면 새 로그가 올 때까지, 모으는 중이면 남은 마감까지만 기다린다.
+            auto wait = std::chrono::milliseconds(LOG_FLUSH_MS);
+            if (!batch.empty())
+            {
+                auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    deadline - clock::now());
+                wait = (left.count() > 0) ? left : std::chrono::milliseconds(0);
+            }
+
+            if (m_logQueue.empty() && wait.count() > 0)
+            {
+                m_logQueueCv.wait_for(lk, wait,
+                    [&] { return !m_logQueue.empty() || !m_logRunning.load(); });
+            }
+
+            while (!m_logQueue.empty() && batch.size() < LOG_BATCH_MAX)
+            {
+                if (batch.empty())
+                    deadline = clock::now() + std::chrono::milliseconds(LOG_FLUSH_MS);
+                batch.push_back(m_logQueue.front());
+                m_logQueue.pop();
+            }
+
+            // 종료 요청 + 큐까지 비었으면 이번 배치를 쓰고 끝낸다.
+            stopping = !m_logRunning.load() && m_logQueue.empty();
+        }
+
+        // 기록 조건: 100건이 찼거나 / 마감이 지났거나 / 종료 중이거나
+        if (batch.size() >= LOG_BATCH_MAX || clock::now() >= deadline || stopping)
+            Flush();
+
+        if (stopping) break;
+    }
+
+    Flush();   // 방어: 위 루프에서 빠져나올 때 남은 게 있으면 마저 쓴다
+}
+
+// ================================================================
 //  경매장 (DB 정본, write-through)
 // ================================================================
 
-// DB의 UTF-8 문자열 - CP949 바이트로 (클라가 sellerName을 CP_ACP=949로 디코드하므로).
+// DB의 UTF-8 문자열 - CP949 바이트로
 // ASCII(플레이어 계정명)는 두 인코딩에서 동일해 그대로 통과. 한글 "경매장"만 변환됨.
 static void Utf8ToCp949(const std::string& utf8, char* out, size_t outCap)
 {
@@ -447,7 +681,7 @@ bool CDB_Manager::Auction_Register(const char* seller, int32_t itemCode, int32_t
 }
 
 bool CDB_Manager::Auction_PeekBuy(int32_t listingID, const char* buyer,
-    int32_t& outCode, int32_t& outUnitPrice)
+    int32_t& outCode, int32_t& outUnitPrice, std::string* outSeller)
 {
     try
     {
@@ -463,6 +697,7 @@ bool CDB_Manager::Auction_PeekBuy(int32_t listingID, const char* buyer,
         outUnitPrice = r.get<int>(1);
         std::string seller = r.get<std::string>(2, std::string());
         if (buyer && seller == buyer) return false;        // 본인 매물 구매 불가
+        if (outSeller) *outSeller = seller;                // AUCTION_SOLD 로그용
         return true;
     }
     catch (const std::exception& ex)

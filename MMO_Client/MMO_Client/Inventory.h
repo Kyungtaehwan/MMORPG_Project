@@ -32,6 +32,12 @@ public:
     int             Find_SameItem(CItemData* pItem);    // 스택 가능한 슬롯 탐색
     int             Find_EmptySlot();                   // 빈 슬롯 탐색
 
+    // 이 코드의 아이템을 지금 받을 수 있는가(표시 전용 예측).
+    //  서버 CPlayer::CanAddItem 과 판정이 같아야 한다 - 여기가 서버와 어긋나면
+    //  "가득참"이라 떠 있는데 주워지거나, 안 떠 있는데 서버가 거부한다.
+    //  실제 획득 가부는 어디까지나 서버가 정한다(이건 툴팁을 위한 예측일 뿐).
+    bool            Can_Add_Code(int iCode) const;
+
     // ---- 서버 동기화 (서버 단일 진실) ----
     // 고유 코드(category*1000+subType) → CItemData 생성
     static CItemData* Create_ItemFromCode(int iCode);

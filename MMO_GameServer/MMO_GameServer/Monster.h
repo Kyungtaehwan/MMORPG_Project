@@ -20,6 +20,17 @@ enum MONSTER_TYPE : uint8_t
     MONSTER_WING = 1,   // 부유 몬스터(박쥐형) - 길찾기 없이 직선 추적
 };
 
+// 거래 로그에 남길 몬스터 종류
+inline const char* MonsterTypeName(MONSTER_TYPE eType)
+{
+    switch (eType)
+    {
+    case MONSTER_ORC:  return "orc";
+    case MONSTER_WING: return "wing";
+    default:           return "unknown";
+    }
+}
+
 enum MONSTER_DIR : uint8_t
 {
     MON_DIR_B = 0,
