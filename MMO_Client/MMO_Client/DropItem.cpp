@@ -5,6 +5,8 @@
 #include "Input_Manager.h"
 #include "Inventory.h"
 #include "ItemData.h"
+#include "Object_Manager.h"
+#include "Player.h"
 
 void CDropItem::Init_Drop(int32_t nDropId, int32_t nItemCode, int32_t nAmount,
     float fX, float fZ)
@@ -90,11 +92,35 @@ void CDropItem::Render_HoverName(ID2D1RenderTarget* pRT, float fIconX, float fIc
          tMouse.y >= fIconY && tMouse.y <= fIconY + fH);
     if (!bHover) return;
 
-    // 이름 길이에 맞춰 박스 폭 결정(좌우 패딩 14px)
-    float fTextW = CImg_Manager::Get_Instance()->Measure_TextWidth(m_szName);
+    // 인벤이 가득 차 못 줍는 상태면 이름 위에 한 줄 더 띄운다.
+    //  골드는 인벤 칸을 안 쓰므로 항상 주울 수 있다.
+    //  표시 전용 예측이고, 실제 거부는 서버가 한다(CZone::OnPlayerPickup).
+    const TCHAR* pszWarn = nullptr;
+    if (m_nItemCode / 1000 != 9)
+    {
+        CGameObject* pObj = CObject_Manager::Get_Instance()->Get_Player();
+        CPlayer* pPlayer = static_cast<CPlayer*>(pObj);   // OBJ_PLAYER 목록엔 CPlayer만 들어간다
+        if (pPlayer && pPlayer->Get_Inventory() &&
+            !pPlayer->Get_Inventory()->Can_Add_Code(m_nItemCode))
+        {
+            pszWarn = L"인벤 가득참";
+        }
+    }
+
+    CImg_Manager* pImg = CImg_Manager::Get_Instance();
+
+    // 두 줄이 될 수 있으므로 더 긴 쪽에 폭을 맞춘다(좌우 패딩 14px)
+    float fTextW = pImg->Measure_TextWidth(m_szName);
+    if (pszWarn)
+    {
+        float fWarnW = pImg->Measure_TextWidth(pszWarn);
+        if (fWarnW > fTextW) fTextW = fWarnW;
+    }
     float fBoxW = fTextW + 14.f;
     if (fBoxW < 28.f) fBoxW = 28.f;   // 최소 폭
-    float fBoxH = 22.f;
+
+    const float fLineH = 22.f;
+    float fBoxH = pszWarn ? fLineH * 2.f : fLineH;
     float fBoxX = fIconX + fW / 2.f - fBoxW / 2.f;
     float fBoxY = fIconY - fBoxH - 2.f;
     D2D1_RECT_F rcBox = D2D1::RectF(fBoxX, fBoxY, fBoxX + fBoxW, fBoxY + fBoxH);
@@ -107,9 +133,18 @@ void CDropItem::Render_HoverName(ID2D1RenderTarget* pRT, float fIconX, float fIc
         pBg->Release();
     }
 
-    // 이름(박스 정중앙)
-    CImg_Manager::Get_Instance()->Draw_Text_Center(pRT, m_szName, rcBox,
-        D2D1::ColorF(1.f, 1.f, 0.4f));
+    if (pszWarn)
+    {
+        // 위: 경고(빨강) / 아래: 아이템 이름
+        D2D1_RECT_F rcWarn = D2D1::RectF(fBoxX, fBoxY, fBoxX + fBoxW, fBoxY + fLineH);
+        D2D1_RECT_F rcName = D2D1::RectF(fBoxX, fBoxY + fLineH, fBoxX + fBoxW, fBoxY + fBoxH);
+        pImg->Draw_Text_Center(pRT, pszWarn, rcWarn, D2D1::ColorF(1.f, 0.3f, 0.3f));
+        pImg->Draw_Text_Center(pRT, m_szName, rcName, D2D1::ColorF(1.f, 1.f, 0.4f));
+    }
+    else
+    {
+        pImg->Draw_Text_Center(pRT, m_szName, rcBox, D2D1::ColorF(1.f, 1.f, 0.4f));
+    }
 }
 
 // 디버그: 바닥 콜라이더(획득 판정 영역) 표시

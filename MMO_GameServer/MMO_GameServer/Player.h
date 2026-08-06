@@ -10,6 +10,7 @@ struct FUseResult
     bool    used;
     int32_t buffType;    // -1=없음, 0=공격력, 1=무적
     int32_t durationMs;
+    int32_t itemCode;    // 실제로 소비된 아이템 코드(거래 로그용). used=false 면 0
 };
 
 enum PLAYER_STATE {
@@ -78,24 +79,31 @@ public:
     int32_t  m_gold = 0;
 
     // ---- 세이브 스냅샷 락 ----
-    // 주기 저장이 다른 스레드에서 인벤/골드/장비를 읽을 때 torn snapshot 방지.
-    // 인벤/골드/장비를 바꾸는 메서드와 TakeSnapshot 이 같은 락을 공유한다.
-    // recursive: Equip/UnEquip 이 내부에서 AddItem 을 부르므로 재귀 허용 필요.
     mutable std::recursive_mutex m_saveLock;
 
-    void AddGold(int32_t nAmount)
+    // pOutBalance : 변경 "직후"의 잔액을 같은 락 안에서 받아간다(거래 로그의 gold_balance 용).
+    void AddGold(int32_t nAmount, int32_t* pOutBalance = nullptr)
     {
         std::lock_guard<std::recursive_mutex> lk(m_saveLock);
         m_gold += nAmount;
+        if (pOutBalance) *pOutBalance = m_gold;
     }
 
     // 골드 소비. 부족하면 false (변경 없음).
-    bool SpendGold(int32_t nAmount)
+    bool SpendGold(int32_t nAmount, int32_t* pOutBalance = nullptr)
     {
         std::lock_guard<std::recursive_mutex> lk(m_saveLock);
         if (nAmount < 0 || m_gold < nAmount) return false;
         m_gold -= nAmount;
+        if (pOutBalance) *pOutBalance = m_gold;
         return true;
+    }
+
+    // 현재 잔액(락 잡고 읽기). 골드가 안 변하는 로그의 gold_balance 용.
+    int32_t GetGold() const
+    {
+        std::lock_guard<std::recursive_mutex> lk(m_saveLock);
+        return m_gold;
     }
 
     // 슬롯에서 nCount개 제거. 부족하면 false (변경 없음). 0이 되면 슬롯 비움.
@@ -169,7 +177,7 @@ public:
     static constexpr int32_t QUICK_SLOTS_N = 8;   // Protocol.h QUICK_SLOTS 와 동일해야 함
     int32_t  m_quickCode[QUICK_SLOTS_N] = {};   // 슬롯별 itemCode (0=빈칸)
 
-    // 퀵슬롯 한 칸 설정. 범위/코드 검증 후 반영. 소비 가능 아이템(포션1xxx/스크롤2xxx)과
+    // 퀵슬롯 한 칸 설정. 범위/코드 검증 후 반영. 소비 가능 아이템과
     // 해제(0)만 허용 — 장비를 퀵슬롯에 넣는 잘못된 클라를 걸러낸다.
     bool SetQuickSlot(int32_t nSlot, int32_t nCode)
     {
@@ -321,7 +329,7 @@ public:
     FUseResult UseItem(int32_t nInvenSlot)
     {
         std::lock_guard<std::recursive_mutex> lk(m_saveLock);
-        FUseResult r{ false, -1, 0 };
+        FUseResult r{ false, -1, 0, 0 };
         if (nInvenSlot < 0 || nInvenSlot >= INVEN_SIZE) return r;
         int32_t code = m_invenCode[nInvenSlot];
         if (code <= 0) return r;
@@ -361,7 +369,8 @@ public:
         if (m_invenCount[nInvenSlot] > 1) --m_invenCount[nInvenSlot];
         else { m_invenCode[nInvenSlot] = 0; m_invenCount[nInvenSlot] = 0; }
 
-        r.used = true;
+        r.used     = true;
+        r.itemCode = code;
         return r;
     }
 

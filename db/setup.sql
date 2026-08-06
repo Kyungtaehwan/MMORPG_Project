@@ -279,6 +279,278 @@ END$$
 DELIMITER ;
 
 
+-- ------------------------------------------------------------
+--  sp_rollback_account(계정, 시점, 적용여부)
+--
+--    계정 하나를 지정한 시점의 상태로 되돌린다.
+--    시나리오 1(단독 악용자 선별 환수)에서 쓰는 도구다.
+--
+--      CALL sp_rollback_account('test1', '2026-08-04 13:47:30', 0);   -- 미리보기
+--      CALL sp_rollback_account('test1', '2026-08-04 13:47:30', 1);   -- 실제 적용
+--
+--    p_apply = 0 이면 아무것도 바꾸지 않고 "이렇게 바뀔 것이다" 만 보여준다.
+--    되돌리기는 되돌릴 수 없으므로 항상 0 으로 먼저 확인할 것.
+--
+--  ★ 어떻게 되돌리나 - 백업이 필요 없다
+--
+--    "그 시점의 상태"를 어디선가 가져오는 게 아니라,
+--    지금 상태에서 그 시점 이후에 일어난 일을 거꾸로 되감는다.
+--
+--      되돌릴 값 = 지금 값 - (그 시점 이후 로그의 증감 합계)
+--
+--    골드는 한 단계 더 편하다. game_log 에 gold_balance(그 순간의 잔액)를
+--    남겨두었으므로, 그 시점 이전 마지막 로그의 잔액을 그냥 읽으면 된다.
+--    이 프로시저는 두 방법을 모두 계산해서 결과가 같은지 대조한다.
+--    값이 다르면 로그를 안 거치고 골드를 바꾼 경로가 있다는 뜻이므로
+--    되돌리기 전에 그것부터 찾아야 한다.
+--
+--  ★ 전제 - 재화가 움직이는 모든 경로에 로그가 있어야 한다
+--    한 경로라도 빠져 있으면 되돌린 값이 틀린다. 그래서 로그를 심을 때
+--    코드 전수 확인을 한 것이다. (DB_AND_LOG_GUIDE.md 16장)
+--
+--  ★ 하지 않는 것 (알고 쓸 것)
+--    - 장비창(equipment) 은 건드리지 않는다. 장착/해제는 아이템이
+--      생기거나 사라지는 게 아니라 자리만 옮기는 것이라 로그가 없다.
+--    - 레벨/경험치/위치는 재화가 아니므로 대상이 아니다.
+--    - 되돌린 뒤 경매 매물이 사라지면 그 매물을 사려던 다른 유저에게는
+--      영향이 간다. 단독 악용자에게 쓰는 도구라는 전제가 여기서 나온다.
+--
+--  ★ 반드시 게임서버를 끄고 실행할 것
+--    5초 주기 자동저장이 메모리 상태로 DB 를 덮어쓴다. 서버가 켜져 있으면
+--    되돌려도 조용히 원복된다.
+-- ------------------------------------------------------------
+DROP PROCEDURE IF EXISTS sp_rollback_account;
+
+DELIMITER $$
+CREATE PROCEDURE sp_rollback_account(
+    IN p_account VARCHAR(20),
+    IN p_time    DATETIME(3),
+    IN p_apply   TINYINT
+)
+    SQL SECURITY INVOKER
+BEGIN
+    DECLARE v_exists      INT DEFAULT 0;
+    DECLARE v_log_cnt     INT DEFAULT 0;
+    DECLARE v_auc_cnt     INT DEFAULT 0;
+    DECLARE v_bad         INT DEFAULT 0;
+    DECLARE v_slots       INT DEFAULT 0;
+
+    DECLARE v_gold_now    INT DEFAULT 0;
+    DECLARE v_gold_bal    INT DEFAULT NULL;   -- 방법1: 로그의 잔액을 읽는다
+    DECLARE v_gold_calc   INT DEFAULT 0;      -- 방법2: 지금 값에서 증감을 뺀다
+    DECLARE v_gold_target INT DEFAULT 0;
+
+    DECLARE v_code   INT DEFAULT 0;
+    DECLARE v_target INT DEFAULT 0;
+    DECLARE v_need   INT DEFAULT 0;
+    DECLARE v_cnt    INT DEFAULT 0;
+    DECLARE v_slot   INT DEFAULT 0;
+    DECLARE v_used   INT DEFAULT 0;
+
+    -- 인벤토리 칸 수. 서버 INVEN_SIZE 와 반드시 같아야 한다.
+    DECLARE c_inven_size INT DEFAULT 40;
+
+    -- --------------------------------------------------------
+    --  0. 계정 확인
+    -- --------------------------------------------------------
+    SELECT COUNT(*) INTO v_exists FROM `character` WHERE account_id = p_account;
+    IF v_exists = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'sp_rollback_account: no such account';
+    END IF;
+
+    SELECT gold INTO v_gold_now FROM `character` WHERE account_id = p_account;
+
+    SELECT COUNT(*) INTO v_log_cnt
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account AND created_at > p_time;
+
+    -- --------------------------------------------------------
+    --  1. 되돌릴 골드 구하기 (두 방법을 대조한다)
+    -- --------------------------------------------------------
+    --  방법1: 그 시점 이전 마지막 로그에 찍힌 잔액.
+    --         gold <> 0 조건은 AUCTION_SOLD 때문이다. 판매 성사 로그는
+    --         판매자가 접속 중이 아닐 수 있어 잔액을 0 으로 남긴다.
+    SELECT gold_balance INTO v_gold_bal
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account
+       AND gold <> 0
+       AND created_at <= p_time
+     ORDER BY created_at DESC, log_id DESC
+     LIMIT 1;
+
+    --  방법2: 지금 골드에서 그 시점 이후의 증감을 전부 뺀다.
+    SELECT v_gold_now - IFNULL(SUM(gold), 0) INTO v_gold_calc
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account AND created_at > p_time;
+
+    --  로그가 그 시점 이전에 아예 없으면 방법1 은 못 쓴다(NULL).
+    SET v_gold_target = IFNULL(v_gold_bal, v_gold_calc);
+
+    -- --------------------------------------------------------
+    --  2. 되돌릴 아이템 구하기
+    --
+    --     그 시점 이후 로그의 수량 증감을 코드별로 합쳐서
+    --     지금 개수에서 빼면 그 시점의 개수가 된다.
+    --     9000(골드 드롭)은 아이템이 아니므로 뺀다.
+    -- --------------------------------------------------------
+    DROP TEMPORARY TABLE IF EXISTS tmp_rollback;
+    CREATE TEMPORARY TABLE tmp_rollback (
+        item_code    INT     NOT NULL PRIMARY KEY,
+        now_count    INT     NOT NULL DEFAULT 0,
+        delta        INT     NOT NULL DEFAULT 0,
+        target_count INT     NOT NULL DEFAULT 0,
+        processed    TINYINT NOT NULL DEFAULT 0
+    );
+
+    INSERT INTO tmp_rollback (item_code, delta)
+    SELECT item_code, SUM(quantity)
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account
+       AND created_at > p_time
+       AND item_code NOT IN (0, 9000)
+     GROUP BY item_code;
+
+    UPDATE tmp_rollback
+       SET now_count = IFNULL((SELECT SUM(i.count) FROM inventory i
+                                WHERE i.account_id = p_account
+                                  AND i.item_code = tmp_rollback.item_code), 0);
+
+    UPDATE tmp_rollback SET target_count = now_count - delta;
+
+    --  개수가 음수로 나오면 로그가 실제 변화를 다 담지 못한 것이다.
+    --  이 상태로 적용하면 데이터가 더 망가지므로 멈춘다.
+    SELECT COUNT(*) INTO v_bad FROM tmp_rollback WHERE target_count < 0;
+    IF v_bad > 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'sp_rollback_account: negative item count - log is incomplete';
+    END IF;
+
+    --  되돌린 결과가 인벤토리 칸 수를 넘지 않는지 본다.
+    --  장비(3xxx)는 겹치지 않아 개수만큼 칸을 먹는다.
+    SELECT IFNULL(SUM(CASE WHEN item_code BETWEEN 3000 AND 3999 THEN target_count
+                           WHEN target_count > 0                THEN 1
+                           ELSE 0 END), 0)
+      INTO v_slots FROM tmp_rollback;
+
+    SELECT v_slots + COUNT(*) INTO v_slots
+      FROM inventory
+     WHERE account_id = p_account
+       AND item_code NOT IN (SELECT item_code FROM tmp_rollback);
+
+    IF v_slots > c_inven_size THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'sp_rollback_account: result exceeds inventory size';
+    END IF;
+
+    -- --------------------------------------------------------
+    --  3. 경매 매물
+    --     그 시점 이후에 올린 매물은 등록 자체를 되돌리는 것이므로
+    --     아이템을 인벤으로 돌려주고 매물은 내린다.
+    --     (돌려주는 쪽은 위 2번 계산에 이미 들어가 있다.)
+    -- --------------------------------------------------------
+    SELECT COUNT(*) INTO v_auc_cnt
+      FROM auction
+     WHERE seller_name = p_account AND created_at > p_time;
+
+    -- --------------------------------------------------------
+    --  4. 실제 적용
+    -- --------------------------------------------------------
+    IF p_apply = 1 THEN
+        START TRANSACTION;
+
+        UPDATE `character` SET gold = v_gold_target WHERE account_id = p_account;
+
+        DELETE FROM auction
+         WHERE seller_name = p_account AND created_at > p_time;
+
+        --  대상 코드의 인벤 행을 지우고 목표 개수로 다시 넣는다.
+        --  (서버의 저장 방식과 같다 - 다 지우고 다시 넣기)
+        DELETE FROM inventory
+         WHERE account_id = p_account
+           AND item_code IN (SELECT item_code FROM tmp_rollback);
+
+        WHILE (SELECT COUNT(*) FROM tmp_rollback
+                WHERE processed = 0 AND target_count > 0) > 0 DO
+
+            SELECT item_code, target_count INTO v_code, v_target
+              FROM tmp_rollback
+             WHERE processed = 0 AND target_count > 0
+             LIMIT 1;
+
+            IF v_code BETWEEN 3000 AND 3999 THEN
+                SET v_need = v_target;   -- 장비는 한 칸에 하나씩
+                SET v_cnt  = 1;
+            ELSE
+                SET v_need = 1;          -- 포션/스크롤/기타는 한 칸에 겹쳐 넣는다
+                SET v_cnt  = v_target;
+            END IF;
+
+            SET v_slot = 0;
+            WHILE v_need > 0 AND v_slot < c_inven_size DO
+                SELECT COUNT(*) INTO v_used
+                  FROM inventory
+                 WHERE account_id = p_account AND slot = v_slot;
+
+                IF v_used = 0 THEN
+                    INSERT INTO inventory (account_id, slot, item_code, count)
+                    VALUES (p_account, v_slot, v_code, v_cnt);
+                    SET v_need = v_need - 1;
+                END IF;
+                SET v_slot = v_slot + 1;
+            END WHILE;
+
+            UPDATE tmp_rollback SET processed = 1 WHERE item_code = v_code;
+        END WHILE;
+
+        --  ★ 되돌린 사실도 로그로 남긴다.
+        --    남기지 않으면 다음 연속성 검사에서 이 환수가
+        --    "설명되지 않는 골드 변화" 로 잡혀 복제 버그로 오탐된다.
+        --    gold 에 증감을, gold_balance 에 되돌린 뒤 잔액을 넣어
+        --    로그의 연속성이 끊기지 않게 한다.
+        INSERT INTO mmorpg_log.game_log
+            (log_type, actor, target, item_code, quantity, gold, gold_balance, detail)
+        VALUES
+            ('ADMIN_ROLLBACK', p_account, NULL, 0, 0,
+             v_gold_target - v_gold_now, v_gold_target,
+             CONCAT('rollback to ', DATE_FORMAT(p_time, '%Y-%m-%d %H:%i:%s.%f')));
+
+        COMMIT;
+    END IF;
+
+    -- --------------------------------------------------------
+    --  5. 결과 보고
+    -- --------------------------------------------------------
+    SELECT
+        p_account                                          AS account,
+        p_time                                             AS rollback_to,
+        IF(p_apply = 1, 'APPLIED', 'PREVIEW ONLY')         AS mode,
+        v_log_cnt                                          AS logs_undone,
+        v_gold_now                                         AS gold_before,
+        v_gold_target                                      AS gold_after,
+        v_gold_bal                                         AS gold_by_balance,
+        v_gold_calc                                        AS gold_by_sum,
+        IF(v_gold_bal IS NULL, 'no log before that time',
+           IF(v_gold_bal = v_gold_calc, 'OK - two methods agree',
+              'MISMATCH - unlogged gold path exists'))     AS gold_check,
+        v_auc_cnt                                          AS auction_listings_removed;
+
+    SELECT item_code, now_count AS count_before, delta AS logged_change,
+           target_count AS count_after
+      FROM tmp_rollback
+     ORDER BY item_code;
+
+    SELECT listing_id, item_code, count, unit_price, created_at
+      FROM auction
+     WHERE seller_name = p_account AND created_at > p_time
+     ORDER BY listing_id;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_rollback;
+END$$
+
+DELIMITER ;
+
+
 -- ============================================================
 --  6. 시드 데이터
 --
@@ -400,14 +672,21 @@ CREATE TABLE IF NOT EXISTS mmorpg_log.game_log (
 --
 --   재화 생성 (경제에 새로 유입 - 인플레이션 원인)
 --     DROP_GAIN        몬스터 드롭
+--                      detail 에 출처 몬스터가 들어간다 (mon=orc / mon=wing).
+--                      이게 없으면 "이 유저가 이상하다" 까지만 알 수 있고
+--                      "어느 몬스터가 원인인가" 를 못 밝혀 버그를 못 고친다.
 --     QUEST_REWARD     퀘스트 보상
 --
 --   재화 소멸 (경제에서 빠져나감 - 싱크)
 --     SHOP_BUY         상점 구매  골드 -
 --     SHOP_SELL        상점 판매  골드 +
+--     ITEM_USE         포션/스크롤 소비  아이템 -
 --
 --   기타
 --     LEVEL_UP
+--     ADMIN_ROLLBACK   운영자가 계정을 과거 시점으로 되돌림 (sp_rollback_account)
+--                      환수도 골드가 움직이는 일이라 로그를 남긴다. 안 남기면
+--                      다음 연속성 검사에서 복제 버그로 오탐된다.
 --
 --  생성과 소멸을 구분해 넣는 이유: "하루에 골드가 얼마나 새로 생기고
 --  얼마나 사라지나"를 집계해야 경제 밸런싱이 되고,
@@ -420,6 +699,20 @@ CREATE TABLE IF NOT EXISTS mmorpg_log.game_log (
 --  서버 코드에 버그가 생겨도 로그는 조작될 수 없다. 감사 로그의 기본 요건.
 --  조회/분석은 운영자가 root 나 별도 읽기전용 계정으로 한다.
 GRANT INSERT ON mmorpg_log.* TO 'mmo_server'@'localhost';
+
+-- ------------------------------------------------------------
+--  분석 전용 계정 (읽기만)
+--
+--  탐지/환수 산정/보상 산정 쿼리를 root 로 돌리지 않기 위한 계정이다.
+--  사고를 조사하는 동안에는 조회를 아주 많이 하게 되는데,
+--  그때 실수로 UPDATE/DELETE 가 나가는 것을 권한으로 막는다.
+--  게임 DB 와 로그 DB 를 둘 다 읽지만, 어느 쪽도 고칠 수 없다.
+--
+--  실제 환수(UPDATE)나 백섭(PITR)은 이 계정으로 못 한다. 그건 root 로 한다.
+-- ------------------------------------------------------------
+CREATE USER IF NOT EXISTS 'mmo_analyst'@'localhost' IDENTIFIED BY 'analyst1234';
+GRANT SELECT ON mmorpg.*     TO 'mmo_analyst'@'localhost';
+GRANT SELECT ON mmorpg_log.* TO 'mmo_analyst'@'localhost';
 
 FLUSH PRIVILEGES;
 

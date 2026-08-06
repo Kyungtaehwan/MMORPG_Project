@@ -94,6 +94,34 @@ int CInventory::Find_EmptySlot()
     return INVEN_FULL;
 }
 
+// 서버 CPlayer::CanAddItem 과 같은 규칙으로 판정한다.
+//  스택 가능(포션1xxx / 스크롤2xxx / 기타4xxx)은 안 찬 같은 아이템 칸이 있으면 OK,
+//  그 외(장비3xxx)는 빈 칸이 있어야 OK.
+//  Find_SameItem 을 안 쓰는 이유: 그건 Type+이름으로 비교하는데,
+//  서버는 아이템 코드로 비교한다. 판정 기준이 다르면 서버와 답이 갈릴 수 있다.
+bool CInventory::Can_Add_Code(int iCode) const
+{
+    if (iCode <= 0) return false;
+
+    const int iCategory = iCode / 1000;
+    const bool bStackable = (iCategory == 1 || iCategory == 2 || iCategory == 4);
+
+    if (bStackable)
+    {
+        for (int i = 0; i < INVEN_SIZE; ++i)
+        {
+            if (!m_aSlot[i]) continue;
+            if (m_aSlot[i]->Get_ItemCode() == iCode && m_iStackCount[i] < STACK_FULL)
+                return true;    // 기존 스택에 더 담을 수 있음
+        }
+    }
+
+    for (int i = 0; i < INVEN_SIZE; ++i)
+        if (!m_aSlot[i]) return true;   // 빈 칸 있음
+
+    return false;
+}
+
 void CInventory::Add_Gold(int iAmount)
 {
     m_iGold += iAmount;

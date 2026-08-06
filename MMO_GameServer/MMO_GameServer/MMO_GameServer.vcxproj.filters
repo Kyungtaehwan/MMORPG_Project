@@ -64,6 +64,9 @@
     <Filter Include="Contents_Level\03.Zone_Manager\03_01.RaidMap">
       <UniqueIdentifier>{197bd57d-e425-414d-a04c-afd8ee1efd55}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Network_Level\03.DB_Manager\Log">
+      <UniqueIdentifier>{e02e57d4-ce34-41e2-9d9b-79ba4793590e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MainServer.cpp">
@@ -179,9 +182,12 @@
     <ClInclude Include="ServerConfig.h">
       <Filter>00.MainServer</Filter>
     </ClInclude>
+    <ClInclude Include="GameLog.h">
+      <Filter>Network_Level\03.DB_Manager\Log</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\db\procedures.sql">
+    <None Include="..\..\db\setup.sql">
       <Filter>Network_Level\03.DB_Manager</Filter>
     </None>
   </ItemGroup>

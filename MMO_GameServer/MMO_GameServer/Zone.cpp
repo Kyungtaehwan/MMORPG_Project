@@ -5,15 +5,13 @@
 #include "Protocol.h"
 #include "ServerItem.h"
 #include "StressMetrics.h"
+#include "DB_Manager.h"   // 거래 로그(EnqueueLog)
 #include <atomic>
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
 
-// 부하 테스트 빌드에선 전투/AI 이벤트 로그를 무음 처리한다.
-//   이유: 이 std::cout 들이 패킷 핸들러 안에서 실행돼 "처리시간"에 포함되고,
-//   콘솔 I/O는 느려서 고부하에서 지배적이 되어 p50/p99 측정을 왜곡한다.
-//   SLOG 로 바꾼 줄만 조용해지고, 시작/계측 출력(std::cout)은 그대로 둔다.
+// 부하 테스트 빌드에선 전투/AI 이벤트 로그를 무음
 #ifdef STRESS_TEST
 struct NullSink {
     template <class T> NullSink& operator<<(const T&) { return *this; }
@@ -1205,12 +1203,7 @@ PlayerRef CZone::FindNearestPlayer(MonsterRef pMonster)
 
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
-    // 반경은 시야(5)가 아니라 어그로 범위다. 이 값은 존마다 다르다.
-    //  - 일반 필드 : 3 (Monster.h 기본값. 시야보다 짧다)
-    //  - 레이드    : 8 (Zone_Manager 가 덮어씀. 시야보다 길다)
-    // 그래서 3x3 같은 고정 섹터 수로 짜면 안 되고 몬스터에서 값을 읽어야 한다.
-    // 시야 기준으로 좁히면 레이드에서만 어그로 안의 플레이어를 못 찾아
-    // 몬스터가 멍하니 서 있는, 존별로만 재현되는 버그가 된다.
+    // 반경은 시야(5)가 아니라 어그로 범위
     //  +1 은 부동소수 반경을 타일로 올림하면서 경계에서 놓치지 않기 위한 여유.
     const int32_t nRange = static_cast<int32_t>(pMonster->m_fAggroRange) + 1;
 
@@ -1248,10 +1241,7 @@ bool CZone::PlayerExistNear(MonsterRef pMonster)
 {
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
-    // 여긴 어그로 "해제" 판정이라 어그로보다 반경이 크다(히스테리시스).
-    //  - 일반 필드 : 4  (어그로 3)
-    //  - 레이드    : 13 (어그로 8 + 5)
-    // 이걸 좁게 잡으면 근처에 플레이어가 있는데도 추격을 그만두고 복귀해 버린다.
+    // 여긴 어그로 "해제" 판정이라 어그로보다 반경이 크다
     const int32_t nRange = static_cast<int32_t>(pMonster->m_fDeAggroRange) + 1;
 
     // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
@@ -1526,7 +1516,8 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
         FDropRoll roll = RollDrop();
         if (roll.bDrop)
             SpawnDrop(roll.code, roll.amount,
-                pMonster->m_fCurX, pMonster->m_fCurZ);
+                pMonster->m_fCurX, pMonster->m_fCurZ,
+                static_cast<int32_t>(pMonster->m_eType));
 
         // 경험치 지급 (막타플레이어에게만)
         int32_t nLevelUp = pPlayer->AddExp(pMonster->m_nExpReward);
@@ -1886,7 +1877,8 @@ void CZone::OnPlayerRespawn(PlayerRef pPlayer)
 // ================================================================
 //  아이템 드롭 / 획득
 // ================================================================
-void CZone::SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ)
+void CZone::SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ,
+                      int32_t nSrcMon)
 {
     FDrop made;
     {
@@ -1903,6 +1895,7 @@ void CZone::SpawnDrop(int32_t nCode, int32_t nAmount, float fX, float fZ)
         d.x      = fX;
         d.z      = fZ;
         d.active = true;
+        d.srcMon = nSrcMon;
         made = d;
     }
     Broadcast_AddDrop(made);
@@ -1915,7 +1908,7 @@ void CZone::OnPlayerPickup(PlayerRef pPlayer, uint32_t nDropId)
 {
     if (pPlayer->m_bDead) return;
 
-    int32_t nCode = 0, nAmount = 0;
+    int32_t nCode = 0, nAmount = 0, nSrcMon = -1;
     bool bFound = false;
     {
         std::lock_guard<std::mutex> lock(m_dropLock);
@@ -1929,8 +1922,14 @@ void CZone::OnPlayerPickup(PlayerRef pPlayer, uint32_t nDropId)
             float fDist = pPlayer->GetDistanceTo(d.x, d.z, nNow);
             if (fDist > 2.0f) return;
 
+            // 인벤 여유를 선점 전에 확인
+
+            if (d.code != ICODE_GOLD && !pPlayer->CanAddItem(d.code, d.amount))
+                return;   // 드롭은 바닥에 그대로 남는다
+
             nCode   = d.code;
             nAmount = d.amount;
+            nSrcMon = d.srcMon;
             d.active = false;   // 선점
             bFound = true;
             break;
@@ -1938,11 +1937,31 @@ void CZone::OnPlayerPickup(PlayerRef pPlayer, uint32_t nDropId)
     }
     if (!bFound) return;
 
-    // 인벤토리 반영 (서버 단일 진실)
+    // 인벤토리 반영
+    //  위에서 여유를 확인하고 선점했으므로 여기서는 실패 X
+    int32_t nBalance = 0;
     if (nCode == ICODE_GOLD)
-        pPlayer->AddGold(nAmount);
+        pPlayer->AddGold(nAmount, &nBalance);
     else
+    {
         pPlayer->AddItem(nCode, nAmount);
+        nBalance = pPlayer->GetGold();
+    }
+
+    // 거래 로그: 재화가 경제에 새로 생겨나는 지점(source).
+    char szDetail[32] = "mon=";
+    GameLog_SetStr(szDetail + 4, sizeof(szDetail) - 4,
+        (nSrcMon >= 0) ? MonsterTypeName(static_cast<MONSTER_TYPE>(nSrcMon))
+                       : "unknown");
+
+    CDB_Manager::Get_Instance()->EnqueueLog(MakeGameLog(
+        LogType::DROP_GAIN, pPlayer->m_szName,
+        nCode,
+        (nCode == ICODE_GOLD) ? 0 : nAmount,
+        (nCode == ICODE_GOLD) ? nAmount : 0,
+        nBalance,
+        nullptr,        // target 없음
+        szDetail));
 
     Broadcast_RemoveDrop(static_cast<int32_t>(nDropId));
     Send_InvenUpdate(pPlayer);
