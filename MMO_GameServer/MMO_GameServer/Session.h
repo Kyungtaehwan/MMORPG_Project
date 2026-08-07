@@ -11,6 +11,8 @@
 #include <queue>
 #include <vector>
 
+#include "SendBuffer.h"
+
 enum class IOType : uint8_t
 {
     Accept,
@@ -70,6 +72,10 @@ public:
 
     void        RegisterRecv();
     void        Send(void* pPacket, int32_t nSize);
+    // 브로드캐스트용. 이미 만들어진 페이로드를 그대로 받는다.
+    // USE_SEND_BUFFER 가 켜져 있으면 참조만 큐에 넣고, 꺼져 있으면
+    // 위의 Send(void*, int32_t) 로 그대로 넘어간다.
+    void        Send(const SendPayload& payload);
     void        Disconnect();
 
     void        OnRecvComplete(int32_t nNumOfBytes);
@@ -94,10 +100,20 @@ private:
 
     // send (세션당 순차 전송: 앞 패킷 완료 후 다음 전송 — 버퍼/오버랩 재사용 안전)
     CIOEvent             m_sendEvent{ IOType::Send };
-    uint8_t              m_sendBuf[SEND_BUF_SIZE] = {};
     std::mutex           m_sendLock;
-    std::queue<std::vector<uint8_t>> m_sendQueue;
     bool                 m_sending = false;
+
+#if USE_SEND_BUFFER
+    // 공유 버퍼 모드: 큐가 바이트열이 아니라 참조를 담는다.
+    // WSASend 가 공유 버퍼의 메모리를 직접 가리키므로 m_sendBuf 로의
+    // 복사가 통째로 사라진다. 대신 완료 통지가 올 때까지 그 버퍼가
+    // 살아 있어야 해서 m_sendingBuf 가 붙잡고 있는다.
+    std::queue<SendBufferRef> m_sendQueue;
+    SendBufferRef             m_sendingBuf;
+#else
+    uint8_t              m_sendBuf[SEND_BUF_SIZE] = {};
+    std::queue<std::vector<uint8_t>> m_sendQueue;
+#endif
 
     // accept
     CIOEvent             m_acceptEvent{ IOType::Accept };

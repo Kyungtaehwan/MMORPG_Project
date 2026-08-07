@@ -7,6 +7,7 @@
 #include "Monster_Manager.h"
 #include "Timer.h"
 #include "PathFinder.h"
+#include "SendBuffer.h"
 
 enum TILE_TYPE : uint8_t
 {
@@ -103,6 +104,8 @@ private:
                    int32_t nSrcMon = -1);
     void Send_AllDrops(PlayerRef pTo);
     void Send_AddDrop(PlayerRef pTo, const FDrop& drop);
+    // 브로드캐스트용. 한 번 만든 페이로드를 여러 명에게 재사용한다.
+    void Send_AddDrop(PlayerRef pTo, const SendPayload& payload);
     void Broadcast_AddDrop(const FDrop& drop);
     void Broadcast_RemoveDrop(int32_t nDropId);
 private:
@@ -120,6 +123,7 @@ private:
     void Broadcast_PlayerHit(PlayerRef pPlayer);
     
     void Send_AddMonster(PlayerRef pTo, MonsterRef pMonster);
+    void Send_AddMonster(PlayerRef pTo, const SendPayload& payload);
     void Send_RemoveMonster(PlayerRef pTo, int32_t nMonsterID);
     void Broadcast_AddMonster(MonsterRef pMonster);
     void Broadcast_MoveMonster(MonsterRef pMonster);
@@ -152,6 +156,7 @@ private:
     void Send_AddPlayer(PlayerRef pTo, PlayerRef pTarget);
     void Send_RemovePlayer(PlayerRef pTo, int32_t nTargetID);
     void Send_MovePlayer(PlayerRef pTo, PlayerRef pMoved, uint32_t nMoveTime);
+    void Send_MovePlayer(PlayerRef pTo, const SendPayload& payload);
 
 private:
     int32_t  m_nZoneID = -1;

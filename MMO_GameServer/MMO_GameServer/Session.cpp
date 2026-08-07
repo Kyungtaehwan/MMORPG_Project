@@ -28,7 +28,9 @@ void CSession::Initialize()
     // 아직 연결X
 
     ZeroMemory(m_recvBuf, sizeof(m_recvBuf));
+#if !USE_SEND_BUFFER
     ZeroMemory(m_sendBuf, sizeof(m_sendBuf));
+#endif
     // 버퍼 초기화
 }
 
@@ -70,6 +72,11 @@ void CSession::Send(void* pPacket, int32_t nSize)
     if (!m_connected) return;
     if (nSize <= 0 || nSize > SEND_BUF_SIZE) return;
 
+#if USE_SEND_BUFFER
+    // 수신자가 한 명뿐인 경로. 여기서 버퍼를 만들어 아래 공용 경로로 넘긴다.
+    Send(MakeSendBuffer(pPacket, nSize));
+    return;
+#else
     std::lock_guard<std::mutex> lock(m_sendLock);
 
     // 큐에 적재. 송신 중이면 이전 전송 완료 후 순차 전송된다.
@@ -82,17 +89,59 @@ void CSession::Send(void* pPacket, int32_t nSize)
         m_sending = true;
         StartSend_Locked();
     }
+#endif
+}
+
+// 브로드캐스트 경로. 이미 만들어진 페이로드를 받는다.
+void CSession::Send(const SendPayload& payload)
+{
+#if USE_SEND_BUFFER
+    if (!m_connected) return;
+    if (!payload) return;
+    if (payload->Size() <= 0 || payload->Size() > SEND_BUF_SIZE) return;
+
+    std::lock_guard<std::mutex> lock(m_sendLock);
+
+    // 바이트열을 복사하지 않는다. 참조 하나만 큐에 얹는다.
+    m_sendQueue.push(payload);
+
+    if (!m_sending)
+    {
+        m_sending = true;
+        StartSend_Locked();
+    }
+#else
+    // 기준선: 예전과 완전히 같은 경로로 흘려보낸다.
+    Send(const_cast<void*>(payload.pData), payload.nSize);
+#endif
 }
 
 // m_sendLock 보유 상태에서 호출. 큐 앞 패킷 1개를 m_sendBuf로 복사해 WSASend.
+// (USE_SEND_BUFFER 가 켜져 있으면 복사 없이 공유 버퍼를 직접 가리킨다)
 void CSession::StartSend_Locked()
 {
     if (m_sendQueue.empty())
     {
         m_sending = false;
+#if USE_SEND_BUFFER
+        m_sendingBuf.reset();
+#endif
         return;
     }
 
+    WSABUF wsaBuf;
+
+#if USE_SEND_BUFFER
+    // 큐에서 꺼낸 참조를 m_sendingBuf 로 옮겨 둔다.
+    // 여기서 그냥 버리면 WSASend 가 아직 읽고 있는 메모리가 해제된다.
+    m_sendingBuf = m_sendQueue.front();
+    m_sendQueue.pop();
+
+    m_sendEvent.Reset();
+
+    wsaBuf.buf = reinterpret_cast<char*>(const_cast<uint8_t*>(m_sendingBuf->Data()));
+    wsaBuf.len = m_sendingBuf->Size();
+#else
     std::vector<uint8_t>& front = m_sendQueue.front();
     int32_t nSize = static_cast<int32_t>(front.size());
     memcpy(m_sendBuf, front.data(), nSize);
@@ -100,9 +149,9 @@ void CSession::StartSend_Locked()
 
     m_sendEvent.Reset();
 
-    WSABUF wsaBuf;
     wsaBuf.buf = reinterpret_cast<char*>(m_sendBuf);
     wsaBuf.len = nSize;
+#endif
 
     DWORD dwSentBytes = 0;
     int nResult = WSASend(
@@ -116,6 +165,9 @@ void CSession::StartSend_Locked()
         {
             std::cout << "[CSession] WSASend 오류: " << nErr << std::endl;
             m_sending = false;
+#if USE_SEND_BUFFER
+            m_sendingBuf.reset();
+#endif
             Disconnect();
         }
     }
@@ -168,6 +220,10 @@ void CSession::OnSendComplete()
 {
     // 이전 전송 완료 - 큐에 남은 다음 패킷 전송
     std::lock_guard<std::mutex> lock(m_sendLock);
+#if USE_SEND_BUFFER
+    // 커널이 다 읽었으므로 이제 놓아준다. 마지막 참조였다면 여기서 해제된다.
+    m_sendingBuf.reset();
+#endif
     StartSend_Locked();
 }
 

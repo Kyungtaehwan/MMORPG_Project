@@ -4,16 +4,28 @@
 #include <mutex>
 #include <type_traits>
 
+#define DISABLE             0
+#define ENABLE              1
+
 //  아래 토글 값을 바꾸고  전체 리빌드.
 #define RW_LOCK_MUTEX       0   // std::mutex
 #define RW_LOCK_SPIN        1   // 구현한 스핀락
 #define RW_LOCK_SHARED      2   // std::shared_mutex
 
-#define USE_RW_LOCK         RW_LOCK_MUTEX
+#define USE_RW_LOCK         RW_LOCK_SPIN
 
 // 아직 구현 전. 만들 때 이 플래그로 갈라 넣는다.
-#define USE_MEMORY_POOL     0
-#define USE_SECTOR_AOI      1
+#define USE_MEMORY_POOL     DISABLE
+#define USE_SECTOR_AOI      ENABLE
+
+// 브로드캐스트 시 같은 패킷을 수신자 수만큼 만들지 않고
+// 한 번만 직렬화해 shared_ptr 로 참조만 넘긴다. (SendBuffer.h)프리텐다드 Regular
+// 전송 횟수는 그대로다 - 그건 다음 단계인 송신 배칭의 몫.
+#define USE_SEND_BUFFER     ENABLE
+
+// 힙 할당 횟수
+// 성능 측정시에는 병목 방지로 끄기
+#define USE_ALLOC_COUNTER   ENABLE
 
 // 섹터 한 변의 타일 수. 반드시 VIEW_RANGE 이상이어야 3x3 섹터가 시야를 덮음
 #define SECTOR_SIZE         6
@@ -74,6 +86,13 @@ inline std::string GetServerConfigTag()
 #if USE_SECTOR_AOI
     tag += "SECTOR+";
 #endif
+#if USE_SEND_BUFFER
+    tag += "SENDBUF+";
+#endif
+    // 계측이 켜진 빌드의 수치를 성능 표에 잘못 적는 사고를 막는다.
+#if USE_ALLOC_COUNTER
+    tag += "ALLOC+";
+#endif
 
     if (tag.empty())
         return "BASE";
@@ -99,6 +118,13 @@ inline void PrintServerConfig()
     std::cout << "  SECTOR_AOI  : " << (USE_SECTOR_AOI  ? "ON" : "off");
 #if USE_SECTOR_AOI
     std::cout << "  (SECTOR_SIZE " << SECTOR_SIZE << ")";
+#endif
+    std::cout << std::endl;
+    std::cout << "  SEND_BUFFER : " << (USE_SEND_BUFFER ? "ON" : "off")
+              << "  (브로드캐스트 1회 직렬화)" << std::endl;
+    std::cout << "  ALLOC_COUNT : " << (USE_ALLOC_COUNTER ? "ON" : "off");
+#if USE_ALLOC_COUNTER
+    std::cout << "  <- 계측 켜짐. 이 빌드의 수치는 성능 표에 쓰지 말 것";
 #endif
     std::cout << std::endl;
     std::cout << "=============================" << std::endl;

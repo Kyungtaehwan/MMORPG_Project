@@ -611,8 +611,22 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
     std::unordered_set<int32_t> setOld(vOldView.begin(), vOldView.end());
     std::unordered_set<int32_t> setNew(vNewView.begin(), vNewView.end());
 
+    // 이동 패킷은 나와 시야 안 전원에게 내용이 똑같다.
+    // 수신자마다 다시 채울 이유가 없어 한 번만 만들어 돌려 쓴다.
+    SC_MOVE_PLAYER_PACKET movePkt = {};
+    movePkt.header.size = sizeof(movePkt);
+    movePkt.header.id = SC_MOVE_PLAYER;
+    movePkt.playerID = pPlayer->m_nPlayerID;
+    movePkt.fCurX = pPlayer->m_fCurX;
+    movePkt.fCurZ = pPlayer->m_fCurZ;
+    movePkt.fDestX = pPlayer->m_fDestX;
+    movePkt.fDestZ = pPlayer->m_fDestZ;
+    movePkt.fSpeed = pPlayer->m_fSpeed;
+    movePkt.moveTime = nMoveTime;
+    SendPayload movePayload = MAKE_SEND_PAYLOAD(movePkt);
+
     // 나 자신에게 이동 확인 패킷
-    Send_MovePlayer(pPlayer, pPlayer, nMoveTime);
+    Send_MovePlayer(pPlayer, movePayload);
 
     for (int32_t nNearID : setNew)
     {
@@ -633,7 +647,7 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
         else
         {
             // ---- 계속 시야 안 ----
-            Send_MovePlayer(pNear, pPlayer, nMoveTime);
+            Send_MovePlayer(pNear, movePayload);
         }
     }
 
@@ -706,6 +720,15 @@ void CZone::Send_MovePlayer(PlayerRef pTo, PlayerRef pMoved, uint32_t nMoveTime)
     pkt.fSpeed = pMoved->m_fSpeed;
     pkt.moveTime = nMoveTime;
     pSession->Send(&pkt, sizeof(pkt));
+}
+
+// 이미 만들어 둔 이동 패킷을 그대로 보낸다. (UpdateViewAndBroadcast 전용)
+void CZone::Send_MovePlayer(PlayerRef pTo, const SendPayload& payload)
+{
+    auto pSession = CSession_Manager::Get_Instance()->Get_Session(pTo->m_nSessionID);
+    if (!pSession) return;
+
+    pSession->Send(payload);
 }
 
 // ================================================================
@@ -1292,6 +1315,16 @@ void CZone::Send_AddMonster(PlayerRef pTo, MonsterRef pMonster)
     pSession->Send(&pkt, sizeof(pkt));
 }
 
+// 이미 만들어 둔 몬스터 생성 패킷을 그대로 보낸다.
+void CZone::Send_AddMonster(PlayerRef pTo, const SendPayload& payload)
+{
+    auto pSession = CSession_Manager::Get_Instance()
+        ->Get_Session(pTo->m_nSessionID);
+    if (!pSession) return;
+
+    pSession->Send(payload);
+}
+
 void CZone::Send_RemoveMonster(PlayerRef pTo, int32_t nMonsterID)
 {
     auto pSession = CSession_Manager::Get_Instance()
@@ -1307,6 +1340,21 @@ void CZone::Send_RemoveMonster(PlayerRef pTo, int32_t nMonsterID)
 
 void CZone::Broadcast_AddMonster(MonsterRef pMonster)
 {
+    // 수신자와 무관하게 내용이 같으므로 루프 밖에서 한 번만 만든다.
+    SC_ADD_MONSTER_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_ADD_MONSTER;
+    pkt.monsterID = pMonster->m_nMonsterID;
+    pkt.monsterType = static_cast<uint8_t>(pMonster->m_eType);
+    pkt.state = static_cast<uint8_t>(pMonster->m_eState);
+    pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
+    pkt.fCurX = pMonster->m_fCurX;
+    pkt.fCurZ = pMonster->m_fCurZ;
+    pkt.fDestX = pMonster->m_fDestX;
+    pkt.fDestZ = pMonster->m_fDestZ;
+    pkt.fSpeed = pMonster->m_fSpeed;
+    SendPayload addPayload = MAKE_SEND_PAYLOAD(pkt);
+
     // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
     // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
     static thread_local std::vector<int32_t> vCandidates;
@@ -1323,7 +1371,7 @@ void CZone::Broadcast_AddMonster(MonsterRef pMonster)
         if (pPlayer->m_monsterViewList.count(pMonster->m_nMonsterID) == 0)
             continue;
 
-        Send_AddMonster(pPlayer, pMonster);
+        Send_AddMonster(pPlayer, addPayload);
     }
 }
 
@@ -1340,6 +1388,7 @@ void CZone::Broadcast_MoveMonster(MonsterRef pMonster)
     pkt.fSpeed = pMonster->m_fSpeed;
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     pkt.moveTime = static_cast<uint32_t>(GetTickCount64());
+    SendPayload movePayload = MAKE_SEND_PAYLOAD(pkt);
 
     // 몬스터 주변 섹터의 플레이어만 후보
     static thread_local std::vector<int32_t> vCandidates;
@@ -1374,7 +1423,7 @@ void CZone::Broadcast_MoveMonster(MonsterRef pMonster)
         {
             if (!bWasInView)
                 Send_AddMonster(pPlayer, pMonster);   // 새로 진입 → 먼저 생성
-            pSession->Send(&pkt, sizeof(pkt));         // 이어서 이동 갱신
+            pSession->Send(movePayload);               // 이어서 이동 갱신
         }
         else if (bWasInView)
         {
@@ -1392,6 +1441,7 @@ void CZone::Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID)
     pkt.state = static_cast<uint8_t>(pMonster->m_eState);
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     pkt.targetID = nTargetID;
+    SendPayload statePayload = MAKE_SEND_PAYLOAD(pkt);
 
     // 이 몬스터가 시야에 든 플레이어만 대상이므로 주변 섹터로 좁혀도 안전
     // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
@@ -1413,7 +1463,7 @@ void CZone::Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID)
 
         auto pSession = CSession_Manager::Get_Instance()
             ->Get_Session(pPlayer->m_nSessionID);
-        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+        if (pSession) pSession->Send(statePayload);
     }
 }
 
@@ -1724,6 +1774,7 @@ void CZone::Broadcast_PlayerState(PlayerRef pPlayer, PLAYER_STATE eState)
     pkt.dir = pPlayer->m_eDir;      // 공격자가 바라보는 방향
     pkt.fCurX = pPlayer->m_fCurX;   // 공격 확정 위치(관찰자 오버슈트 방지)
     pkt.fCurZ = pPlayer->m_fCurZ;
+    SendPayload statePayload = MAKE_SEND_PAYLOAD(pkt);
 
     std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
     for (int32_t nNearID : pPlayer->m_viewList)
@@ -1733,7 +1784,7 @@ void CZone::Broadcast_PlayerState(PlayerRef pPlayer, PLAYER_STATE eState)
 
         auto pSession = CSession_Manager::Get_Instance()
             ->Get_Session(pNear->m_nSessionID);
-        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+        if (pSession) pSession->Send(statePayload);
     }
 }
 
@@ -1747,11 +1798,12 @@ void CZone::Broadcast_PlayerHit(PlayerRef pPlayer)
     pkt.nMaxHp = pPlayer->m_iMaxHp;
     pkt.fCurX = pPlayer->m_fCurX;   // OnMonsterAttackHit에서 커밋한 정지 위치
     pkt.fCurZ = pPlayer->m_fCurZ;
+    SendPayload hitPayload = MAKE_SEND_PAYLOAD(pkt);
 
     // 피격 당사자에게
     auto pSession = CSession_Manager::Get_Instance()
         ->Get_Session(pPlayer->m_nSessionID);
-    if (pSession) pSession->Send(&pkt, sizeof(pkt));
+    if (pSession) pSession->Send(hitPayload);
 
     // viewList 내 다른 플레이어들에게
     std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
@@ -1762,7 +1814,7 @@ void CZone::Broadcast_PlayerHit(PlayerRef pPlayer)
 
         auto pNearSession = CSession_Manager::Get_Instance()
             ->Get_Session(pNear->m_nSessionID);
-        if (pNearSession) pNearSession->Send(&pkt, sizeof(pkt));
+        if (pNearSession) pNearSession->Send(hitPayload);
     }
 }
 
@@ -1775,6 +1827,7 @@ void CZone::Broadcast_MonsterHit(MonsterRef pMonster)
     pkt.nHp = pMonster->m_nHp;
     pkt.nMaxHp = pMonster->m_nMaxHp;
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
+    SendPayload hitPayload = MAKE_SEND_PAYLOAD(pkt);
 
     // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
     // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
@@ -1795,7 +1848,7 @@ void CZone::Broadcast_MonsterHit(MonsterRef pMonster)
 
         auto pSession = CSession_Manager::Get_Instance()
             ->Get_Session(pPlayer->m_nSessionID);
-        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+        if (pSession) pSession->Send(hitPayload);
     }
 }
 void CZone::OnPlayerRespawn(PlayerRef pPlayer)
@@ -1983,9 +2036,29 @@ void CZone::Send_AddDrop(PlayerRef pTo, const FDrop& drop)
     pSession->Send(&pkt, sizeof(pkt));
 }
 
+// 이미 만들어 둔 드롭 생성 패킷을 그대로 보낸다.
+void CZone::Send_AddDrop(PlayerRef pTo, const SendPayload& payload)
+{
+    auto pSession = CSession_Manager::Get_Instance()->Get_Session(pTo->m_nSessionID);
+    if (!pSession) return;
+
+    pSession->Send(payload);
+}
+
 // 드롭은 시야와 무관하게 존 전원에게 보냄
 void CZone::Broadcast_AddDrop(const FDrop& drop)
 {
+    // 존 전원에게 같은 내용이 나가므로 루프 밖에서 한 번만 만든다.
+    SC_ADD_DROP_PACKET pkt = {};
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id = SC_ADD_DROP;
+    pkt.dropId   = drop.id;
+    pkt.itemCode = drop.code;
+    pkt.amount   = drop.amount;
+    pkt.fX       = drop.x;
+    pkt.fZ       = drop.z;
+    SendPayload dropPayload = MAKE_SEND_PAYLOAD(pkt);
+
     static thread_local std::vector<int32_t> vAll;   // 버퍼 재사용(할당 제거)
     {
         READ_LOCK(m_zoneLock);
@@ -1995,7 +2068,7 @@ void CZone::Broadcast_AddDrop(const FDrop& drop)
     for (int32_t nID : vAll)
     {
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
-        if (pPlayer) Send_AddDrop(pPlayer, drop);
+        if (pPlayer) Send_AddDrop(pPlayer, dropPayload);
     }
 }
 
@@ -2005,6 +2078,7 @@ void CZone::Broadcast_RemoveDrop(int32_t nDropId)
     pkt.header.size = sizeof(pkt);
     pkt.header.id = SC_REMOVE_DROP;
     pkt.dropId = nDropId;
+    SendPayload removePayload = MAKE_SEND_PAYLOAD(pkt);
 
     static thread_local std::vector<int32_t> vAll;   // 버퍼 재사용(할당 제거)
     {
@@ -2017,7 +2091,7 @@ void CZone::Broadcast_RemoveDrop(int32_t nDropId)
         PlayerRef pPlayer = CPlayer_Manager::Get_Instance()->Get_Player(nID);
         if (!pPlayer) continue;
         auto pSession = CSession_Manager::Get_Instance()->Get_Session(pPlayer->m_nSessionID);
-        if (pSession) pSession->Send(&pkt, sizeof(pkt));
+        if (pSession) pSession->Send(removePayload);
     }
 }
 
