@@ -7,6 +7,7 @@
 #include "Zone_Manager.h"
 #include "Protocol.h"
 #include "StressMetrics.h"
+#include "AllocCounter.h"
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -594,6 +595,24 @@ void CIOCP_Server::DebugConsoleThread()
              + "   " + Num(aoiMsPs / 10.0, 1) + "%코어"
              + "   max " + std::to_string(aoi.maxUs) + "us");
         Line(barSingle);
+
+#if USE_ALLOC_COUNTER
+        // 힙 할당 조사. "1패킷당" 이 핵심 숫자다 - 부하가 달라져도 비교가 된다.
+        {
+            AllocMetrics::Snapshot al = AllocMetrics::SnapshotAndReset();
+            const double allocPs = static_cast<double>(al.allocs) / dtSec;
+            const double freePs  = static_cast<double>(al.frees)  / dtSec;
+            const double mbPs    = (static_cast<double>(al.bytes) / (1024.0 * 1024.0)) / dtSec;
+            const double perPkt  = ms.count
+                ? static_cast<double>(al.allocs) / static_cast<double>(ms.count) : 0.0;
+
+            Line(" 할당  " + Num(allocPs, 0) + " 회/s"
+                 + "   해제 " + Num(freePs, 0) + " 회/s"
+                 + "   " + Num(mbPs, 1) + " MB/s"
+                 + "   1패킷당 " + Num(perPkt, 1) + " 회");
+            Line(barSingle);
+        }
+#endif
 
         // ---- 접속 플레이어 목록: 소수일 때만(부하 중엔 생략) ----
         int nListed = 0;

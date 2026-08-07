@@ -135,6 +135,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AllocCounter.cpp" />
     <ClCompile Include="Monster.cpp" />
     <ClCompile Include="Monster_Manager.cpp" />
     <ClCompile Include="Packet_Handler.cpp" />
@@ -161,6 +162,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AccountDB.h" />
+    <ClInclude Include="AllocCounter.h" />
     <ClInclude Include="Monster.h" />
     <ClInclude Include="Monster_Manager.h" />
     <ClInclude Include="Packet_Handler.h" />
@@ -171,6 +173,7 @@
     <ClInclude Include="Player_Manager.h" />
     <ClInclude Include="Protocol.h" />
     <ClInclude Include="RWLock.h" />
+    <ClInclude Include="SendBuffer.h" />
     <ClInclude Include="ServerConfig.h" />
     <ClInclude Include="Session.h" />
     <ClInclude Include="Session_Manager.h" />
