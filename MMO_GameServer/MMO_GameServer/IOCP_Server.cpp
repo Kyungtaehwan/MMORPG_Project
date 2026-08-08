@@ -10,6 +10,7 @@
 #include "AllocCounter.h"
 #include <iostream>
 #include <sstream>
+#include <deque>
 #include <string>
 #include <iomanip>
 #include <cstring>
@@ -495,6 +496,28 @@ void CIOCP_Server::DebugConsoleThread()
     // 목록에 보여줄 최대 인원. 이 수를 넘으면 숫자만 표시한다.
     constexpr int LIST_MAX = 8;
 
+    // ================================================================
+    //  측정창 요약 (성능 표에 적는 숫자는 여기서 나온 것만 쓴다)
+    //
+    //  화면의 0.5초 지표는 "지금 상태"를 보는 용도지 기록용이 아니다.
+    //  0.5초 창에는 패킷이 수백 개뿐이라 p99 가 상위 6~9개 표본으로 계산돼
+    //  같은 부하에서도 프레임마다 2배씩 흔들린다(900봇 실측 5.63~11.26ms).
+    //  그래서 WINDOW_SEC 동안 칸 개수를 그대로 누적한 뒤 창 끝에서 한 번만
+    //  백분위를 계산한다. 백분위수는 평균낼 수 없으므로 이 방법뿐이다.
+    //  누적은 콘솔 스레드가 하므로 패킷 처리 경로에는 비용이 전혀 늘지 않는다.
+    // ================================================================
+    constexpr double WINDOW_SEC = 60.0;
+
+    uint64_t winBuckets[StressMetrics::BUCKET_COUNT] = {};
+    uint64_t winCount = 0, winSumUs = 0;
+    uint32_t winMaxUs = 0;
+    uint64_t winAoiCalls = 0, winAoiSumUs = 0, winAoiScanned = 0;
+    double   winElapsed = 0.0;
+    int      winIndex = 0;
+
+    // 마지막 요약 3개를 화면에 남겨둔다(측정 끝나고 그대로 받아적게).
+    std::deque<std::string> summaries;
+
     while (true)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -517,16 +540,64 @@ void CIOCP_Server::DebugConsoleThread()
         double aoiScan  = aoi.calls ? (double)aoi.sumScanned / aoi.calls : 0.0;// 1회당 순회 N
         double aoiMsPs  = (aoi.sumUs / 1000.0) / dtSec;                        // 초당 총 소요 ms
 
-        // 접속/대기 수는 카운터라 O(1)이다. 배열을 훑지 않는다.
+        // 접속 수는 카운터라 O(1)이다. 배열을 훑지 않는다.
         const int nConnected = pSM->GetConnectedCount();
-        const int nAlloc     = pSM->GetCount();
-        const int nWaiting   = nAlloc - nConnected;
+
+        // ---- 측정창 누적 ----
+        for (int i = 0; i < StressMetrics::BUCKET_COUNT; ++i)
+            winBuckets[i] += ms.buckets[i];
+        winCount  += ms.count;
+        winSumUs  += ms.sumUs;
+        if (ms.maxUs > winMaxUs) winMaxUs = ms.maxUs;
+        winAoiCalls   += aoi.calls;
+        winAoiSumUs   += aoi.sumUs;
+        winAoiScanned += aoi.sumScanned;
+        winElapsed    += dtSec;
+
+        if (winElapsed >= WINDOW_SEC)
+        {
+            // 두 줄로 나눈다. Line() 의 자르기는 바이트 기준이라 한글이 섞인
+            // 긴 줄은 화면에서 잘려 max·AOI 가 안 보인다(실제로 겪음).
+            ++winIndex;
+            std::ostringstream head, body;
+            head << std::fixed << std::setprecision(0)
+                 << " [요약 " << winIndex << "] " << winElapsed << "s"
+                 << "  접속 " << nConnected << "  표본 " << winCount;
+
+            if (winCount == 0)
+            {
+                body << "   (처리한 패킷 없음)";
+            }
+            else
+            {
+                const uint32_t p50  = StressMetrics::PercentileOf(winBuckets, winCount, 0.50);
+                const uint32_t p99  = StressMetrics::PercentileOf(winBuckets, winCount, 0.99);
+                const uint32_t p999 = StressMetrics::PercentileOf(winBuckets, winCount, 0.999);
+                const double aoiScanW = winAoiCalls
+                    ? static_cast<double>(winAoiScanned) / winAoiCalls : 0.0;
+                const double aoiCoreW = (static_cast<double>(winAoiSumUs) / 1000000.0)
+                    / winElapsed * 100.0;
+
+                body << std::fixed << std::setprecision(2)
+                     << "   p50 " << (p50 / 1000.0)
+                     << "  p99 " << (p99 / 1000.0)
+                     << "  p99.9 " << (p999 / 1000.0)
+                     << "  max " << (winMaxUs / 1000.0) << " ms"
+                     << std::setprecision(1)
+                     << " | AOI N " << aoiScanW << "  " << aoiCoreW << "% core";
+            }
+            summaries.push_back(head.str());
+            summaries.push_back(body.str());
+            while (summaries.size() > 6) summaries.pop_front();   // 요약 3개(=6줄)
+
+            for (int i = 0; i < StressMetrics::BUCKET_COUNT; ++i) winBuckets[i] = 0;
+            winCount = winSumUs = 0; winMaxUs = 0;
+            winAoiCalls = winAoiSumUs = winAoiScanned = 0;
+            winElapsed = 0.0;
+        }
 
         // ---- CPU / 메모리 : 최적화 전후 "비용" 비교의 핵심 지표 ----
         const FProcStat proc = SampleProcStat(dtSec, ms.count);
-        //  접속 1명당 메모리. 메모리 풀 전후 비교용.
-        const double memKbPerConn = nConnected
-            ? (proc.workingSetMB * 1024.0) / nConnected : 0.0;
 
         // ---- 프레임을 문자열로 다 만든 뒤 한 번에 출력한다 ----
         //  줄마다 콘솔 폭까지 공백을 채우므로 이전 화면의 잔상이 남지 않는다.
@@ -555,46 +626,48 @@ void CIOCP_Server::DebugConsoleThread()
         Line(barDouble);
         Line(" MMO GameServer  [" + GetServerConfigTag() + "]"
              + "   포트 7777   워커 " + std::to_string(m_workerThreads.size()));
+        // 지표는 4개로 줄였다. 하나하나 "무엇을 판단하는 숫자인지" 말할 수 있어야
+        // 측정이 성립하므로, 설명 못 하는 숫자는 화면에 두지 않는다.
+        //  1) 서버 처리 p50/p99  - 서버가 느린가 (원인 진단)
+        //  2) CPU 코어           - 서버가 포화인가 (봇 탓/서버 탓 판별)
+        //  3) AOI                - 어느 함수가 범인인가 (섹터 분할 근거)
+        //  4) 메모리             - 누수 감지 (보험)
+        // 지연 avg 는 뺐다 - 평균은 빠른 다수에 지배돼 꼬리를 가린다.
         Line(barDouble);
-        Line(" 접속 " + std::to_string(nConnected) + " 명"
-             + "    Accept 대기 " + std::to_string(nWaiting)
-             + "    전체 슬롯 " + std::to_string(nAlloc));
+        Line(" 접속 " + std::to_string(nConnected) + " 명");
         Line(barSingle);
         Line(" 패킷  " + Num(pps, 0) + " pkt/s"
              + "   (구간 " + std::to_string(ms.count) + " 건 / " + Num(dtSec, 2) + "s)");
-        Line(" 지연  avg " + Num(ms.avgUs / 1000.0, 2) + "ms"
-             + "   p50 " + Num(ms.p50Us / 1000.0, 2) + "ms"
+        Line(" 지연  p50 " + Num(ms.p50Us / 1000.0, 2) + "ms"
              + "   p99 " + Num(ms.p99Us / 1000.0, 2) + "ms"
              + "   max " + Num(ms.maxUs / 1000.0, 2) + "ms");
-
-        std::string workerLine = " 워커  ";
-        if (ms.workerCount == 0)
-        {
-            workerLine += "(처리 없음)";
-        }
-        else
-        {
-            for (int w = 0; w < ms.workerCount && w < 12; ++w)
-                workerLine += std::to_string(ms.worker[w]) + " ";
-        }
-        Line(workerLine);
-
         Line(barSingle);
-        Line(" CPU   " + Num(proc.cpuPercent, 1) + "%"
-             + "   " + Num(proc.cpuCores, 2) + "코어/"
+        Line(" CPU   " + Num(proc.cpuCores, 2) + "코어/"
              + std::to_string(std::thread::hardware_concurrency())
-             + "   1건당 " + Num(proc.cpuUsPerPkt, 2) + "us"
-             + "   (" + Num(CPU_WINDOW_SEC, 0) + "초 평균)");
-        Line(" 메모리 " + Num(proc.workingSetMB, 1) + " MB"
-             + "   " + Num(memKbPerConn, 1) + " KB/접속");
-
+             + "   (" + Num(proc.cpuPercent, 1) + "%, "
+             + Num(CPU_WINDOW_SEC, 0) + "초 평균)");
+        Line(" 메모리 " + Num(proc.workingSetMB, 1) + " MB");
         Line(barSingle);
         Line(" AOI   " + Num(aoiCps, 0) + " 회/s"
              + "   평균N " + Num(aoiScan, 1)
              + "   1회 " + Num(aoiAvgUs, 1) + "us"
-             + "   " + Num(aoiMsPs / 10.0, 1) + "%코어"
-             + "   max " + std::to_string(aoi.maxUs) + "us");
+             + "   " + Num(aoiMsPs / 10.0, 1) + "%코어");
         Line(barSingle);
+
+        // ---- 측정창 요약: 손으로 받아적을 값은 위가 아니라 여기 ----
+        //  위의 0.5초 지연/AOI 줄은 "지금 상태"를 보는 용도다(계속 흔들린다).
+        //  기록은 파일로 남기지 않는다 - 아래 줄을 보고 사람이 적는다.
+        {
+            const int leftSec = static_cast<int>(WINDOW_SEC - winElapsed + 0.5);
+            Line(" 측정창 " + Num(WINDOW_SEC, 0) + "초  (다음 요약까지 "
+                 + std::to_string(leftSec < 0 ? 0 : leftSec) + "초)"
+                 + "   <- 받아적을 값은 아래");
+            if (summaries.empty())
+                Line("   (아직 없음)");
+            else
+                for (const std::string& s : summaries) Line(s);
+            Line(barSingle);
+        }
 
 #if USE_ALLOC_COUNTER
         // 힙 할당 조사. "1패킷당" 이 핵심 숫자다 - 부하가 달라져도 비교가 된다.
