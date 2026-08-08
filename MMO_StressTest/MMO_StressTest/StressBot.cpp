@@ -3,13 +3,17 @@
 //   - 우리 헤더는 PacketHeader{uint16 size; uint16 id}
 //   - 로그인은 id="bot_<n>" 로 보내면 서버가 STRESS_TEST 빌드에서 DB 없이 입장시킴
 //   - 좌표는 float 아이소, 플레이어 속도 1타일/초(서버 해킹검증 허용오차 2타일)
-//   - moveTime = (uint32)GetTickCount64() 로 스탬프 서버 위치 역산
+//   - moveTime = QPC 기반 uint32 ms 스탬프. 서버는 해석하지 않고 브로드캐스트에
+//     그대로 복사해 돌려주므로(Zone.cpp) 이 값이 곧 왕복 측정용 도장이다.
 //
 //  측정(콘솔, 1초 주기):
 //   - 접속 봇 수, 초당 송신/수신 패킷(pps), 수신 KB/s
-//   - 종단 지연: SC_MOVE_PLAYER 의 moveTime 을 (지금-그때)로 계산.
-//     모든 봇이 한 프로세스/한 시계라, 이는 "누군가 이동 -> 서버 처리 ->
-//     내 시야로 브로드캐스트 -> 수신"까지의 전체 파이프라인 지연이다.
+//   - 지연은 SC_MOVE_PLAYER 의 moveTime 으로 재되, 반드시 두 가지를 갈라서 낸다.
+//       왕복(self)  : 내가 보낸 이동이 서버를 돌아 나에게 온 시간.
+//                     SLO(왕복 p99 <= 100ms) 판정과 램프 제어는 이것만 쓴다.
+//       전파(bcast) : 남이 움직인 걸 내가 보기까지 걸린 시간. 참고 지표.
+//     예전엔 둘을 섞어 한 통에 넣었는데, SC_MOVE_PLAYER 의 대부분이 브로드캐스트라
+//     통계가 사실상 전파시간이었다(= 교수님 기준과 다른 값을 비교하고 있었다).
 //
 //  서버측 순수 처리지연(p50/p99)·워커별 건수는 서버 콘솔에서 따로 본다.
 // ================================================================
@@ -56,11 +60,22 @@ static const int CONTROL_TICK_MS  = 30;   // 이동 구동 루프 주기
 static const int DEST_IDLE_MS     = 150;  // 목적지 도착 후 다음 목적지까지 대기
 static const float MOVE_SPEED     = 1.0f; // 타일/초 (서버와 동일해야 함)
 
-// ramp 모드: 최근 종단 평균지연이 임계 아래면 계속 증설, 넘으면 포화로 보고 정지.
-//   임계를 크게(5000ms) 잡아 "병목이 있어도 계속 밀어" 지연이 크게 뜨는 지점까지 관찰.
-static const int   RAMP_ADD_BATCH      = 50;    // 결정마다 붙일 봇 수
-static const int   RAMP_DECISION_MS    = 1000;  // 결정 주기
-static const double RAMP_STOP_ABOVE_MS = 5000.0; // 이 평균지연 넘으면 포화(사실상 끝까지 밀기)
+// ramp 모드:
+//   제어 신호는 왕복 p50 을 쓴다. p99 는 표본이 적으면 크게 흔들려 제어기가 진동한다
+//   (p50 은 수십 표본으로도 수렴). 대신 "p50 은 멀쩡한데 꼬리만 터지는" 경우를
+//   놓치지 않으려고 p99 에도 넉넉한 상한을 따로 건다.
+//   후퇴(접속 끊기)는 넣지 않는다 - 램프는 위치 탐색용이고 정원 확정은 hold 로 한다.
+//   (교수님 코드는 후퇴까지 하지만, 우리는 대량 disconnect 시 서버가 죽는 버그가
+//    아직 있어 램프 중에 끊는 건 측정 자체를 날린다.)
+static const int RAMP_ADD_BATCH   = 50;     // 결정마다 붙일 봇 수(평상시)
+static const int RAMP_ADD_SLOW    = 5;      // p50 이 SLOW 임계를 넘은 뒤의 증설 폭
+static const int RAMP_DWELL_MS    = 10000;  // 한 스텝 체류 시간(정상상태 도달 대기)
+static const int RAMP_JUDGE_MS    = 5000;   // 그 중 마지막 이만큼만 판정에 쓴다
+static const int RAMP_P50_SLOW_MS = 100;    // 왕복 p50 이 넘으면 증설 폭을 줄인다
+static const int RAMP_P50_STOP_MS = 150;    // 왕복 p50 이 넘으면 포화로 보고 증설 중단
+static const int RAMP_P99_STOP_MS = 300;    // 왕복 p99 가 넘으면 중단(꼬리 보호)
+static const int RAMP_MIN_SAMPLES = 200;    // 판정에 필요한 최소 왕복 표본 수
+static const int RAMP_SAMPLE_GUARD = 100;   // 이만큼 붙었는데도 표본이 없으면 봇 고장
 
 // 봇 이동: 스폰(홈) 위치를 중심으로 WANDER 반경 안에서 배회.
 //   맵이 150x150 이어도 봇이 스폰 근처에 흩어져 머물게 해 밀도 유지.
@@ -144,22 +159,49 @@ static std::atomic<uint64_t> g_recvBytes{ 0 };
 static std::atomic<uint64_t> g_monPkts{ 0 };   // 몬스터 패킷 수(AI 도는지 확인)
 static std::atomic<uint64_t> g_atkSent{ 0 };   // 봇이 보낸 공격 패킷 수(전투 도는지 확인)
 
-// ramp 모드 결정용 지연 누적(control 스레드가 읽고 리셋; 통계용과 별개)
-static std::atomic<uint64_t> g_rampLatSum{ 0 };
-static std::atomic<uint64_t> g_rampLatCount{ 0 };
-static std::atomic<bool>     g_rampSaturated{ false };
+static std::atomic<bool> g_rampSaturated{ false };
 
-// 종단 지연 집계(ms). 버킷: 0..4999 = 1ms 단위, 5000 = 5000ms 이상.
+// 지연 집계(ms). 버킷: 0..4999 = 1ms 단위, 5000 = 5000ms 이상.
 //   범위를 넓혀 고부하에서 p50/p99 가 수백~수천 ms 까지 그대로 보이게.
+//   self(내 왕복)와 bcast(남의 전파)를 절대 한 통에 섞지 않는다. 파일 첫머리 참고.
 static const int LAT_BUCKETS = 5001;
-static std::atomic<uint32_t> g_latBucket[LAT_BUCKETS];
-static std::atomic<uint64_t> g_latSum{ 0 };
-static std::atomic<uint64_t> g_latCount{ 0 };
-static std::atomic<uint32_t> g_latMax{ 0 };
+
+struct LatStat
+{
+    std::atomic<uint32_t> bucket[LAT_BUCKETS];
+    std::atomic<uint64_t> sum;
+    std::atomic<uint64_t> count;
+    std::atomic<uint32_t> max;
+};
+// 정적 저장기간이라 0 으로 초기화된다(기존 전역 배열과 같은 방식).
+static LatStat g_self;    // 내 이동의 왕복      <- SLO 판정(콘솔 출력용)
+static LatStat g_bcast;   // 남의 이동의 전파    <- 참고
+static LatStat g_ramp;    // 내 왕복(램프 제어 전용). 판정 주기가 콘솔과 달라 따로 둔다.
+
+// ---- 시계 ------------------------------------------------------------
+//  GetTickCount64() 를 쓰면 안 된다. 이 함수는 윈도우 시스템 타이머로만 갱신되고
+//  그 주기가 기본 약 15.625ms 라, 1ms 버킷 히스토그램에 넣으면 지연이 아니라
+//  "시계 눈금"을 재게 된다. (실측 증상: 봇 수를 1000/1500/2000 으로 바꿔도
+//   p99 가 32/31/32ms 로 고정 = 15.625 x 2. 값이 안 변한 게 아니라 못 본 것.)
+//  QueryPerformanceCounter 는 100ns 이하 정밀도라 진짜 1ms 해상도가 나온다.
+//  반환 단위는 그대로 uint32 ms(프로세스 시작 기준). moveTime 필드 규약은
+//  바뀌지 않는다 - 서버는 이 값을 해석하지 않고 그대로 돌려주기만 한다.
+static inline int64_t QpcFreq()
+{
+    static const int64_t f = [] {
+        LARGE_INTEGER li; QueryPerformanceFrequency(&li); return li.QuadPart;
+    }();
+    return f;
+}
 
 static inline uint32_t NowMs()
 {
-    return static_cast<uint32_t>(GetTickCount64());
+    static const int64_t s_base = [] {
+        LARGE_INTEGER li; QueryPerformanceCounter(&li); return li.QuadPart;
+    }();
+    LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+    return static_cast<uint32_t>((li.QuadPart - s_base) * 1000 / QpcFreq());
 }
 
 static float RandRange(float lo, float hi)
@@ -190,25 +232,88 @@ static void SendPacket(Bot& b, T& pkt)
     g_sentPkts.fetch_add(1, std::memory_order_relaxed);
 }
 
-static void RecordLatency(uint32_t moveTime)
+static void RecordInto(LatStat& st, uint32_t lat)
 {
-    // 고부하에서 워커들이 공유 원자변수를 매 패킷 두들기면 경합이 심하다.
-    // 지연은 1/4 만 샘플링해도 avg/p50/p99 통계는 충분히 정확하다(초당 수만 샘플).
+    int bkt = (lat >= 5000) ? 5000 : static_cast<int>(lat);
+    st.bucket[bkt].fetch_add(1, std::memory_order_relaxed);
+    st.sum.fetch_add(lat, std::memory_order_relaxed);
+    st.count.fetch_add(1, std::memory_order_relaxed);
+    uint32_t cur = st.max.load(std::memory_order_relaxed);
+    while (lat > cur && !st.max.compare_exchange_weak(cur, lat, std::memory_order_relaxed)) {}
+}
+
+// 내 이동의 왕복. 교수님 코드의 if (ci == my_id) 분기에 해당하는 값이다.
+//  건수가 브로드캐스트의 1/N 수준이라 표본을 버리지 않고 전부 센다
+//  (여기서 1/4 만 남기면 p99 가 표본 부족으로 요동친다).
+static void RecordLatencySelf(uint32_t moveTime)
+{
+    uint32_t lat = NowMs() - moveTime;       // uint32 랩 안전
+    if (lat > 60000) return;                 // 명백한 노이즈(파싱/시계) 무시
+    RecordInto(g_self, lat);
+
+    // 램프 판정도 왕복으로만 한다. 전파시간을 섞으면 임계의 의미가 흐려진다.
+    RecordInto(g_ramp, lat);
+}
+
+// 남의 이동이 내 화면에 보이기까지. 건수가 압도적(N배)이라 1/4 만 표본으로 쓴다.
+//  고부하에서 워커들이 공유 원자변수를 매 패킷 두들기면 경합이 봇 자체를 느리게 한다.
+static void RecordLatencyBroadcast(uint32_t moveTime)
+{
     thread_local uint32_t s_skip = 0;
     if ((s_skip++ & 3u) != 0u) return;
 
-    uint32_t now = NowMs();
-    uint32_t lat = now - moveTime;           // uint32 랩 안전
-    if (lat > 60000) return;                 // 명백한 노이즈(파싱/시계) 무시
-    int bkt = (lat >= 5000) ? 5000 : static_cast<int>(lat);
-    g_latBucket[bkt].fetch_add(1, std::memory_order_relaxed);
-    g_latSum.fetch_add(lat, std::memory_order_relaxed);
-    g_latCount.fetch_add(1, std::memory_order_relaxed);
-    uint32_t cur = g_latMax.load(std::memory_order_relaxed);
-    while (lat > cur && !g_latMax.compare_exchange_weak(cur, lat, std::memory_order_relaxed)) {}
-    // ramp 결정용(별도 누적)
-    g_rampLatSum.fetch_add(lat, std::memory_order_relaxed);
-    g_rampLatCount.fetch_add(1, std::memory_order_relaxed);
+    uint32_t lat = NowMs() - moveTime;
+    if (lat > 60000) return;
+    RecordInto(g_bcast, lat);
+}
+
+// ---- 지연 통계 스냅샷 + 리셋 ----
+//  버킷을 exchange(0) 하므로 "직전 구간"의 통계가 된다.
+//  주의: 백분위수는 여기서 구간마다 새로 계산된다. 여러 구간의 p99 를 평균내는 건
+//        통계적으로 의미가 없다 - 측정창 전체 p99 가 필요하면 버킷을 창 내내
+//        누적한 뒤 마지막에 한 번만 계산해야 한다.
+struct LatSnap
+{
+    uint64_t n;
+    double   avg;
+    int      p50, p99, p999;
+    uint32_t max;
+};
+
+static LatSnap SnapLat(LatStat& st)
+{
+    LatSnap s{};
+    uint32_t buckets[LAT_BUCKETS];
+    uint64_t total = 0;
+    for (int i = 0; i < LAT_BUCKETS; ++i)
+    {
+        buckets[i] = st.bucket[i].exchange(0);
+        total += buckets[i];
+    }
+    uint64_t sum = st.sum.exchange(0);
+    st.count.exchange(0);
+
+    s.n   = total;
+    s.max = st.max.exchange(0);
+    s.avg = total ? static_cast<double>(sum) / total : 0.0;
+
+    // 낮은 값부터 개수를 더해가다 전체의 p 비율을 넘기는 순간의 ms 값
+    auto pct = [&](double p) -> int {
+        if (!total) return 0;
+        uint64_t target = static_cast<uint64_t>(total * p);
+        if (target == 0) target = 1;
+        uint64_t acc = 0;
+        for (int i = 0; i < LAT_BUCKETS; ++i)
+        {
+            acc += buckets[i];
+            if (acc >= target) return i;   // ms (5000 = 5000 이상)
+        }
+        return LAT_BUCKETS - 1;
+    };
+    s.p50  = pct(0.50);
+    s.p99  = pct(0.99);
+    s.p999 = pct(0.999);
+    return s;
 }
 
 // ---- 수신 패킷 1건 처리 ----
@@ -251,7 +356,11 @@ static void ProcessPacket(Bot& b, unsigned char* data, int size)
     case SC_MOVE_PLAYER:
     {
         SC_MOVE_PLAYER_PACKET* p = reinterpret_cast<SC_MOVE_PLAYER_PACKET*>(data);
-        RecordLatency(p->moveTime);   // moveTime 은 보낸 봇(=같은 노트북) 시각 → 유효
+        // 내 것과 남의 것을 반드시 가른다 - 재는 대상 자체가 다르다.
+        // (교수님 NetworkModule.cpp 의 if (ci == my_id) 와 같은 판별)
+        // moveTime 은 어느 쪽이든 같은 프로세스/같은 시계가 찍은 값이라 유효하다.
+        if (p->playerID == b.playerId) RecordLatencySelf(p->moveTime);
+        else                           RecordLatencyBroadcast(p->moveTime);
         break;
     }
     case SC_PLAYER_HIT:
@@ -619,7 +728,9 @@ static void SpawnNextBot()
 static void ConnectorThread()
 {
     uint32_t lastRamp = NowMs();
-    uint32_t lastDecision = NowMs();
+    // 첫 판정이 즉시 떨어지게 한 스텝 뒤로 밀어둔다(0명으로 10초를 버리지 않게).
+    uint32_t dwellStart = NowMs() - static_cast<uint32_t>(RAMP_DWELL_MS);
+    bool     judgeArmed = false;     // 이 스텝의 판정창을 이미 열었나
     while (true)
     {
         uint32_t now = NowMs();
@@ -636,29 +747,80 @@ static void ConnectorThread()
                     SpawnNextBot();
             }
         }
-        else // MODE_RAMP: 최근 평균지연이 임계 아래면 계속 증설(임계 크므로 사실상 끝까지)
+        else // MODE_RAMP: 스텝마다 체류 -> 정상상태 구간만 판정 -> 증설/감속/중단
         {
-            if (now - lastDecision >= static_cast<uint32_t>(RAMP_DECISION_MS))
+            if (g_rampSaturated.load())
             {
-                lastDecision = now;
-                uint64_t c = g_rampLatCount.exchange(0, std::memory_order_relaxed);
-                uint64_t s = g_rampLatSum.exchange(0, std::memory_order_relaxed);
-                double avg = c ? static_cast<double>(s) / c : 0.0;
+                // 포화 확정 후에는 그 인원을 유지한 채 관찰만 한다(끊지 않는다).
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
 
-                if (!g_rampSaturated.load())
+            const uint32_t elapsed = now - dwellStart;
+
+            // 스텝 앞부분(접속 처리 과도구간)은 버린다. 판정창 진입 시 한 번 비운다.
+            if (!judgeArmed &&
+                elapsed >= static_cast<uint32_t>(RAMP_DWELL_MS - RAMP_JUDGE_MS))
+            {
+                SnapLat(g_ramp);      // 반환값을 버리는 = 리셋
+                judgeArmed = true;
+            }
+
+            if (elapsed >= static_cast<uint32_t>(RAMP_DWELL_MS))
+            {
+                const LatSnap r = SnapLat(g_ramp);
+                dwellStart = now;
+                judgeArmed = false;
+
+                if (r.n < static_cast<uint64_t>(RAMP_MIN_SAMPLES))
                 {
-                    if (c > 0 && avg > RAMP_STOP_ABOVE_MS)
+                    // 표본 부족. 두 경우를 반드시 구분해야 한다.
+                    //  (a) 아직 봇이 적어서 왕복 표본이 안 모인 것 -> 판정 없이 증설
+                    //      (여기서 멈추면 봇 0명 -> 표본 0 -> 영원히 증설 안 하는 데드락)
+                    //  (b) 봇은 충분히 붙었는데도 표본이 없는 것 -> 봇이 이동을 못 보내는
+                    //      고장 상태다. 이걸 (a)로 착각해 계속 밀면 "부하 없는 램프"가 된다.
+                    if (g_active.load() >= RAMP_SAMPLE_GUARD)
                     {
                         g_rampSaturated.store(true);
-                        printf(">>> [RAMP] 포화: 접속 %d 에서 평균지연 %.0fms (임계 %.0f) <<<\n",
-                               g_active.load(), avg, RAMP_STOP_ABOVE_MS);
+                        printf(">>> [RAMP] 중단: 접속 %d 인데 판정창 %.1f초 동안 왕복 표본이 "
+                               "%llu 개뿐이다. 봇이 이동을 못 보내는 상태로 의심된다 "
+                               "(이 측정은 무효). <<<\n",
+                               g_active.load(), RAMP_JUDGE_MS / 1000.0,
+                               static_cast<unsigned long long>(r.n));
                         fflush(stdout);
                     }
                     else
                     {
+                        printf("    [RAMP] 접속 %d  표본 %llu (부하 미달) -> 판정 없이 +%d\n",
+                               g_active.load(), static_cast<unsigned long long>(r.n),
+                               RAMP_ADD_BATCH);
+                        fflush(stdout);
                         for (int i = 0; i < RAMP_ADD_BATCH && g_numSockets.load() < g_targetBots; ++i)
                             SpawnNextBot();
                     }
+                }
+                else if (r.p50 > RAMP_P50_STOP_MS || r.p99 > RAMP_P99_STOP_MS)
+                {
+                    g_rampSaturated.store(true);
+                    printf(">>> [RAMP] 포화: 접속 %d 에서 왕복 p50 %dms / p99 %dms "
+                           "(임계 p50 %d / p99 %d) <<<\n",
+                           g_active.load(), r.p50, r.p99,
+                           RAMP_P50_STOP_MS, RAMP_P99_STOP_MS);
+                    printf(">>> 이 수치는 '대략 어디쯤'이다. 정원 확정은 이 근처에서 "
+                           "hold 로 3분씩 재서 한다. <<<\n");
+                    fflush(stdout);
+                }
+                else
+                {
+                    const int batch = (r.p50 > RAMP_P50_SLOW_MS) ? RAMP_ADD_SLOW
+                                                                 : RAMP_ADD_BATCH;
+                    printf("    [RAMP] 접속 %d  왕복 p50 %dms p99 %dms (표본 %llu) -> +%d\n",
+                           g_active.load(), r.p50, r.p99,
+                           static_cast<unsigned long long>(r.n), batch);
+                    fflush(stdout);
+
+                    for (int i = 0; i < batch && g_numSockets.load() < g_targetBots; ++i)
+                        SpawnNextBot();
                 }
             }
         }
@@ -690,43 +852,23 @@ static void PrintStats(double dtSec)
     uint64_t mon   = g_monPkts.exchange(0);
     uint64_t atk   = g_atkSent.exchange(0);
 
-    uint64_t total = 0;
-    uint32_t buckets[LAT_BUCKETS];
-    for (int i = 0; i < LAT_BUCKETS; ++i)
-    {
-        buckets[i] = g_latBucket[i].exchange(0);
-        total += buckets[i];
-    }
-    uint64_t latSum = g_latSum.exchange(0);
-    uint32_t latMax = g_latMax.exchange(0);
-    g_latCount.exchange(0);
-
-    double avg = total ? static_cast<double>(latSum) / total : 0.0;
-    auto pct = [&](double p) -> int {
-        if (!total) return 0;
-        uint64_t target = static_cast<uint64_t>(total * p);
-        if (target == 0) target = 1;
-        uint64_t acc = 0;
-        for (int i = 0; i < LAT_BUCKETS; ++i)
-        {
-            acc += buckets[i];
-            if (acc >= target) return i;   // ms (200 = 200+)
-        }
-        return LAT_BUCKETS - 1;
-    };
-    int p50 = pct(0.50);
-    int p99 = pct(0.99);
+    const LatSnap self  = SnapLat(g_self);
+    const LatSnap bcast = SnapLat(g_bcast);
 
     double sendPps = sent / dtSec;
     double recvPps = recv / dtSec;
     double kbps    = (bytes / 1024.0) / dtSec;
 
-    printf("접속 %4d/%d | 송신 %6.0f 수신 %7.0f pps %6.1f KB/s | 몬 %6.0f 공격 %5.0f /s | "
-           "지연 avg %5.1f p50 %3d p99 %3d max %3u ms\n",
+    printf("접속 %4d/%d | 송신 %6.0f 수신 %7.0f pps %6.1f KB/s | 몬 %6.0f 공격 %5.0f /s\n"
+           "   왕복 n %7llu  avg %6.1f  p50 %4d  p99 %4d  p99.9 %4d  max %5u ms   <- SLO 판정\n"
+           "   전파 n %7llu  avg %6.1f  p50 %4d  p99 %4d  p99.9 %4d  max %5u ms\n",
            g_active.load(), g_targetBots,
            sendPps, recvPps, kbps,
            mon / dtSec, atk / dtSec,
-           avg, p50, p99, latMax);
+           static_cast<unsigned long long>(self.n),
+           self.avg,  self.p50,  self.p99,  self.p999,  self.max,
+           static_cast<unsigned long long>(bcast.n),
+           bcast.avg, bcast.p50, bcast.p99, bcast.p999, bcast.max);
     fflush(stdout);   // 파일/파이프 리다이렉트 시 즉시 반영
 }
 
