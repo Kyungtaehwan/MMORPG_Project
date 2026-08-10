@@ -31,6 +31,8 @@
 #include <thread>
 #include <vector>
 #include <atomic>
+#include <string>
+#include <deque>
 
 #include "Protocol.h"
 
@@ -841,6 +843,32 @@ static void ControlThread()
     }
 }
 
+// ---- 콘솔 대시보드 (서버 콘솔과 같은 방식) ----
+//  스크롤로 흘려보내면 캡처할 때 1초 줄과 60초 요약이 섞여 어느 창의 값인지 알 수 없다.
+//  그래서 줄 수를 고정하고, 매 프레임 전체를 만들어 좌상단부터 한 번에 덮어쓴다.
+//  요약은 최근 4개를 화면에 남겨 두므로 한 장 캡처로 측정이 끝난다.
+static void ClearConsoleAll(HANDLE hConsole)
+{
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (!GetConsoleScreenBufferInfo(hConsole, &csbi)) return;
+
+    const DWORD cells = static_cast<DWORD>(csbi.dwSize.X) * csbi.dwSize.Y;
+    const COORD home = { 0, 0 };
+    DWORD written = 0;
+
+    FillConsoleOutputCharacterA(hConsole, ' ', cells, home, &written);
+    FillConsoleOutputAttribute(hConsole, csbi.wAttributes, cells, home, &written);
+    SetConsoleCursorPosition(hConsole, home);
+}
+
+static int GetConsoleWidth(HANDLE hConsole)
+{
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (!GetConsoleScreenBufferInfo(hConsole, &csbi)) return 80;
+    const int w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    return (w < 50) ? 50 : w;
+}
+
 // ---- 통계 스냅샷 + 리셋, 콘솔 출력 ----
 static void PrintStats(double dtSec)
 {
@@ -857,33 +885,91 @@ static void PrintStats(double dtSec)
     double recvPps = recv / dtSec;
     double kbps    = (bytes / 1024.0) / dtSec;
 
-    printf("접속 %4d/%d | 송신 %6.0f 수신 %7.0f pps %6.1f KB/s | 몬 %6.0f 공격 %5.0f /s\n"
-           "   왕복 n %7llu  avg %6.1f  p50 %4d  p99 %4d  p99.9 %4d  max %5u ms   <- SLO 판정\n"
-           "   전파 n %7llu  avg %6.1f  p50 %4d  p99 %4d  p99.9 %4d  max %5u ms\n",
-           g_active.load(), g_targetBots,
-           sendPps, recvPps, kbps,
-           mon / dtSec, atk / dtSec,
-           static_cast<unsigned long long>(self.n),
-           self.avg,  self.p50,  self.p99,  self.p999,  self.max,
-           static_cast<unsigned long long>(bcast.n),
-           bcast.avg, bcast.p50, bcast.p99, bcast.p999, bcast.max);
-    fflush(stdout);   // 파일/파이프 리다이렉트 시 즉시 반영
+    static HANDLE s_hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    static bool   s_cleared  = false;
+    if (!s_cleared) { ClearConsoleAll(s_hConsole); s_cleared = true; }   // 기동 로그 정리
 
-    // ---- 60초 창 요약: 표에 받아적을 값은 위 1초 줄이 아니라 이것 ----
+    const int width  = GetConsoleWidth(s_hConsole);
+    const int barLen = (width - 2 < 66) ? (width - 2) : 66;
+    const std::string barDouble(barLen, '=');
+    const std::string barSingle(barLen, '-');
+
+    std::string frame;
+    auto Line = [&](const std::string& s)
+    {
+        std::string t = s;
+        if (static_cast<int>(t.size()) > width - 1) t.resize(width - 1);
+        t.append((width - 1) - t.size(), ' ');
+        frame += t;
+        frame += '\n';
+    };
+
+    char buf[512];
+
+    // ---- 60초 창 요약: 표에 받아적을 값은 1초 줄이 아니라 이것 ----
     static double s_winSec = 0.0;
     static int    s_winIdx = 0;
+    static std::deque<std::string> s_summaries;
+
     s_winSec += dtSec;
     if (s_winSec >= 60.0)
     {
         const LatSnap w = SnapLat(g_selfWin);
-        printf("=== [봇 요약 %d] %.0fs  접속 %d  표본 %llu  |  왕복 "
-               "p50 %d  p99 %d  p99.9 %d  max %u ms  <- 받아적을 값\n",
-               ++s_winIdx, s_winSec, g_active.load(),
-               static_cast<unsigned long long>(w.n),
-               w.p50, w.p99, w.p999, w.max);
-        fflush(stdout);
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+            " [봇 요약 %d] %.0fs  접속 %d  표본 %llu  |  왕복 p50 %d  p99 %d  p99.9 %d  max %u ms",
+            ++s_winIdx, s_winSec, g_active.load(),
+            static_cast<unsigned long long>(w.n),
+            w.p50, w.p99, w.p999, w.max);
+        s_summaries.push_back(buf);
+        while (s_summaries.size() > 4) s_summaries.pop_front();   // 최근 4개만
         s_winSec = 0.0;
     }
+
+    Line(barDouble);
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        " MMO 부하 봇   대상 %s:%d   존 %s   목표 %d   %s",
+        g_serverIp, SERVER_PORT, g_botPw, g_targetBots,
+        (g_mode == MODE_RAMP) ? "ramp" : "hold");
+    Line(buf);
+    Line(barDouble);
+
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE, " 접속 %d / %d 명", g_active.load(), g_targetBots);
+    Line(buf);
+    Line(barSingle);
+
+    // 봇이 밀리는지 보는 줄. 송신 pps 가 봇 수에 선형이 아니면 부하 생성기가 한계다.
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        " 송신  %.0f pps   수신  %.0f pps   %.1f KB/s", sendPps, recvPps, kbps);
+    Line(buf);
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        " 전투  몬 %.0f /s   공격 %.0f /s", mon / dtSec, atk / dtSec);
+    Line(buf);
+    Line(barSingle);
+
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        " 왕복  n %llu  avg %.1f  p50 %d  p99 %d  p99.9 %d  max %u ms   <- SLO 판정",
+        static_cast<unsigned long long>(self.n),
+        self.avg, self.p50, self.p99, self.p999, self.max);
+    Line(buf);
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        " 전파  n %llu  avg %.1f  p50 %d  p99 %d  p99.9 %d  max %u ms   (참고)",
+        static_cast<unsigned long long>(bcast.n),
+        bcast.avg, bcast.p50, bcast.p99, bcast.p999, bcast.max);
+    Line(buf);
+    Line(barSingle);
+
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        " 측정창 60초  (다음 요약까지 %d초)   <- 받아적을 값은 아래",
+        static_cast<int>(60.0 - s_winSec + 0.5));
+    Line(buf);
+    if (s_summaries.empty()) Line("   (아직 없음)");
+    else for (const std::string& s : s_summaries) Line(s);
+    Line(barDouble);
+
+    // 커서를 좌상단으로 되돌리고 한 번에 찍는다(깜빡임 최소화).
+    SetConsoleCursorPosition(s_hConsole, COORD{ 0, 0 });
+    fputs(frame.c_str(), stdout);
+    fflush(stdout);
 }
 
 int main(int argc, char** argv)
