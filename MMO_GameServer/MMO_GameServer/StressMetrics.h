@@ -51,8 +51,15 @@ namespace StressMetrics
         std::atomic<uint64_t> aoiSumScanned; // 총 순회한 플레이어 수(평균 N 산출용)
         std::atomic<uint32_t> aoiMaxUs;
 
+        // m_zoneLock "획득까지 기다린" 시간만 따로.
+        //  aoiSumUs 에서 이걸 빼면 순수 스캔 시간이 나온다. 둘을 가르지 않으면
+        //  "스캔이 무거운 것"과 "락에 줄 서 있는 것"을 구분할 수 없다.
+        std::atomic<uint64_t> aoiLockUs;
+        std::atomic<uint32_t> aoiLockMaxUs;
+
         State() : sumUs(0), maxUs(0),
-                  aoiCalls(0), aoiSumUs(0), aoiSumScanned(0), aoiMaxUs(0)
+                  aoiCalls(0), aoiSumUs(0), aoiSumScanned(0), aoiMaxUs(0),
+                  aoiLockUs(0), aoiLockMaxUs(0)
         {
             for (int i = 0; i < BUCKET_COUNT; ++i) buckets[i].store(0);
         }
@@ -134,12 +141,24 @@ namespace StressMetrics
                !st.aoiMaxUs.compare_exchange_weak(cur, us, std::memory_order_relaxed)) {}
     }
 
+    // m_zoneLock 획득 대기 1회 기록
+    inline void RecordAoiLock(uint32_t us)
+    {
+        State& st = S();
+        st.aoiLockUs.fetch_add(us, std::memory_order_relaxed);
+        uint32_t cur = st.aoiLockMaxUs.load(std::memory_order_relaxed);
+        while (us > cur &&
+               !st.aoiLockMaxUs.compare_exchange_weak(cur, us, std::memory_order_relaxed)) {}
+    }
+
     struct AoiSnapshot
     {
         uint64_t calls = 0;       // 직전 구간 호출 횟수
-        uint64_t sumUs = 0;       // 총 소요 us
+        uint64_t sumUs = 0;       // 총 소요 us (락 대기 + 스캔)
         uint64_t sumScanned = 0;  // 총 순회 플레이어 수
         uint32_t maxUs = 0;
+        uint64_t lockUs = 0;      // 그중 락 획득을 기다린 시간
+        uint32_t lockMaxUs = 0;
     };
     inline AoiSnapshot SnapshotAoiAndReset()
     {
@@ -149,6 +168,8 @@ namespace StressMetrics
         s.sumUs      = st.aoiSumUs.exchange(0, std::memory_order_relaxed);
         s.sumScanned = st.aoiSumScanned.exchange(0, std::memory_order_relaxed);
         s.maxUs      = st.aoiMaxUs.exchange(0, std::memory_order_relaxed);
+        s.lockUs     = st.aoiLockUs.exchange(0, std::memory_order_relaxed);
+        s.lockMaxUs  = st.aoiLockMaxUs.exchange(0, std::memory_order_relaxed);
         return s;
     }
 

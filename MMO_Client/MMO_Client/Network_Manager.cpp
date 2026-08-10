@@ -383,7 +383,28 @@ void CNetwork_Manager::Handle_SC_MOVE_PLAYER(uint8_t* pBuffer, int32_t nSize)
     SC_MOVE_PLAYER_PACKET* pPkt =
         reinterpret_cast<SC_MOVE_PLAYER_PACKET*>(pBuffer);
 
-    if (pPkt->playerID == m_nMyPlayerID) return;
+    if (pPkt->playerID == m_nMyPlayerID)
+    {
+        // 서버 보정(리컨실리에이션)
+        //  정상 이동에도 자기 자신에게 이 패킷이 온다(이동 확인용). 서버가 아는 위치는
+        //  네트워크 지연만큼 항상 내 화면보다 뒤처져 있으므로, 무조건 맞추면 걸을 때마다
+        //  뒤로 당겨져 화면이 튄다. 그래서 서버 허용오차(2타일)보다 큰 어긋남만
+        //  "서버가 이동을 거부했거나 되돌렸다"로 보고 그때만 위치를 맞춘다.
+        constexpr float CORRECT_THRESHOLD = 3.f;
+
+        CPlayer* pMe = dynamic_cast<CPlayer*>(
+            CObject_Manager::Get_Instance()->Get_Player());
+        if (!pMe) return;
+
+        ISO_INFO tInfo = pMe->Get_IsoInfo();
+        float fDX = pPkt->fCurX - tInfo.fWorldX;
+        float fDZ = pPkt->fCurZ - tInfo.fWorldZ;
+
+        if (sqrtf(fDX * fDX + fDZ * fDZ) > CORRECT_THRESHOLD)
+            pMe->Correct_ByServer(pPkt->fCurX, pPkt->fCurZ);
+
+        return;
+    }
 
     CGameObject* pObj =
         CObject_Manager::Get_Instance()->Find_OtherPlayer(pPkt->playerID);

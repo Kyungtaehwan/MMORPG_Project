@@ -157,7 +157,12 @@ void CZone::CollectPlayersNear(int32_t nTileX, int32_t nTileZ, int32_t nRange,
     if (sxMax >= m_nSectorCountX) sxMax = m_nSectorCountX - 1;
     if (szMax >= m_nSectorCountZ) szMax = m_nSectorCountZ - 1;
 
+    // 락을 "기다린" 시간만 따로 잰다(획득 직전/직후). 스캔 시간과 섞으면
+    // 병목이 스캔량인지 직렬화인지 구분할 수 없다.
+    const int64_t nLockT0 = StressMetrics::Now();
     READ_LOCK(m_zoneLock);
+    StressMetrics::RecordAoiLock(StressMetrics::ElapsedUs(nLockT0));
+
     for (int32_t sz = szMin; sz <= szMax; ++sz)
     {
         for (int32_t sx = sxMin; sx <= sxMax; ++sx)
@@ -342,30 +347,65 @@ void CZone::OnMoveDest(PlayerRef pPlayer,
 {
     if (pPlayer->m_bDead) return;
 
+    // 시각을 두 가지로 갈라 쓴다.
+    //   nSrvTime  = 서버 시계 위치 역산과 검증
+    //   nMoveTime = 클라가 보낸 원본 브로드캐스트에 그대로 실어 되돌려 준다
+    const uint32_t nSrvTime = static_cast<uint32_t>(GetTickCount64());
+
     int32_t nDestTileX = static_cast<int32_t>(floorf(fDestX));
     int32_t nDestTileZ = static_cast<int32_t>(floorf(fDestZ));
-
-    // 목적지 블록 검증
-    if (!IsMovable(nDestTileX, nDestTileZ))
-    {
-        // 이동 불가 타일 ? 현재 위치로 되돌림
-        Send_MovePlayer(pPlayer, pPlayer, nMoveTime);
-        return;
-    }
 
     // 목적지 + 이동 시작 정보 저장
     // m_fMoveStartX/Z와 m_nMoveStartTime을 저장해두면
     // 서버가 언제든지 GetCurrentPos()로 정확한 위치 역산 가능
+    // 검증 실패 시 이 지점에 세워야 하므로 블록 검사보다 앞에서 구한다.
     float fCalcX, fCalcZ;
-    pPlayer->GetCurrentPos(nMoveTime, fCalcX, fCalcZ);
+    pPlayer->GetCurrentPos(nSrvTime, fCalcX, fCalcZ);
+
+    // 거부 - 역산 위치에 세우고 그 좌표를 본인에게 돌려보낸다.
+    // 세우지 않으면 서버는 옛 목적지로 계속 가고 클라만 멈춰 다시 어긋난다.
+    auto RejectMove = [&]()
+        {
+            pPlayer->m_fCurX = fCalcX;
+            pPlayer->m_fCurZ = fCalcZ;
+            pPlayer->m_bMoving = false;
+            pPlayer->m_nLastMoveTime = nSrvTime;
+
+            // 여기서는 위치가 실제로 바뀐다(역산 지점으로 당겨 세운다).
+            // 타일이 바뀌면 섹터도 옮겨야 AOI 조회에서 누락되지 않는다.
+            if (pPlayer->UpdateTilePos())
+                UpdatePlayerSector(pPlayer);
+
+            Send_MovePlayer(pPlayer, pPlayer, nMoveTime);
+        };
+
+    // 목적지 블록 검증
+    if (!IsMovable(nDestTileX, nDestTileZ))
+    {
+        RejectMove();
+        return;
+    }
+
+    // 구간 직선 검증
+    {
+        IsMovableFunc fnIsMovable = [this](int32_t x, int32_t z) -> bool {
+            return IsMovable(x, z);
+            };
+
+        if (!CPathFinder::HasLineOfSight(fCalcX, fCalcZ, fDestX, fDestZ, fnIsMovable))
+        {
+            RejectMove();
+            return;
+        }
+    }
 
     pPlayer->m_fMoveStartX = fCalcX;    // 클릭 시점의 실제 위치
     pPlayer->m_fMoveStartZ = fCalcZ;
-    pPlayer->m_nMoveStartTime = nMoveTime;
+    pPlayer->m_nMoveStartTime = nSrvTime;   // 역산 기준 - 반드시 서버 시계
     pPlayer->m_fDestX = fDestX;
     pPlayer->m_fDestZ = fDestZ;
     pPlayer->m_bMoving = true;
-    pPlayer->m_nLastMoveTime = nMoveTime;
+    pPlayer->m_nLastMoveTime = nSrvTime;
 
     {
         float fMoveDX = fDestX - fCalcX;
@@ -423,30 +463,51 @@ void CZone::OnMovePos(PlayerRef pPlayer,
 
     if (pPlayer->m_bDead) return;
 
+    // OnMoveDest 와 같다 - 판정은 서버 시계, 브로드캐스트는 클라 원본(nMoveTime) 그대로.
+    // m_nMoveStartTime 이 서버 시계이므로 여기도 서버 시계여야 경과 시간이 맞는다.
+    const uint32_t nSrvTime = static_cast<uint32_t>(GetTickCount64());
+
+    constexpr float MAX_TOLERANCE = 2.f;
+
     if (pPlayer->m_bMoving)
     {
         float fServerX, fServerZ;
-        pPlayer->GetCurrentPos(nMoveTime, fServerX, fServerZ);
+        pPlayer->GetCurrentPos(nSrvTime, fServerX, fServerZ);
 
         float fDiffX = fCurX - fServerX;
         float fDiffZ = fCurZ - fServerZ;
         float fDiff = sqrtf(fDiffX * fDiffX + fDiffZ * fDiffZ);
 
-        constexpr float MAX_TOLERANCE = 2.f;
         if (fDiff > MAX_TOLERANCE)
         {
             fCurX = fServerX;
             fCurZ = fServerZ;
         }
     }
+    else
+    {
+        // 서버가 "정지 중"으로 아는 동안에는 위치가 바뀔 수 없다.
+        // 이 분기가 없으면 위 검사를 통째로 건너뛰어 좌표가 무검사로 채택된다.
+        //  - 거부 직후: RejectMove 가 세워 둔 것이 다음 POS 하나로 되돌려져 거부가 무효가 된다.
+        //  - CS_MOVE_DEST 를 아예 보내지 않는 클라: 로그인 이후 계속 무검사가 된다.
+        // 정지 중이면 기준은 역산이 아니라 마지막으로 확정된 위치다.
+        float fDiffX = fCurX - pPlayer->m_fCurX;
+        float fDiffZ = fCurZ - pPlayer->m_fCurZ;
+
+        if (sqrtf(fDiffX * fDiffX + fDiffZ * fDiffZ) > MAX_TOLERANCE)
+        {
+            fCurX = pPlayer->m_fCurX;
+            fCurZ = pPlayer->m_fCurZ;
+        }
+    }
 
     // 현재 위치 업데이트
     pPlayer->m_fCurX = fCurX;
     pPlayer->m_fCurZ = fCurZ;
-    pPlayer->m_nLastMoveTime = nMoveTime;
+    pPlayer->m_nLastMoveTime = nSrvTime;
 
     // 목적지 도착 여부 체크
-    if (pPlayer->IsArrived(nMoveTime))
+    if (pPlayer->IsArrived(nSrvTime))
     {
         pPlayer->m_fCurX = pPlayer->m_fDestX;
         pPlayer->m_fCurZ = pPlayer->m_fDestZ;
@@ -569,7 +630,12 @@ std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
     }
 #else
     {
+        // 락을 "기다린" 시간만 따로 잰다(획득 직전/직후). 스캔 시간과 섞으면
+        // 병목이 스캔량인지 직렬화인지 구분할 수 없다.
+        const int64_t nLockT0 = StressMetrics::Now();
         READ_LOCK(m_zoneLock);      // 순회만 - 읽기 (AOI 최다 호출 지점)
+        StressMetrics::RecordAoiLock(StressMetrics::ElapsedUs(nLockT0));
+
         nScanned = static_cast<uint32_t>(m_playerIDs.size());
         for (int32_t nID : m_playerIDs)
         {

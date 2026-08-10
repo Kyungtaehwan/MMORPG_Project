@@ -67,15 +67,15 @@ static const float MOVE_SPEED     = 1.0f; // 타일/초 (서버와 동일해야 
 //   후퇴(접속 끊기)는 넣지 않는다 - 램프는 위치 탐색용이고 정원 확정은 hold 로 한다.
 //   (교수님 코드는 후퇴까지 하지만, 우리는 대량 disconnect 시 서버가 죽는 버그가
 //    아직 있어 램프 중에 끊는 건 측정 자체를 날린다.)
-static const int RAMP_ADD_BATCH   = 50;     // 결정마다 붙일 봇 수(평상시)
+//   램프가 내놓는 숫자는 보고용이 아니다. "대략 어디쯤"만 알면 되고,
+//   정원 확정은 그 근처에서 hold 로 3분씩 재서 한다. 그러니 램프를 정밀하게
+//   만들 이유가 없다 - 빠르게 밀어 임계를 찾고 거기서 멈추면 끝이다.
+static const int RAMP_ADD_BATCH   = 50;     // 결정마다 붙일 봇 수
 static const int RAMP_ADD_SLOW    = 5;      // p50 이 SLOW 임계를 넘은 뒤의 증설 폭
-static const int RAMP_DWELL_MS    = 10000;  // 한 스텝 체류 시간(정상상태 도달 대기)
-static const int RAMP_JUDGE_MS    = 5000;   // 그 중 마지막 이만큼만 판정에 쓴다
+static const int RAMP_DECISION_MS = 1000;   // 결정 주기
 static const int RAMP_P50_SLOW_MS = 100;    // 왕복 p50 이 넘으면 증설 폭을 줄인다
 static const int RAMP_P50_STOP_MS = 150;    // 왕복 p50 이 넘으면 포화로 보고 증설 중단
 static const int RAMP_P99_STOP_MS = 300;    // 왕복 p99 가 넘으면 중단(꼬리 보호)
-static const int RAMP_MIN_SAMPLES = 200;    // 판정에 필요한 최소 왕복 표본 수
-static const int RAMP_SAMPLE_GUARD = 100;   // 이만큼 붙었는데도 표본이 없으면 봇 고장
 
 // 봇 이동: 스폰(홈) 위치를 중심으로 WANDER 반경 안에서 배회.
 //   맵이 150x150 이어도 봇이 스폰 근처에 흩어져 머물게 해 밀도 유지.
@@ -174,9 +174,13 @@ struct LatStat
     std::atomic<uint32_t> max;
 };
 // 정적 저장기간이라 0 으로 초기화된다(기존 전역 배열과 같은 방식).
-static LatStat g_self;    // 내 이동의 왕복      <- SLO 판정(콘솔 출력용)
+static LatStat g_self;    // 내 이동의 왕복      <- 1초 화면용
 static LatStat g_bcast;   // 남의 이동의 전파    <- 참고
 static LatStat g_ramp;    // 내 왕복(램프 제어 전용). 판정 주기가 콘솔과 달라 따로 둔다.
+// 60초 창. 1초 창은 표본이 수천 개뿐이라 p99 가 상위 수십 개로 계산돼 크게 흔들린다
+//  (실측: 같은 부하에서 1초 p99 가 115 -> 752ms 로 요동, 60초 창은 안정).
+//  받아적을 값은 항상 이 요약이다.
+static LatStat g_selfWin;
 
 // ---- 시계 ------------------------------------------------------------
 //  GetTickCount64() 를 쓰면 안 된다. 이 함수는 윈도우 시스템 타이머로만 갱신되고
@@ -250,6 +254,7 @@ static void RecordLatencySelf(uint32_t moveTime)
     uint32_t lat = NowMs() - moveTime;       // uint32 랩 안전
     if (lat > 60000) return;                 // 명백한 노이즈(파싱/시계) 무시
     RecordInto(g_self, lat);
+    RecordInto(g_selfWin, lat);   // 60초 창(받아적을 값)
 
     // 램프 판정도 왕복으로만 한다. 전파시간을 섞으면 임계의 의미가 흐려진다.
     RecordInto(g_ramp, lat);
@@ -727,10 +732,8 @@ static void SpawnNextBot()
 // 커넥터 스레드: 접속만 담당(블로킹 connect가 이동 구동을 막지 않게 분리).
 static void ConnectorThread()
 {
-    uint32_t lastRamp = NowMs();
-    // 첫 판정이 즉시 떨어지게 한 스텝 뒤로 밀어둔다(0명으로 10초를 버리지 않게).
-    uint32_t dwellStart = NowMs() - static_cast<uint32_t>(RAMP_DWELL_MS);
-    bool     judgeArmed = false;     // 이 스텝의 판정창을 이미 열었나
+    uint32_t lastRamp     = NowMs();
+    uint32_t lastDecision = NowMs();
     while (true)
     {
         uint32_t now = NowMs();
@@ -747,57 +750,27 @@ static void ConnectorThread()
                     SpawnNextBot();
             }
         }
-        else // MODE_RAMP: 스텝마다 체류 -> 정상상태 구간만 판정 -> 증설/감속/중단
+        else // MODE_RAMP: 교수님 STRESS_TEST 와 같은 구조 - 밀다가 임계 넘으면 멈춘다
         {
             if (g_rampSaturated.load())
             {
-                // 포화 확정 후에는 그 인원을 유지한 채 관찰만 한다(끊지 않는다).
+                // 포화 확정 후에는 그 인원을 그대로 유지한다(끊지 않는다).
+                // 여기서부터가 hold 구간이므로 서버 콘솔의 60초 요약을 받아적으면 된다.
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 continue;
             }
 
-            const uint32_t elapsed = now - dwellStart;
-
-            // 스텝 앞부분(접속 처리 과도구간)은 버린다. 판정창 진입 시 한 번 비운다.
-            if (!judgeArmed &&
-                elapsed >= static_cast<uint32_t>(RAMP_DWELL_MS - RAMP_JUDGE_MS))
+            if (now - lastDecision >= static_cast<uint32_t>(RAMP_DECISION_MS))
             {
-                SnapLat(g_ramp);      // 반환값을 버리는 = 리셋
-                judgeArmed = true;
-            }
+                lastDecision = now;
+                const LatSnap r = SnapLat(g_ramp);   // 직전 1초의 왕복
 
-            if (elapsed >= static_cast<uint32_t>(RAMP_DWELL_MS))
-            {
-                const LatSnap r = SnapLat(g_ramp);
-                dwellStart = now;
-                judgeArmed = false;
-
-                if (r.n < static_cast<uint64_t>(RAMP_MIN_SAMPLES))
+                if (r.n == 0)
                 {
-                    // 표본 부족. 두 경우를 반드시 구분해야 한다.
-                    //  (a) 아직 봇이 적어서 왕복 표본이 안 모인 것 -> 판정 없이 증설
-                    //      (여기서 멈추면 봇 0명 -> 표본 0 -> 영원히 증설 안 하는 데드락)
-                    //  (b) 봇은 충분히 붙었는데도 표본이 없는 것 -> 봇이 이동을 못 보내는
-                    //      고장 상태다. 이걸 (a)로 착각해 계속 밀면 "부하 없는 램프"가 된다.
-                    if (g_active.load() >= RAMP_SAMPLE_GUARD)
-                    {
-                        g_rampSaturated.store(true);
-                        printf(">>> [RAMP] 중단: 접속 %d 인데 판정창 %.1f초 동안 왕복 표본이 "
-                               "%llu 개뿐이다. 봇이 이동을 못 보내는 상태로 의심된다 "
-                               "(이 측정은 무효). <<<\n",
-                               g_active.load(), RAMP_JUDGE_MS / 1000.0,
-                               static_cast<unsigned long long>(r.n));
-                        fflush(stdout);
-                    }
-                    else
-                    {
-                        printf("    [RAMP] 접속 %d  표본 %llu (부하 미달) -> 판정 없이 +%d\n",
-                               g_active.load(), static_cast<unsigned long long>(r.n),
-                               RAMP_ADD_BATCH);
-                        fflush(stdout);
-                        for (int i = 0; i < RAMP_ADD_BATCH && g_numSockets.load() < g_targetBots; ++i)
-                            SpawnNextBot();
-                    }
+                    // 아직 왕복 표본이 없다(막 시작). 판정 없이 붙인다.
+                    // 여기서 멈추면 봇 0명 -> 표본 0 -> 영원히 증설 안 하는 데드락이 된다.
+                    for (int i = 0; i < RAMP_ADD_BATCH && g_numSockets.load() < g_targetBots; ++i)
+                        SpawnNextBot();
                 }
                 else if (r.p50 > RAMP_P50_STOP_MS || r.p99 > RAMP_P99_STOP_MS)
                 {
@@ -806,8 +779,7 @@ static void ConnectorThread()
                            "(임계 p50 %d / p99 %d) <<<\n",
                            g_active.load(), r.p50, r.p99,
                            RAMP_P50_STOP_MS, RAMP_P99_STOP_MS);
-                    printf(">>> 이 수치는 '대략 어디쯤'이다. 정원 확정은 이 근처에서 "
-                           "hold 로 3분씩 재서 한다. <<<\n");
+                    printf(">>> 이 인원을 유지한다. 이제 서버 콘솔의 60초 요약을 받아적으면 된다. <<<\n");
                     fflush(stdout);
                 }
                 else
@@ -870,6 +842,22 @@ static void PrintStats(double dtSec)
            static_cast<unsigned long long>(bcast.n),
            bcast.avg, bcast.p50, bcast.p99, bcast.p999, bcast.max);
     fflush(stdout);   // 파일/파이프 리다이렉트 시 즉시 반영
+
+    // ---- 60초 창 요약: 표에 받아적을 값은 위 1초 줄이 아니라 이것 ----
+    static double s_winSec = 0.0;
+    static int    s_winIdx = 0;
+    s_winSec += dtSec;
+    if (s_winSec >= 60.0)
+    {
+        const LatSnap w = SnapLat(g_selfWin);
+        printf("=== [봇 요약 %d] %.0fs  접속 %d  표본 %llu  |  왕복 "
+               "p50 %d  p99 %d  p99.9 %d  max %u ms  <- 받아적을 값\n",
+               ++s_winIdx, s_winSec, g_active.load(),
+               static_cast<unsigned long long>(w.n),
+               w.p50, w.p99, w.p999, w.max);
+        fflush(stdout);
+        s_winSec = 0.0;
+    }
 }
 
 int main(int argc, char** argv)
