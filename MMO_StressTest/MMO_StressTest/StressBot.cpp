@@ -45,7 +45,7 @@ enum class EMode : int { Hold = 0, Ramp = 1 };
 static const char* CFG_SERVER_IP = "127.0.0.1";       // IP
 static const int   CFG_BOT_COUNT = 100000;               // Hold=목표수 / Ramp=최대상한
 static const EZone CFG_ZONE      = EZone::RaidFlat;   // RaidFlat(6) / RaidObstacle(5) / Town(1)
-static const EMode CFG_MODE      = EMode::Ramp;       // Hold(고정) / Ramp(자동증설)
+static const EMode CFG_MODE      = EMode::Hold;       // Hold(고정) / Ramp(자동증설)
 // =====================================================================
 
 static const uint16_t SERVER_PORT = 7777;
@@ -99,10 +99,12 @@ static const int   ATTACK_CD_MS    = 450;    // 서버 쿨 400ms 보다 약간 �
 static const int   DEST_RESEEK_MS  = 250;    // 몬스터 재조준 CS_MOVE_DEST 최소 간격
 
 static const int MAX_BOTS      = 20000;  // 봇 배열 크기(= 최대 접속 상한). 서버 MAX_SESSION 과 맞춤.
-static const int RECV_BUF_SIZE = 4096;  // 한 번 recv 버퍼
+static const int RECV_BUF_SIZE = 1024;  // 한 번 recv 버퍼
 // 재조립 버퍼는 반드시 RECV_BUF_SIZE + 미완성 tail 보다 커야 한다.
 // (한 번 recv 로 최대 RECV_BUF_SIZE 바이트가 오고, 앞의 미완성 조각이 더해지므로)
-static const int ASM_SIZE      = 8192;  // 패킷 재조립 버퍼
+// 봇이 받는 패킷은 SC_ADD_PLAYER(이름 20B 포함) 급 70바이트 미만이다.
+// 인벤/장비/퀵슬롯/경매 같은 큰 패킷은 봇 로그인 경로가 아예 건너뛰므로 오지 않는다.
+static const int ASM_SIZE      = 2048;  // 패킷 재조립 버퍼
 
 // ---------------- 전역 ----------------
 static HANDLE g_iocp = nullptr;
@@ -135,7 +137,7 @@ struct Bot
     bool     moving = false;
     uint32_t moveStartMs = 0;
     uint32_t nextDestMs = 0;
-    uint32_t nextDriveMs = 0;            // 이 봇이 다음에 구동될 시각(위상 분산). 0 = 아직 미배정
+    // nextDriveMs 는 여기 없다 - 아래 g_nextDrive 배열로 뺐다(핫 필드 분리).
     int32_t  lastTileX = -9999;          // 마지막으로 CS_MOVE_POS 보낸 타일
     int32_t  lastTileZ = -9999;
     bool     ctrlDead = false;           // control 관점 사망(리스폰 대기)
@@ -160,6 +162,15 @@ struct Bot
 };
 
 static Bot         g_bots[MAX_BOTS];
+
+// 구동 루프가 매 틱 전수 검사하는 유일한 값. Bot 안에 두면 봇 하나가 12KB 라
+// 검사 한 번에 12KB 씩 건너뛰며 봇마다 캐시 미스가 난다(2만 봇이면 매 틱 2만 회).
+// 4바이트 배열로 빼면 80KB 라 통째로 캐시에 들어간다.
+static uint32_t    g_nextDrive[MAX_BOTS];   // 이 봇이 다음에 구동될 시각. 0 = 미배정
+
+// 구조체가 커지면 순회·수신 경로의 캐시 효율이 그대로 나빠진다. 커질 일이 생기면
+// 버퍼를 밖으로 빼는 쪽을 먼저 검토할 것.
+static_assert(sizeof(Bot) <= 4096, "Bot 이 너무 커졌다 - 버퍼 크기를 확인할 것");
 static std::atomic<int> g_numSockets{ 0 };  // connect 시도한 소켓 수
 static std::atomic<int> g_active{ 0 };      // 게임 입장 완료 봇 수
 
@@ -819,24 +830,26 @@ static void ControlThread()
         uint32_t now = NowMs();
         int n = g_numSockets.load();
         if (n > MAX_BOTS) n = MAX_BOTS;
+        // 이 루프는 매 틱 봇 전체를 훑는다. 여기서 g_bots 를 건드리지 않는 것이 핵심 -
+        // 시간이 된 봇(약 1/CONTROL_TICK_MS)만 DriveBot 으로 넘어가 무거운 구조체를 만진다.
         for (int i = 0; i < n; ++i)
         {
-            Bot& b = g_bots[i];
+            uint32_t& next = g_nextDrive[i];
 
             // 위상 분산: 봇마다 CONTROL_TICK_MS 안에서 서로 다른 시점에 구동된다.
             //  인덱스 기반이라 재현 가능하다(rand 를 쓰면 실행마다 달라져 비교가 깨진다).
             //  봇 1개의 구동 주기는 여전히 CONTROL_TICK_MS 이므로 전송량은 그대로다.
-            if (b.nextDriveMs == 0)
-                b.nextDriveMs = now + static_cast<uint32_t>(i % CONTROL_TICK_MS);
+            if (next == 0)
+                next = now + static_cast<uint32_t>(i % CONTROL_TICK_MS);
 
-            if (static_cast<int32_t>(now - b.nextDriveMs) < 0) continue;
+            if (static_cast<int32_t>(now - next) < 0) continue;
 
-            b.nextDriveMs += CONTROL_TICK_MS;   // 누적 - 드리프트가 쌓이지 않는다
+            next += CONTROL_TICK_MS;   // 누적 - 드리프트가 쌓이지 않는다
             // 오래 밀렸으면(스톨 등) 밀린 만큼 몰아치지 말고 현재 기준으로 다시 잡는다
-            if (static_cast<int32_t>(now - b.nextDriveMs) > CONTROL_TICK_MS)
-                b.nextDriveMs = now + CONTROL_TICK_MS;
+            if (static_cast<int32_t>(now - next) > CONTROL_TICK_MS)
+                next = now + CONTROL_TICK_MS;
 
-            DriveBot(b, now);
+            DriveBot(g_bots[i], now);
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(CONTROL_SLICE_MS));
