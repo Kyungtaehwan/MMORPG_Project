@@ -398,14 +398,6 @@ static int GetConsoleWidth(HANDLE hConsole)
 
 // ================================================================
 //  프로세스 CPU / 메모리 샘플링
-//
-//  GetProcessTimes 는 이 프로세스가 커널+유저 모드에서 쓴 누적 CPU 시간을 준다.
-//  직전 샘플과의 차이를 구간 시간으로 나누면 "코어 몇 개어치를 쓰고 있나"가 나온다.
-//   - 코어 1개를 100% 쓰면 1.0 코어. 16코어를 다 쓰면 16.0 코어
-//
-//  이 값이 있어야 "같은 부하에서 CPU를 얼마나 덜 쓰게 됐나"를 비교할 수 있다.
-//  특히 패킷 1건당 CPU(us)는 봇과 서버가 코어를 나눠 쓰는 상황에서도
-//  비율이라 왜곡이 적어, 최적화 전후 비교에 가장 믿을 만한 지표다.
 // ================================================================
 struct FProcStat
 {
@@ -417,9 +409,6 @@ struct FProcStat
 };
 
 // CPU 집계 창(초). 화면은 0.5초마다 갱신하지만 CPU 만 이 주기로 다시 잰다.
-//   GetProcessTimes 의 해상도가 스케줄러 틱(약 15.6ms)이라, 0.5초 구간에서
-//   가벼운 부하는 통째로 0으로 뭉개진다(측정값이 0.00 과 0.70 을 오간다).
-//   창을 늘리면 틱 단위 양자화 오차가 그만큼 희석된다.
 static constexpr double CPU_WINDOW_SEC = 4.0;
 
 static FProcStat SampleProcStat(double /*dtSec*/, uint64_t nPacketsInWindow)
@@ -497,16 +486,6 @@ void CIOCP_Server::DebugConsoleThread()
     // 목록에 보여줄 최대 인원. 이 수를 넘으면 숫자만 표시한다.
     constexpr int LIST_MAX = 8;
 
-    // ================================================================
-    //  측정창 요약 (성능 표에 적는 숫자는 여기서 나온 것만 쓴다)
-    //
-    //  화면의 0.5초 지표는 "지금 상태"를 보는 용도지 기록용이 아니다.
-    //  0.5초 창에는 패킷이 수백 개뿐이라 p99 가 상위 6~9개 표본으로 계산돼
-    //  같은 부하에서도 프레임마다 2배씩 흔들린다(900봇 실측 5.63~11.26ms).
-    //  그래서 WINDOW_SEC 동안 칸 개수를 그대로 누적한 뒤 창 끝에서 한 번만
-    //  백분위를 계산한다. 백분위수는 평균낼 수 없으므로 이 방법뿐이다.
-    //  누적은 콘솔 스레드가 하므로 패킷 처리 경로에는 비용이 전혀 늘지 않는다.
-    // ================================================================
     constexpr double WINDOW_SEC = 60.0;
 
     uint64_t winBuckets[StressMetrics::BUCKET_COUNT] = {};
@@ -584,14 +563,24 @@ void CIOCP_Server::DebugConsoleThread()
                 const double aoiCoreW = (static_cast<double>(winAoiSumUs) / 1000000.0)
                     / winElapsed * 100.0;
 
+                // 호출/s 와 1명당 비용은 이 창 안에서 계산해야 한다.
+                const double aoiCpsW = winAoiCalls / winElapsed;
+                //  1명당 = 순수 스캔 시간(락 대기 제외) / 훑은 총 인원. 부하가 달라도 비교되는 값.
+                const uint64_t winScanUs = (winAoiSumUs > winAoiLockUs)
+                    ? (winAoiSumUs - winAoiLockUs) : 0;
+                const double perElemNs = winAoiScanned
+                    ? (static_cast<double>(winScanUs) * 1000.0 / winAoiScanned) : 0.0;
+
                 body << std::fixed << std::setprecision(2)
                      << "   p50 " << (p50 / 1000.0)
                      << "  p99 " << (p99 / 1000.0)
                      << "  p99.9 " << (p999 / 1000.0)
                      << "  max " << (winMaxUs / 1000.0) << " ms"
                      << std::setprecision(1)
-                     << " | AOI N " << aoiScanW << "  " << aoiCoreW << "% core"
-                     << "  (lock " << lockCoreW << "% = " << lockPctW << "%)";
+                     << " | AOI " << aoiCpsW << "/s"
+                     << " N " << aoiScanW << "  " << aoiCoreW << "% core"
+                     << "  (lock " << lockCoreW << "% = " << lockPctW << "%)"
+                     << "  " << perElemNs << "ns/명";
             }
             summaries.push_back(head.str());
             summaries.push_back(body.str());
@@ -607,8 +596,6 @@ void CIOCP_Server::DebugConsoleThread()
         const FProcStat proc = SampleProcStat(dtSec, ms.count);
 
         // ---- 프레임을 문자열로 다 만든 뒤 한 번에 출력한다 ----
-        //  줄마다 콘솔 폭까지 공백을 채우므로 이전 화면의 잔상이 남지 않는다.
-        //  (예전처럼 줄 끝에 공백을 손으로 붙일 필요가 없다)
         const int width = GetConsoleWidth(hConsole);
         const int barLen = (width - 1 < 66) ? width - 1 : 66;
         const std::string barDouble(barLen, '=');
@@ -657,9 +644,6 @@ void CIOCP_Server::DebugConsoleThread()
              + "   1회 " + Num(aoiAvgUs, 1) + "us"
              + "   " + Num(aoiMsPs / 10.0, 1) + "%코어");
         // AOI 시간 중 몇 %가 락을 "기다린" 시간인가.
-        //  이 값이 높으면 병목은 스캔량이 아니라 전역 락 직렬화다.
-        //  %코어는 반드시 dtSec 로 나눌 것 - 윗줄 aoiMsPs 와 같은 기준이어야
-        //  두 값을 나란히 읽을 수 있다. 갱신 주기가 0.5초라 안 나누면 절반으로 찍힌다.
         const double lockMsPs = (aoi.lockUs / 1000.0) / dtSec;      // 초당 총 대기 ms
         Line("       락대기 " + Num(lockMsPs / 10.0, 1) + "%코어"
              + "  (AOI 시간의 " + Num(aoi.sumUs ? (100.0 * aoi.lockUs / aoi.sumUs) : 0.0, 1) + "%)"
