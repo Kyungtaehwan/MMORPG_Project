@@ -1086,3 +1086,18 @@ void CPlayer::Respawn(float fX, float fZ)
 	m_bHit = false;
 	Motion_Change(PLAYER_IDLE);
 }
+
+// 서버 보정(리컨실리에이션)
+//  서버가 이동을 거부했거나 위치를 되돌렸을 때 그 좌표로 화면을 맞춘다.
+//  웨이포인트를 비우지 않으면 다음 프레임에 다시 원래 가던 곳으로 걸어가 버린다.
+void CPlayer::Correct_ByServer(float fWorldX, float fWorldZ)
+{
+	m_tIsoInfo.fWorldX = fWorldX;
+	m_tIsoInfo.fWorldZ = fWorldZ;
+	m_fDestWorldX = fWorldX;
+	m_fDestWorldZ = fWorldZ;
+	m_bMoving = false;
+	m_waypoints.clear();
+	m_nCurWaypoint = 0;
+	Motion_Change(PLAYER_IDLE);
+}

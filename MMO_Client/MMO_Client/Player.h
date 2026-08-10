@@ -28,7 +28,7 @@ public:
     virtual void Initialize()        override;
     virtual int  Update(float dt)    override;
     virtual void Late_Update(float dt) override;
-    virtual void Render(ID2D1RenderTarget* pRT) override; // HDC → RT
+    virtual void Render(ID2D1RenderTarget* pRT) override;
     virtual void Release(void)       override;
 
 
@@ -57,6 +57,9 @@ public:
     void Hit();
     void Die();
     void Respawn(float fX, float fZ);
+
+    // 서버 보정 - 서버가 아는 위치로 맞추고 진행 중이던 이동을 취소한다.
+    void Correct_ByServer(float fWorldX, float fWorldZ);
 private:
     PLAYER_STATE m_eCurState;
     CLICK_EFFECT m_tClickEffect = {};

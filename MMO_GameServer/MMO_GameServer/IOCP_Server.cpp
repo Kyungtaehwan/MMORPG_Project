@@ -214,6 +214,7 @@ void CIOCP_Server::WorkerThread()
             m_hIOCP, &dwNumOfBytes, &ulKey, &pOver, INFINITE);
 
         CIOEvent* pIOEvent = reinterpret_cast<CIOEvent*>(pOver);
+
         if (pIOEvent == nullptr) continue;
 
         if (pIOEvent->m_type == IOType::MonsterAI)
@@ -511,7 +512,7 @@ void CIOCP_Server::DebugConsoleThread()
     uint64_t winBuckets[StressMetrics::BUCKET_COUNT] = {};
     uint64_t winCount = 0, winSumUs = 0;
     uint32_t winMaxUs = 0;
-    uint64_t winAoiCalls = 0, winAoiSumUs = 0, winAoiScanned = 0;
+    uint64_t winAoiCalls = 0, winAoiSumUs = 0, winAoiScanned = 0, winAoiLockUs = 0;
     double   winElapsed = 0.0;
     int      winIndex = 0;
 
@@ -552,6 +553,7 @@ void CIOCP_Server::DebugConsoleThread()
         winAoiCalls   += aoi.calls;
         winAoiSumUs   += aoi.sumUs;
         winAoiScanned += aoi.sumScanned;
+        winAoiLockUs  += aoi.lockUs;
         winElapsed    += dtSec;
 
         if (winElapsed >= WINDOW_SEC)
@@ -575,6 +577,10 @@ void CIOCP_Server::DebugConsoleThread()
                 const uint32_t p999 = StressMetrics::PercentileOf(winBuckets, winCount, 0.999);
                 const double aoiScanW = winAoiCalls
                     ? static_cast<double>(winAoiScanned) / winAoiCalls : 0.0;
+                const double lockCoreW = (static_cast<double>(winAoiLockUs) / 1000000.0)
+                    / winElapsed * 100.0;
+                const double lockPctW  = winAoiSumUs
+                    ? 100.0 * winAoiLockUs / winAoiSumUs : 0.0;
                 const double aoiCoreW = (static_cast<double>(winAoiSumUs) / 1000000.0)
                     / winElapsed * 100.0;
 
@@ -584,7 +590,8 @@ void CIOCP_Server::DebugConsoleThread()
                      << "  p99.9 " << (p999 / 1000.0)
                      << "  max " << (winMaxUs / 1000.0) << " ms"
                      << std::setprecision(1)
-                     << " | AOI N " << aoiScanW << "  " << aoiCoreW << "% core";
+                     << " | AOI N " << aoiScanW << "  " << aoiCoreW << "% core"
+                     << "  (lock " << lockCoreW << "% = " << lockPctW << "%)";
             }
             summaries.push_back(head.str());
             summaries.push_back(body.str());
@@ -592,7 +599,7 @@ void CIOCP_Server::DebugConsoleThread()
 
             for (int i = 0; i < StressMetrics::BUCKET_COUNT; ++i) winBuckets[i] = 0;
             winCount = winSumUs = 0; winMaxUs = 0;
-            winAoiCalls = winAoiSumUs = winAoiScanned = 0;
+            winAoiCalls = winAoiSumUs = winAoiScanned = winAoiLockUs = 0;
             winElapsed = 0.0;
         }
 
@@ -626,13 +633,10 @@ void CIOCP_Server::DebugConsoleThread()
         Line(barDouble);
         Line(" MMO GameServer  [" + GetServerConfigTag() + "]"
              + "   포트 7777   워커 " + std::to_string(m_workerThreads.size()));
-        // 지표는 4개로 줄였다. 하나하나 "무엇을 판단하는 숫자인지" 말할 수 있어야
-        // 측정이 성립하므로, 설명 못 하는 숫자는 화면에 두지 않는다.
         //  1) 서버 처리 p50/p99  - 서버가 느린가 (원인 진단)
         //  2) CPU 코어           - 서버가 포화인가 (봇 탓/서버 탓 판별)
         //  3) AOI                - 어느 함수가 범인인가 (섹터 분할 근거)
         //  4) 메모리             - 누수 감지 (보험)
-        // 지연 avg 는 뺐다 - 평균은 빠른 다수에 지배돼 꼬리를 가린다.
         Line(barDouble);
         Line(" 접속 " + std::to_string(nConnected) + " 명");
         Line(barSingle);
@@ -652,16 +656,19 @@ void CIOCP_Server::DebugConsoleThread()
              + "   평균N " + Num(aoiScan, 1)
              + "   1회 " + Num(aoiAvgUs, 1) + "us"
              + "   " + Num(aoiMsPs / 10.0, 1) + "%코어");
+        // AOI 시간 중 몇 %가 락을 "기다린" 시간인가.
+        //  이 값이 높으면 병목은 스캔량이 아니라 전역 락 직렬화다.
+        Line("       락대기 " + Num((aoi.lockUs / 1000.0) / 10.0, 1) + "%코어"
+             + "  (AOI 시간의 " + Num(aoi.sumUs ? (100.0 * aoi.lockUs / aoi.sumUs) : 0.0, 1) + "%)"
+             + "   1회 " + Num(aoi.calls ? (double)aoi.lockUs / aoi.calls : 0.0, 1) + "us");
         Line(barSingle);
 
-        // ---- 측정창 요약: 손으로 받아적을 값은 위가 아니라 여기 ----
-        //  위의 0.5초 지연/AOI 줄은 "지금 상태"를 보는 용도다(계속 흔들린다).
-        //  기록은 파일로 남기지 않는다 - 아래 줄을 보고 사람이 적는다.
+
         {
             const int leftSec = static_cast<int>(WINDOW_SEC - winElapsed + 0.5);
             Line(" 측정창 " + Num(WINDOW_SEC, 0) + "초  (다음 요약까지 "
                  + std::to_string(leftSec < 0 ? 0 : leftSec) + "초)"
-                 + "   <- 받아적을 값은 아래");
+                 );
             if (summaries.empty())
                 Line("   (아직 없음)");
             else
