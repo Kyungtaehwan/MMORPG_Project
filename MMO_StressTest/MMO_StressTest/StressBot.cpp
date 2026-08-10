@@ -22,6 +22,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <timeapi.h>        // timeBeginPeriod - sleep 해상도 (아래 main 참고)
+#pragma comment(lib, "winmm.lib")
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -56,7 +58,13 @@ static int  g_mode          = MODE_HOLD;
 static const int WORKER_THREADS   = 6;
 static const int CONNECT_BATCH    = 15;   // hold: 한 틱에 붙일 봇 수(빠르게 채움)
 static const int RAMP_INTERVAL_MS = 10;  // hold: 램프 간격
-static const int CONTROL_TICK_MS  = 30;   // 이동 구동 루프 주기
+static const int CONTROL_TICK_MS  = 30;   // 봇 1개가 구동되는 주기(전송량을 정한다 - 바꾸지 말 것)
+// 구동 루프가 도는 주기. CONTROL_TICK_MS 보다 잘게 돌면서 "자기 차례인 봇"만 구동한다.
+//  예전에는 이 둘이 같아서 30ms 마다 봇 전원을 한 바퀴 돌며 한꺼번에 보냈다.
+//  그러면 서버에 패킷이 뭉텅이로 도착해(3000봇 기준 틱당 94개) 워커 16개가 동시에
+//  같은 락에 몰린다. 측정된 "락 대기 92%"의 상당 부분이 실제로는 이 부하 생성기의
+//  위상 동기화 때문이었다. 실제 유저 N명은 하나의 시계에 맞춰 보내지 않는다.
+static const int CONTROL_SLICE_MS = 1;
 static const int DEST_IDLE_MS     = 150;  // 목적지 도착 후 다음 목적지까지 대기
 static const float MOVE_SPEED     = 1.0f; // 타일/초 (서버와 동일해야 함)
 
@@ -125,6 +133,7 @@ struct Bot
     bool     moving = false;
     uint32_t moveStartMs = 0;
     uint32_t nextDestMs = 0;
+    uint32_t nextDriveMs = 0;            // 이 봇이 다음에 구동될 시각(위상 분산). 0 = 아직 미배정
     int32_t  lastTileX = -9999;          // 마지막으로 CS_MOVE_POS 보낸 타일
     int32_t  lastTileZ = -9999;
     bool     ctrlDead = false;           // control 관점 사망(리스폰 대기)
@@ -809,9 +818,26 @@ static void ControlThread()
         int n = g_numSockets.load();
         if (n > MAX_BOTS) n = MAX_BOTS;
         for (int i = 0; i < n; ++i)
-            DriveBot(g_bots[i], now);
+        {
+            Bot& b = g_bots[i];
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(CONTROL_TICK_MS));
+            // 위상 분산: 봇마다 CONTROL_TICK_MS 안에서 서로 다른 시점에 구동된다.
+            //  인덱스 기반이라 재현 가능하다(rand 를 쓰면 실행마다 달라져 비교가 깨진다).
+            //  봇 1개의 구동 주기는 여전히 CONTROL_TICK_MS 이므로 전송량은 그대로다.
+            if (b.nextDriveMs == 0)
+                b.nextDriveMs = now + static_cast<uint32_t>(i % CONTROL_TICK_MS);
+
+            if (static_cast<int32_t>(now - b.nextDriveMs) < 0) continue;
+
+            b.nextDriveMs += CONTROL_TICK_MS;   // 누적 - 드리프트가 쌓이지 않는다
+            // 오래 밀렸으면(스톨 등) 밀린 만큼 몰아치지 말고 현재 기준으로 다시 잡는다
+            if (static_cast<int32_t>(now - b.nextDriveMs) > CONTROL_TICK_MS)
+                b.nextDriveMs = now + CONTROL_TICK_MS;
+
+            DriveBot(b, now);
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(CONTROL_SLICE_MS));
     }
 }
 
@@ -882,10 +908,16 @@ int main(int argc, char** argv)
     // 봇 배열 상한 넘지 않게 클램프(초과 시 배열 밖 접근 방지)
     if (g_targetBots > MAX_BOTS) g_targetBots = MAX_BOTS;
 
+    // sleep 해상도를 1ms 로. 기본값은 약 15.6ms 라서 CONTROL_SLICE_MS(1ms)를 걸어도
+    // 실제로는 15.6ms 를 자고, 그러면 위상이 두 칸으로 뭉쳐 분산이 무의미해진다.
+    // (같은 함정으로 예전에 봇 왕복 p99 가 31ms 로 고정돼 나온 적이 있다.)
+    timeBeginPeriod(1);
+
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
     {
         printf("WSAStartup 실패\n");
+        timeEndPeriod(1);
         return 1;
     }
 
@@ -928,5 +960,6 @@ int main(int argc, char** argv)
     connector.join();
     for (auto& w : workers) w.join();
     WSACleanup();
+    timeEndPeriod(1);
     return 0;
 }

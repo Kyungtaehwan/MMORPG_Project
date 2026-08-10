@@ -356,14 +356,11 @@ void CZone::OnMoveDest(PlayerRef pPlayer,
     int32_t nDestTileZ = static_cast<int32_t>(floorf(fDestZ));
 
     // 목적지 + 이동 시작 정보 저장
-    // m_fMoveStartX/Z와 m_nMoveStartTime을 저장해두면
-    // 서버가 언제든지 GetCurrentPos()로 정확한 위치 역산 가능
-    // 검증 실패 시 이 지점에 세워야 하므로 블록 검사보다 앞에서 구한다.
+    // 서버가 언제든 정확한 위치 역산 가능
     float fCalcX, fCalcZ;
     pPlayer->GetCurrentPos(nSrvTime, fCalcX, fCalcZ);
 
-    // 거부 - 역산 위치에 세우고 그 좌표를 본인에게 돌려보낸다.
-    // 세우지 않으면 서버는 옛 목적지로 계속 가고 클라만 멈춰 다시 어긋난다.
+    // 거부 - 역산 위치에 세우고 그 좌표를 본인에게 돌려보낸다
     auto RejectMove = [&]()
         {
             pPlayer->m_fCurX = fCalcX;
@@ -463,8 +460,8 @@ void CZone::OnMovePos(PlayerRef pPlayer,
 
     if (pPlayer->m_bDead) return;
 
-    // OnMoveDest 와 같다 - 판정은 서버 시계, 브로드캐스트는 클라 원본(nMoveTime) 그대로.
-    // m_nMoveStartTime 이 서버 시계이므로 여기도 서버 시계여야 경과 시간이 맞는다.
+    // 판정은 서버 시계, 브로드캐스트는 클라 원본 그대로(부하테스트)
+
     const uint32_t nSrvTime = static_cast<uint32_t>(GetTickCount64());
 
     constexpr float MAX_TOLERANCE = 2.f;
@@ -486,11 +483,8 @@ void CZone::OnMovePos(PlayerRef pPlayer,
     }
     else
     {
-        // 서버가 "정지 중"으로 아는 동안에는 위치가 바뀔 수 없다.
-        // 이 분기가 없으면 위 검사를 통째로 건너뛰어 좌표가 무검사로 채택된다.
-        //  - 거부 직후: RejectMove 가 세워 둔 것이 다음 POS 하나로 되돌려져 거부가 무효가 된다.
-        //  - CS_MOVE_DEST 를 아예 보내지 않는 클라: 로그인 이후 계속 무검사가 된다.
-        // 정지 중이면 기준은 역산이 아니라 마지막으로 확정된 위치다.
+        // 서버에서 정지상태에는 위치가 바뀔 수 없다.
+
         float fDiffX = fCurX - pPlayer->m_fCurX;
         float fDiffZ = fCurZ - pPlayer->m_fCurZ;
 

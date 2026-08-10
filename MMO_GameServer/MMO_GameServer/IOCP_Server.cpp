@@ -658,7 +658,10 @@ void CIOCP_Server::DebugConsoleThread()
              + "   " + Num(aoiMsPs / 10.0, 1) + "%코어");
         // AOI 시간 중 몇 %가 락을 "기다린" 시간인가.
         //  이 값이 높으면 병목은 스캔량이 아니라 전역 락 직렬화다.
-        Line("       락대기 " + Num((aoi.lockUs / 1000.0) / 10.0, 1) + "%코어"
+        //  %코어는 반드시 dtSec 로 나눌 것 - 윗줄 aoiMsPs 와 같은 기준이어야
+        //  두 값을 나란히 읽을 수 있다. 갱신 주기가 0.5초라 안 나누면 절반으로 찍힌다.
+        const double lockMsPs = (aoi.lockUs / 1000.0) / dtSec;      // 초당 총 대기 ms
+        Line("       락대기 " + Num(lockMsPs / 10.0, 1) + "%코어"
              + "  (AOI 시간의 " + Num(aoi.sumUs ? (100.0 * aoi.lockUs / aoi.sumUs) : 0.0, 1) + "%)"
              + "   1회 " + Num(aoi.calls ? (double)aoi.lockUs / aoi.calls : 0.0, 1) + "us");
         Line(barSingle);
