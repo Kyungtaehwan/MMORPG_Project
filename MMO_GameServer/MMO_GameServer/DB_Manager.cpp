@@ -400,10 +400,7 @@ void CDB_Manager::EnqueueLog(const FGameLog& log)
     {
         std::lock_guard<std::mutex> lk(m_logQueueLock);
 
-        //  DB 가 죽었거나 느리면 큐가 무한정 자라서 서버가 메모리로 죽는다.
-        //  로그 유실은 나쁘지만, 서버가 죽으면 그 뒤 모든 로그를 잃으므로 상한을 둔다.
-        //  버린 건수를 카운터로 남기는 게 핵심 - "이 구간의 로그는 신뢰할 수 없다"를
-        //  나중에 알 수 있어야 한다. 조용히 버리면 불완전한 로그를 완전한 줄 알고 쓰게 된다.
+        // 로그가 꽉 차면 로그를 버리고 유실 카운터를 적는다
         if (m_logQueue.size() >= LOG_QUEUE_MAX)
         {
             m_logDropped.fetch_add(1);

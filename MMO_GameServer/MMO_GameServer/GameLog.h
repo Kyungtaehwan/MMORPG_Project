@@ -41,14 +41,14 @@ namespace LogType
 
 struct FGameLog
 {
-    char    type[24]    = {};   // LogType:: 의 문자열
-    char    actor[20]   = {};   // 행위 주체(account_id)
-    char    target[20]  = {};   // 거래 상대. 없으면 빈 문자열 -> DB 에 NULL 로 들어감
-    int32_t itemCode    = 0;    // 골드만 움직이면 0
-    int32_t quantity    = 0;    // 아이템 증감(부호 포함)
-    int32_t gold        = 0;    // 골드 증감(부호 포함)
-    int32_t goldBalance = 0;    // 변동 "후" 보유 골드. 연속성 검사의 근거가 되는 값
-    char    detail[128] = {};   // 사람이 읽을 부가 정보(매물번호 등). 없으면 NULL
+    char    type[24]    = {};   // LogType
+    char    actor[20]   = {};   // 오너 아이디
+    char    target[20]  = {};   // 거래 상대(없으면 비워둠)
+    int32_t itemCode    = 0;    // 아이템 코드
+    int32_t quantity    = 0;    // 아이템 증감
+    int32_t gold        = 0;    // 골드 증감
+    int32_t goldBalance = 0;    // 변동 후 보유 골드
+    char    detail[128] = {};   // 사람이 읽을 부가 정보(드랍 몬스터 ID 등)
 };
 
 // 고정 길이 배열에 안전하게 복사(넘치면 자르고, 항상 널 종료).

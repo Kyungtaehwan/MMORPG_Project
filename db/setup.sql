@@ -552,6 +552,471 @@ DELIMITER ;
 
 
 -- ============================================================
+--  5-2. 부정 이득 몰수 (구간 지정)
+--
+--  ★ 5장(sp_rollback_account) 과 무엇이 다른가
+--
+--    되돌리기 : 그 시점 "상태" 로 복원한다. 이후 로그를 전부 거꾸로 되감으므로
+--               사고 뒤에 한 정상 플레이까지 같이 사라진다.
+--               대신 결과가 정확하고, 아귀가 안 맞으면 아예 중단한다.
+--
+--    몰수     : 지금 상태에서 "그 구간에 번 것만" 걷어낸다. 이후 로그는 안 본다.
+--               사고가 로그 중간에 끼어 있어 뒤쪽 정상 플레이를 지켜야 할 때 쓴다.
+--               대신 완전한 복원이 아니다 - 이미 써버린 것은 못 걷는다.
+--
+--    어느 쪽을 쓸지는 "사고 뒤에 정상 플레이가 있는가" 로 정한다.
+--
+--  ★ 최선 회수(best-effort) 정책
+--    되돌리기는 아귀가 안 맞으면 SIGNAL 로 멈추지만, 몰수는 멈추지 않는다.
+--    아이템이 이미 없으면 있는 만큼만 걷고, 골드가 모자라면 0 에서 멈춘다.
+--    못 걷은 만큼은 버리지 않고 confiscate_pending 에 적어둔다.
+--    조용히 넘어가면 "얼마를 못 걷었나" 를 나중에 알 수 없기 때문이다.
+-- ============================================================
+
+-- ------------------------------------------------------------
+--  미회수 몰수분
+--
+--  왜 게임 DB(mmorpg) 에 두나: 백섭하면 몰수 자체가 없던 일이 되므로
+--  빚도 같이 사라져야 한다. 로그 DB 에 두면 백섭 후에도 빚이 남아
+--  같은 재화를 두 번 걷게 된다.
+--
+--  item_code 9000 은 골드다(game_log 와 같은 규칙).
+--  지금은 적어두기만 하고 아무도 읽지 않는다. 나중에 로그인 시 자동 차감
+--  같은 걸 붙일 자리다.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS confiscate_pending (
+    account_id  VARCHAR(20) NOT NULL,
+    item_code   INT         NOT NULL,              -- 9000 = 골드
+    amount      INT         NOT NULL DEFAULT 0,    -- 아직 못 걷은 수량/금액
+    updated_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_id, item_code),
+    CONSTRAINT fk_confiscate_account FOREIGN KEY (account_id)
+        REFERENCES account(account_id) ON DELETE CASCADE
+);
+
+DROP PROCEDURE IF EXISTS sp_confiscate_gains;
+
+DELIMITER $$
+
+CREATE PROCEDURE sp_confiscate_gains(
+    IN p_account VARCHAR(20),
+    IN p_from    DATETIME(3),
+    IN p_to      DATETIME(3),   -- NULL 이면 p_from 부터 끝까지
+    IN p_apply   TINYINT        -- 0 미리보기 / 1 실제 적용
+)
+BEGIN
+    DECLARE v_to          DATETIME(3);
+    DECLARE v_exists      INT DEFAULT 0;
+    DECLARE v_gold_now    INT DEFAULT 0;
+    DECLARE v_gold_gained INT DEFAULT 0;
+    DECLARE v_gold_taken  INT DEFAULT 0;
+    DECLARE v_gold_missed  INT DEFAULT 0;
+    DECLARE v_log_cnt     INT DEFAULT 0;
+
+    DECLARE v_code INT;
+    DECLARE v_need INT;
+    DECLARE v_cnt  INT;
+    DECLARE v_slot INT;
+    DECLARE v_lid  INT;
+
+    IF p_account IS NULL OR p_from IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'account and from-time are required';
+    END IF;
+
+    SELECT COUNT(*) INTO v_exists FROM `character` WHERE account_id = p_account;
+    IF v_exists = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such account';
+    END IF;
+
+    -- 끝 시각을 안 주면 사실상 무한대로 둔다.
+    SET v_to = IFNULL(p_to, '9999-12-31 23:59:59.999');
+
+    IF v_to < p_from THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'to-time is earlier than from-time';
+    END IF;
+
+    -- --------------------------------------------------------
+    --  1. 그 구간에 "얻은 것" 집계
+    --
+    --   쓴 것(gold < 0, quantity < 0)은 대상이 아니다. 몰수는 이득만 걷는다.
+    -- --------------------------------------------------------
+    SELECT IFNULL(SUM(gold), 0) INTO v_gold_gained
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account
+       AND created_at >= p_from AND created_at <= v_to
+       AND gold > 0;
+
+    SELECT COUNT(*) INTO v_log_cnt
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account
+       AND created_at >= p_from AND created_at <= v_to
+       AND (gold > 0 OR quantity > 0);
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_confiscate;
+    CREATE TEMPORARY TABLE tmp_confiscate (
+        item_code INT PRIMARY KEY,
+        gained    INT NOT NULL DEFAULT 0,
+        held      INT NOT NULL DEFAULT 0,   -- 인벤 + 내 경매 매물
+        taken     INT NOT NULL DEFAULT 0,
+        missed INT NOT NULL DEFAULT 0,
+        processed TINYINT NOT NULL DEFAULT 0
+    );
+
+    INSERT INTO tmp_confiscate (item_code, gained)
+    SELECT item_code, SUM(quantity)
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account
+       AND created_at >= p_from AND created_at <= v_to
+       AND quantity > 0
+       AND item_code <> 9000
+     GROUP BY item_code;
+
+    -- 지금 얼마나 갖고 있나. 경매에 올려둔 것도 아직 본인 재산이므로 센다.
+    UPDATE tmp_confiscate t
+       SET held =
+           IFNULL((SELECT SUM(i.count) FROM inventory i
+                    WHERE i.account_id = p_account AND i.item_code = t.item_code), 0)
+         + IFNULL((SELECT SUM(a.count) FROM auction a
+                    WHERE a.seller_name = p_account AND a.item_code = t.item_code), 0);
+
+    --  ★ 여기가 최선 회수다. 있는 만큼만 걷고 모자란 만큼은 따로 적는다.
+    UPDATE tmp_confiscate
+       SET taken     = LEAST(gained, held),
+           missed = gained - LEAST(gained, held);
+
+    SELECT gold INTO v_gold_now FROM `character` WHERE account_id = p_account;
+    SET v_gold_taken = LEAST(v_gold_gained, v_gold_now);
+    SET v_gold_missed = v_gold_gained - v_gold_taken;
+
+    -- --------------------------------------------------------
+    --  2. 적용
+    -- --------------------------------------------------------
+    IF p_apply = 1 THEN
+        START TRANSACTION;
+
+        UPDATE `character` SET gold = gold - v_gold_taken WHERE account_id = p_account;
+
+        -- 아이템은 인벤 먼저, 모자라면 경매 매물에서 마저 걷는다.
+        WHILE EXISTS (SELECT 1 FROM tmp_confiscate WHERE processed = 0 AND taken > 0) DO
+            SELECT item_code, taken INTO v_code, v_need
+              FROM tmp_confiscate WHERE processed = 0 AND taken > 0 LIMIT 1;
+
+            --  인벤에서 먼저. 같은 아이템이 여러 슬롯에 흩어져 있을 수 있으므로
+            --  앞 슬롯부터 훑는다. LEAVE 로 빠져나가야 v_need(남은 수량)가 보존돼
+            --  아래 경매 단계로 이어진다.
+            inv_loop: WHILE v_need > 0 DO
+                SET v_slot = NULL;
+                SELECT slot, count INTO v_slot, v_cnt
+                  FROM inventory
+                 WHERE account_id = p_account AND item_code = v_code AND count > 0
+                 ORDER BY slot LIMIT 1;
+
+                IF v_slot IS NULL THEN
+                    LEAVE inv_loop;          -- 인벤엔 더 없다. 남은 만큼은 매물에서
+                ELSEIF v_cnt <= v_need THEN
+                    DELETE FROM inventory WHERE account_id = p_account AND slot = v_slot;
+                    SET v_need = v_need - v_cnt;
+                ELSE
+                    UPDATE inventory SET count = count - v_need
+                     WHERE account_id = p_account AND slot = v_slot;
+                    SET v_need = 0;
+                END IF;
+            END WHILE;
+
+            --  경매에 올려둔 것도 아직 본인 재산이므로 회수 대상이다.
+            --  매물 수량이 0 이 되면 매물 자체를 내린다.
+            auc_loop: WHILE v_need > 0 DO
+                SET v_lid = NULL;
+                SELECT listing_id, count INTO v_lid, v_cnt
+                  FROM auction
+                 WHERE seller_name = p_account AND item_code = v_code AND count > 0
+                 ORDER BY listing_id LIMIT 1;
+
+                IF v_lid IS NULL THEN
+                    LEAVE auc_loop;          -- 더 걷을 데가 없다. 나머지는 미회수로 남는다
+                ELSEIF v_cnt <= v_need THEN
+                    DELETE FROM auction WHERE listing_id = v_lid;
+                    SET v_need = v_need - v_cnt;
+                ELSE
+                    UPDATE auction SET count = count - v_need WHERE listing_id = v_lid;
+                    SET v_need = 0;
+                END IF;
+            END WHILE;
+
+            UPDATE tmp_confiscate SET processed = 1 WHERE item_code = v_code;
+        END WHILE;
+
+        --  ★ 몰수한 사실을 로그에 남긴다.
+        --    안 남기면 다음 연속성 검사가 이 조치를 복제 버그로 오탐한다.
+        --    타입은 새로 만들지 않고 ADMIN_ROLLBACK 을 그대로 쓴다 -
+        --    탐지 쿼리가 이 타입으로 HANDLED 를 판정하기 때문이다.
+        INSERT INTO mmorpg_log.game_log
+            (log_type, actor, target, item_code, quantity, gold, gold_balance, detail)
+        VALUES
+            ('ADMIN_ROLLBACK', p_account, NULL, 0, 0,
+             -v_gold_taken, v_gold_now - v_gold_taken,
+             CONCAT('confiscate ', DATE_FORMAT(p_from, '%Y-%m-%d %H:%i:%s'),
+                    ' missed_gold=', v_gold_missed));
+
+        INSERT INTO mmorpg_log.game_log
+            (log_type, actor, target, item_code, quantity, gold, gold_balance, detail)
+        SELECT 'ADMIN_ROLLBACK', p_account, NULL, item_code, -taken, 0,
+               v_gold_now - v_gold_taken,
+               CONCAT('confiscate missed_item=', missed)
+          FROM tmp_confiscate
+         WHERE taken > 0;
+
+        -- 못 걷은 만큼은 빚으로 쌓아둔다(여러 번 몰수하면 누적).
+        INSERT INTO confiscate_pending (account_id, item_code, amount)
+        SELECT p_account, 9000, v_gold_missed FROM DUAL WHERE v_gold_missed > 0
+        ON DUPLICATE KEY UPDATE amount = amount + v_gold_missed;
+
+        INSERT INTO confiscate_pending (account_id, item_code, amount)
+        SELECT p_account, item_code, missed
+          FROM tmp_confiscate WHERE missed > 0
+        ON DUPLICATE KEY UPDATE amount = amount + VALUES(amount);
+
+        COMMIT;
+    END IF;
+
+    -- --------------------------------------------------------
+    --  3. 결과 보고
+    -- --------------------------------------------------------
+    SELECT
+        p_account                                   AS account,
+        p_from                                      AS range_from,
+        IF(p_to IS NULL, '(끝까지)', CAST(p_to AS CHAR)) AS range_to,
+        IF(p_apply = 1, 'APPLIED', 'PREVIEW ONLY')  AS mode,
+        v_log_cnt                                   AS gain_logs,
+        v_gold_gained                               AS gold_gained,
+        v_gold_now                                  AS gold_before,
+        v_gold_taken                                AS gold_taken,
+        v_gold_now - v_gold_taken                   AS gold_after,
+        v_gold_missed                                AS gold_missed;
+
+    SELECT item_code, gained, held, taken, missed
+      FROM tmp_confiscate
+     ORDER BY item_code;
+
+    SELECT item_code, amount, updated_at
+      FROM confiscate_pending
+     WHERE account_id = p_account
+     ORDER BY item_code;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_confiscate;
+END$$
+
+DELIMITER ;
+
+
+-- ============================================================
+--  5-3. 전면 복구(PITR) 후 장부 재연결 + 보상 지급
+--
+--  ★ 왜 필요한가 - PITR 은 로그를 남기지 않는다
+--
+--    sp_rollback_account 와 sp_confiscate_gains 는 골드를 바꾸면서
+--    자기가 한 일을 ADMIN_ROLLBACK 으로 남긴다.
+--    그런데 PITR 은 게임 서버를 거치지 않고 DB 파일 수준에서 되돌리므로
+--    로그가 한 줄도 안 남는다.
+--
+--    그 결과 복구 직후에는 장부와 현실이 어긋나 있다.
+--        로그의 마지막 잔액   8,691   (사고 구간까지 기록됨)
+--        실제 DB 골드         5,351   (백섭으로 돌아감)
+--
+--    이 상태에서 플레이어가 아무 거래나 하면 그 다음 로그에서
+--        직전 잔액 + 증감 != 이번 잔액
+--    이 되어 연속성 검사가 터진다. 복구 대상 전원이 그렇다.
+--    보상만 지급하고 끝내면 그 보상 자체가 복제 버그로 오탐된다.
+--
+--  ★ 그래서 로그를 두 줄 남긴다
+--
+--        (1) ADMIN_ROLLBACK     gold = -3,340   잔액 5,351
+--              백섭이 없앤 금액을 장부에 반영해 현실과 다시 잇는다
+--        (2) ADMIN_COMPENSATE   gold =   +325   잔액 5,676
+--              보상 지급을 기록한다
+--
+--        검산  8,691 - 3,340 = 5,351   OK
+--              5,351 +   325 = 5,676   OK
+--
+--    (1) 이 없으면 (2) 가 위반을 만든다. 순서도 이대로여야 한다.
+--
+--  ★ 대상은 스스로 드러난다
+--    "로그의 마지막 잔액 != 현재 DB 골드" 인 계정이 곧 백섭이 건드린 계정이다.
+--    계정 목록을 넘겨받거나 이름으로 거르지 않는다.
+--
+--  ★ 보상액 = 그 구간의 DROP_GAIN 골드 합계
+--
+--    교환(상점/경매)은 백섭이 양쪽을 다 되돌렸다. 판 아이템은 인벤에
+--    돌아왔고 쓴 골드는 지갑에 돌아왔다. 거기에 보상까지 하면
+--    물건도 갖고 돈도 갖는 이중 지급이 된다.
+--    반면 드롭은 되돌릴 반대편이 없다. 몬스터를 되살릴 수는 없으므로
+--    사냥한 시간과 노력이 순수하게 사라진다. 이것만 보상 대상이다.
+--
+--    ★ 오염된 골드를 따로 판별하지 않는다.
+--      오염 대금은 AUCTION_COLLECT 로 들어오는데 DROP_GAIN 만 세므로
+--      애초에 집계에 안 들어온다. "이 골드가 더러운가" 를 물을 필요가 없다.
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS sp_compensate_rollback;
+
+DELIMITER $$
+
+CREATE PROCEDURE sp_compensate_rollback(
+    IN p_from    DATETIME(3),   -- 보상 산정 구간 시작 (= 백섭으로 되돌린 시점)
+    IN p_exclude VARCHAR(20),   -- 보상에서 제외할 계정(최초 감염자). 없으면 NULL
+    IN p_apply   TINYINT        -- 0 미리보기 / 1 실제 지급
+)
+BEGIN
+    DECLARE v_accounts   INT DEFAULT 0;
+    DECLARE v_paid_cnt   INT DEFAULT 0;
+    DECLARE v_delta_sum  BIGINT DEFAULT 0;
+    DECLARE v_comp_sum   BIGINT DEFAULT 0;
+    DECLARE v_violations INT DEFAULT 0;
+    DECLARE v_before     INT DEFAULT 0;
+
+    IF p_from IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'from-time is required';
+    END IF;
+
+    --  ★ 지금 이미 있는 연속성 위반 건수를 먼저 세어 둔다.
+    --    사건 기록 자체(로그 없이 골드가 생긴 그 줄)는 append-only 라
+    --    영원히 남는다. 복구했다고 지우면 감사 로그가 아니게 된다.
+    --    그래서 "0 건" 이 아니라 "이 작업으로 늘지 않았나" 가 옳은 기준이다.
+    SELECT COUNT(*) INTO v_before FROM (
+        SELECT gold, gold_balance,
+               LAG(gold_balance) OVER (PARTITION BY actor
+                                       ORDER BY created_at, log_id) AS prev
+          FROM mmorpg_log.game_log
+         WHERE log_type <> 'AUCTION_SOLD'
+    ) t
+    WHERE prev IS NOT NULL AND prev + gold <> gold_balance;
+
+    -- --------------------------------------------------------
+    --  1. 대상과 금액을 모은다
+    --
+    --   last_bal  : 로그가 말하는 마지막 잔액
+    --   db_gold   : 실제 현재 골드
+    --   delta     : 백섭이 없앤 금액 (= last_bal - db_gold)
+    --   comp_gold : 그 구간에 사냥으로 번 골드
+    -- --------------------------------------------------------
+    DROP TEMPORARY TABLE IF EXISTS tmp_comp;
+    CREATE TEMPORARY TABLE tmp_comp (
+        actor     VARCHAR(20) PRIMARY KEY,
+        last_bal  INT NOT NULL,
+        db_gold   INT NOT NULL,
+        delta     INT NOT NULL,
+        comp_gold INT NOT NULL DEFAULT 0,
+        comp_cnt  INT NOT NULL DEFAULT 0
+    );
+
+    INSERT INTO tmp_comp (actor, last_bal, db_gold, delta)
+    SELECT c.account_id, l.bal, c.gold, l.bal - c.gold
+      FROM `character` c
+      JOIN (SELECT g.actor, g.gold_balance AS bal
+              FROM mmorpg_log.game_log g
+              JOIN (SELECT actor, MAX(log_id) AS mx
+                      FROM mmorpg_log.game_log
+                     WHERE log_type <> 'AUCTION_SOLD'
+                     GROUP BY actor) m
+                ON m.actor = g.actor AND m.mx = g.log_id) l
+        ON l.actor = c.account_id
+     WHERE l.bal <> c.gold;          -- 백섭이 건드린 계정만
+
+    --  보상액: 구간의 골드 드롭 합계. 최초 감염자는 0 으로 둔다.
+    UPDATE tmp_comp t
+       SET comp_gold = IF(t.actor <=> p_exclude, 0,
+             IFNULL((SELECT SUM(g.gold) FROM mmorpg_log.game_log g
+                      WHERE g.actor = t.actor AND g.created_at >= p_from
+                        AND g.log_type = 'DROP_GAIN' AND g.item_code = 9000), 0)),
+           comp_cnt  = IF(t.actor <=> p_exclude, 0,
+             IFNULL((SELECT COUNT(*) FROM mmorpg_log.game_log g
+                      WHERE g.actor = t.actor AND g.created_at >= p_from
+                        AND g.log_type = 'DROP_GAIN' AND g.item_code = 9000), 0));
+
+    SELECT COUNT(*), SUM(delta), SUM(comp_gold), SUM(comp_gold > 0)
+      INTO v_accounts, v_delta_sum, v_comp_sum, v_paid_cnt
+      FROM tmp_comp;
+
+    -- --------------------------------------------------------
+    --  2. 적용
+    --
+    --   순서가 중요하다. (1) 을 먼저 통째로 넣어야 log_id 가 작아지고,
+    --   연속성 검사(created_at, log_id 순)에서 (1) -> (2) 로 읽힌다.
+    -- --------------------------------------------------------
+    IF p_apply = 1 THEN
+        START TRANSACTION;
+
+        --  (1) 백섭을 장부에 반영. 골드는 이미 바뀌어 있으므로 기록만 한다.
+        INSERT INTO mmorpg_log.game_log
+            (log_type, actor, target, item_code, quantity, gold, gold_balance, detail)
+        SELECT 'ADMIN_ROLLBACK', actor, NULL, 0, 0,
+               -delta, db_gold,
+               CONCAT('pitr rollback to ', DATE_FORMAT(p_from, '%Y-%m-%d %H:%i:%s'))
+          FROM tmp_comp
+         ORDER BY actor;
+
+        --  (2) 보상 지급
+        UPDATE `character` c
+          JOIN tmp_comp t ON t.actor = c.account_id
+           SET c.gold = c.gold + t.comp_gold
+         WHERE t.comp_gold > 0;
+
+        INSERT INTO mmorpg_log.game_log
+            (log_type, actor, target, item_code, quantity, gold, gold_balance, detail)
+        SELECT 'ADMIN_COMPENSATE', actor, NULL, 0, 0,
+               comp_gold, db_gold + comp_gold,
+               CONCAT('rollback compensation drops=', comp_cnt)
+          FROM tmp_comp
+         WHERE comp_gold > 0
+         ORDER BY actor;
+
+        COMMIT;
+    END IF;
+
+    -- --------------------------------------------------------
+    --  3. 결과 보고
+    -- --------------------------------------------------------
+    SELECT IF(p_apply = 1, 'APPLIED', 'PREVIEW ONLY') AS mode,
+           p_from                                     AS range_from,
+           IFNULL(p_exclude, '(none)')                AS excluded,
+           v_accounts                                 AS accounts,
+           v_delta_sum                                AS rollback_total,
+           v_paid_cnt                                 AS paid_accounts,
+           v_comp_sum                                 AS compensation_total;
+
+    SELECT actor, last_bal, db_gold, delta, comp_cnt, comp_gold,
+           db_gold + comp_gold AS gold_after
+      FROM tmp_comp
+     ORDER BY comp_gold DESC, actor
+     LIMIT 15;
+
+    --  적용했다면 장부가 다시 이어졌는지 확인한다. 0 이어야 정상.
+    IF p_apply = 1 THEN
+        SELECT COUNT(*) INTO v_violations FROM (
+            SELECT gold, gold_balance,
+                   LAG(gold_balance) OVER (PARTITION BY actor
+                                           ORDER BY created_at, log_id) AS prev
+              FROM mmorpg_log.game_log
+             WHERE log_type <> 'AUCTION_SOLD'
+        ) t
+        WHERE prev IS NOT NULL AND prev + gold <> gold_balance;
+
+        SELECT v_before                AS violations_before,
+               v_violations            AS violations_after,
+               v_violations - v_before AS newly_broken,
+               IF(v_violations <= v_before, 'OK - ledger reconnected',
+                  'CHECK - this run broke the ledger') AS ledger_check;
+    END IF;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_comp;
+END$$
+
+DELIMITER ;
+
+
+-- ============================================================
 --  6. 시드 데이터
 --
 --  재실행 안전: 아래에서 지우고 다시 넣는 대상은
@@ -687,6 +1152,12 @@ CREATE TABLE IF NOT EXISTS mmorpg_log.game_log (
 --     ADMIN_ROLLBACK   운영자가 계정을 과거 시점으로 되돌림 (sp_rollback_account)
 --                      환수도 골드가 움직이는 일이라 로그를 남긴다. 안 남기면
 --                      다음 연속성 검사에서 복제 버그로 오탐된다.
+--                      전면 복구(PITR) 뒤 장부를 현실과 다시 잇는 데도 쓴다.
+--                      PITR 은 게임 서버를 안 거치므로 스스로 로그를 못 남긴다.
+--     ADMIN_COMPENSATE 백섭으로 잃은 정상 소득을 돌려줌 (sp_compensate_rollback)
+--                      ADMIN_ROLLBACK 과 타입을 나눈 이유: 탐지 쿼리가
+--                      ADMIN_ROLLBACK 존재 여부로 '조치 완료(HANDLED)' 를 판정하는데,
+--                      보상은 조치가 아니라 사후 처리라 그 판정에 섞이면 안 된다.
 --
 --  생성과 소멸을 구분해 넣는 이유: "하루에 골드가 얼마나 새로 생기고
 --  얼마나 사라지나"를 집계해야 경제 밸런싱이 되고,
