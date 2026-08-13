@@ -8,12 +8,12 @@
 //    - 평지 맵   : 장애물 X A* 개선(직선 시야 조기반환 등) 
 // ================================================================
 
-constexpr int32_t RAID_INNER_X = 500;   // 내부(잔디) 가로
-constexpr int32_t RAID_INNER_Z = 500;   // 내부(잔디) 세로
+constexpr int32_t RAID_INNER_X = 150;   // 내부(잔디) 가로
+constexpr int32_t RAID_INNER_Z = 150;   // 내부(잔디) 세로
 constexpr int32_t RAID_TILE_COUNT = RAID_INNER_X * RAID_INNER_Z;
 
-constexpr int32_t RAID_SPAWN_INNER_X = 400;
-constexpr int32_t RAID_SPAWN_INNER_Z = 400;
+constexpr int32_t RAID_SPAWN_INNER_X = 75;
+constexpr int32_t RAID_SPAWN_INNER_Z = 75;
 
 // 월드 좌표
 constexpr float RAID_SPAWN_WORLD_X = RAID_SPAWN_INNER_X + 3 + 0.5f;

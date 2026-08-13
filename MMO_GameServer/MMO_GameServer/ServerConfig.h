@@ -21,11 +21,11 @@
 // 브로드캐스트 시 같은 패킷을 수신자 수만큼 만들지 않고
 // 한 번만 직렬화해 shared_ptr 로 참조만 넘긴다. (SendBuffer.h)프리텐다드 Regular
 // 전송 횟수는 그대로다 - 그건 다음 단계인 송신 배칭의 몫.
-#define USE_SEND_BUFFER     DISABLE
+#define USE_SEND_BUFFER     ENABLE
 
 // 힙 할당 횟수
 // 성능 측정시에는 병목 방지로 끄기
-#define USE_ALLOC_COUNTER   DISABLE
+#define USE_ALLOC_COUNTER   ENABLE
 
 // 섹터 한 변의 타일 수. 반드시 VIEW_RANGE 이상이어야 3x3 섹터가 시야를 덮음
 #define SECTOR_SIZE         6

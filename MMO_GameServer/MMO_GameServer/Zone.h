@@ -136,7 +136,9 @@ private:
 
 private:
     //시야
-    std::vector<int32_t> GetNearPlayers(PlayerRef pPlayer);
+    // 결과를 호출부가 넘긴 버퍼에 채운다
+    //  호출부가 thread_local 버퍼를 재사용하면 0이 된다.
+    void GetNearPlayers(PlayerRef pPlayer, std::vector<int32_t>& vResult);
 
 
     // 섹터로 1차 거르기 이후 cansee

@@ -196,6 +196,21 @@ void CZone::CollectPlayersNear(int32_t, int32_t, int32_t,
 }
 #endif
 
+// 이동 패킷 fill
+static void FillMovePacket(SC_MOVE_PLAYER_PACKET& pkt,
+                           PlayerRef pMoved, uint32_t nMoveTime)
+{
+    pkt.header.size = sizeof(pkt);
+    pkt.header.id   = SC_MOVE_PLAYER;
+    pkt.playerID    = pMoved->m_nPlayerID;
+    pkt.fCurX       = pMoved->m_fCurX;
+    pkt.fCurZ       = pMoved->m_fCurZ;
+    pkt.fDestX      = pMoved->m_fDestX;
+    pkt.fDestZ      = pMoved->m_fDestZ;
+    pkt.fSpeed      = pMoved->m_fSpeed;
+    pkt.moveTime    = nMoveTime;
+}
+
 bool CZone::IsMovable(int32_t nTileX, int32_t nTileZ) const
 {
     if (nTileX < 0 || nTileX >= m_nTileCountX) return false;
@@ -267,7 +282,10 @@ void CZone::EnterZone(PlayerRef pPlayer, float fSpawnX, float fSpawnZ)
     // 넣어야 자기 자신이 섹터에 있는 상태로 시야를 계산한다.
     UpdatePlayerSector(pPlayer);
 
-    std::vector<int32_t> vNewView = GetNearPlayers(pPlayer);
+
+    // 스레드마다 버퍼를 재사용한다
+    static thread_local std::vector<int32_t> vNewView;
+    GetNearPlayers(pPlayer, vNewView);
 
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
@@ -310,7 +328,7 @@ void CZone::LeaveZone(PlayerRef pPlayer)
     }
     RemovePlayerFromSector(pPlayer);   // 락 밖에서(재귀 불가)
 
-    std::unordered_set<int32_t> viewCopy;
+    FViewList viewCopy;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         viewCopy = pPlayer->m_viewList;
@@ -368,8 +386,7 @@ void CZone::OnMoveDest(PlayerRef pPlayer,
             pPlayer->m_bMoving = false;
             pPlayer->m_nLastMoveTime = nSrvTime;
 
-            // 여기서는 위치가 실제로 바뀐다(역산 지점으로 당겨 세운다).
-            // 타일이 바뀌면 섹터도 옮겨야 AOI 조회에서 누락되지 않는다.
+            // 여기서는 위치가 실제로 바뀐다
             if (pPlayer->UpdateTilePos())
                 UpdatePlayerSector(pPlayer);
 
@@ -431,13 +448,18 @@ void CZone::OnMoveDest(PlayerRef pPlayer,
     }
 
     // 현재 view_list에 브로드캐스트
-    // 시야 재계산은 하지 않음 ? 아직 위치 안 바뀌었으니까
+    // 시야 재계산은 하지 않음 - 아직 위치 안 바뀌었으니까
+
+    // 같은 내용이라 한 번만 만들어 돌려 쓴다
+    SC_MOVE_PLAYER_PACKET movePkt = {};
+    FillMovePacket(movePkt, pPlayer, nMoveTime);
+    SendPayload movePayload = MAKE_SEND_PAYLOAD(movePkt);
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         for (int32_t nNearID : pPlayer->m_viewList)
         {
             PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
-            if (pNear) Send_MovePlayer(pNear, pPlayer, nMoveTime);
+            if (pNear) Send_MovePlayer(pNear, movePayload);
         }
     }
 }
@@ -512,35 +534,46 @@ void CZone::OnMovePos(PlayerRef pPlayer,
 
     if (!bTileChanged)
     {
-        // 타일 안에서만 움직임 ? 시야 변화 없음
-        // move 패킷만 현재 view_list에 브로드캐스트
+        // 타일 안에서만 움직임 - 시야 변화 없음
+        // 한 번만 만들어 돌려 쓴다
+
+        SC_MOVE_PLAYER_PACKET movePkt = {};
+        FillMovePacket(movePkt, pPlayer, nMoveTime);
+        SendPayload movePayload = MAKE_SEND_PAYLOAD(movePkt);
+
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         for (int32_t nNearID : pPlayer->m_viewList)
         {
             PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
-            if (pNear) Send_MovePlayer(pNear, pPlayer, nMoveTime);
+            if (pNear) Send_MovePlayer(pNear, movePayload);
         }
         return;
     }
 
-    // ---- 타일 바뀜 → 시야 재계산 ----
+    // ---- 타일 바뀜 -> 시야 재계산 ----
     // 섹터 경계를 넘었으면 먼저 옮긴다. 시야 계산 전에 해야 내가 올바른
-    // 섹터에 있는 상태로 상대에게도 보인다.
+    // 섹터에 있는 상태로 상대에게도 보인다
     UpdatePlayerSector(pPlayer);
 
-    std::vector<int32_t> vOldView;
+    //쓰레드마다 재사용
+    static thread_local std::vector<int32_t> vOldView;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         vOldView.assign(pPlayer->m_viewList.begin(), pPlayer->m_viewList.end());
     }
 
-    std::vector<int32_t> vNewView = GetNearPlayers(pPlayer);
+    static thread_local std::vector<int32_t> vNewView;
+    GetNearPlayers(pPlayer, vNewView);
+
+    // 옛 시야는 이미 정렬돼 있다
+    // 새 시야도 정렬
+    std::sort(vNewView.begin(), vNewView.end());
 
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         pPlayer->m_viewList.clear();
         for (int32_t nID : vNewView)
-            pPlayer->m_viewList.insert(nID);
+            pPlayer->m_viewList.insert(nID);   // 정렬 입력이라 항상 끝에 붙는다
     }
 
     UpdateViewAndBroadcast(pPlayer, vOldView, vNewView, nMoveTime);
@@ -548,13 +581,7 @@ void CZone::OnMovePos(PlayerRef pPlayer,
 }
 
 // ================================================================
-//  OnMoveStop ? UI 진입 등으로 이동 강제 정지
-//
-//  클라가 UI를 열면 그 자리에 멈추지만 CS_MOVE_POS는 더 안 온다.
-//  서버가 이걸 모르면 m_bMoving이 true로 남아 GetCurrentPos가 옛 목적지로
-//  오버슈트 → 몬스터 AI가 잘못된 위치를 때린다.
-//  그래서 보고된 현재 위치를 커밋하고 이동을 멈춘다.
-//  (플레이어는 여전히 월드에 정상 존재 → 몬스터가 제 위치를 때림)
+//  OnMoveStop  UI 진입 등으로 이동 강제 정지
 // ================================================================
 void CZone::OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ)
 {
@@ -585,12 +612,17 @@ void CZone::OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ)
     pPlayer->UpdateTilePos();
     UpdatePlayerSector(pPlayer);   // 위치 커밋으로 섹터가 바뀔 수 있다
 
-    // 다른 플레이어들도 정지(cur=dest)로 보이도록 브로드캐스트
+    // 다른 플레이어들도 정지 브로드캐스트
+
+    SC_MOVE_PLAYER_PACKET movePkt = {};
+    FillMovePacket(movePkt, pPlayer, nNow);
+    SendPayload movePayload = MAKE_SEND_PAYLOAD(movePkt);
+
     std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
     for (int32_t nNearID : pPlayer->m_viewList)
     {
         PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
-        if (pNear) Send_MovePlayer(pNear, pPlayer, nNow);
+        if (pNear) Send_MovePlayer(pNear, movePayload);
     }
 }
 
@@ -598,11 +630,11 @@ void CZone::OnMoveStop(PlayerRef pPlayer, float fCurX, float fCurZ)
 //  GetNearPlayers 존 전체 순회 + 타일 거리로 시야 판정
 //  - 섹터 ON 이면 전체 순회 대신 CollectPlayersNear(범위 계산은 그쪽에 있다)
 // ================================================================
-std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
+void CZone::GetNearPlayers(PlayerRef pPlayer, std::vector<int32_t>& vResult)
 {
     // 부하 계측: 락 대기 + O(N) 전체 순회 시간을 기록 (섹터 AOI 개선 전/후 비교용)
     const int64_t nAoiT0 = StressMetrics::Now();
-    std::vector<int32_t> vResult;
+    vResult.clear();            // 원소만 지운다. capacity 는 유지된다
     uint32_t nScanned = 0;
 
 #if USE_SECTOR_AOI
@@ -645,7 +677,6 @@ std::vector<int32_t> CZone::GetNearPlayers(PlayerRef pPlayer)
 #endif
 
     StressMetrics::RecordAoi(StressMetrics::ElapsedUs(nAoiT0), nScanned);
-    return vResult;
 }
 
 bool CZone::CanSee(PlayerRef pA, PlayerRef pB)
@@ -668,65 +699,61 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
     const std::vector<int32_t>& vNewView,
     uint32_t nMoveTime)
 {
-    std::unordered_set<int32_t> setOld(vOldView.begin(), vOldView.end());
-    std::unordered_set<int32_t> setNew(vNewView.begin(), vNewView.end());
 
-    // 이동 패킷은 나와 시야 안 전원에게 내용이 똑같다.
-    // 수신자마다 다시 채울 이유가 없어 한 번만 만들어 돌려 쓴다.
+    // 수신자마다 한 번만 만들어 돌려 쓴다.
     SC_MOVE_PLAYER_PACKET movePkt = {};
-    movePkt.header.size = sizeof(movePkt);
-    movePkt.header.id = SC_MOVE_PLAYER;
-    movePkt.playerID = pPlayer->m_nPlayerID;
-    movePkt.fCurX = pPlayer->m_fCurX;
-    movePkt.fCurZ = pPlayer->m_fCurZ;
-    movePkt.fDestX = pPlayer->m_fDestX;
-    movePkt.fDestZ = pPlayer->m_fDestZ;
-    movePkt.fSpeed = pPlayer->m_fSpeed;
-    movePkt.moveTime = nMoveTime;
+    FillMovePacket(movePkt, pPlayer, nMoveTime);
     SendPayload movePayload = MAKE_SEND_PAYLOAD(movePkt);
 
     // 나 자신에게 이동 확인 패킷
     Send_MovePlayer(pPlayer, movePayload);
 
-    for (int32_t nNearID : setNew)
+    // ---- 새로 시야에 들어옴 ----
+    auto OnEnter = [&](int32_t nNearID)
     {
         PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
-        if (!pNear) continue;
+        if (!pNear) return;
 
-        if (setOld.count(nNearID) == 0)
-        {
-            // ---- 새로 시야에 들어옴 ----
-            Send_AddPlayer(pPlayer, pNear);   // 나에게 상대방 add
-            Send_AddPlayer(pNear, pPlayer);   // 상대방에게 나 add
+        Send_AddPlayer(pPlayer, pNear);   // 나에게 상대방 add
+        Send_AddPlayer(pNear, pPlayer);   // 상대방에게 나 add
 
-            {
-                std::lock_guard<std::mutex> lock(pNear->m_viewLock);
-                pNear->m_viewList.insert(pPlayer->m_nPlayerID);
-            }
-        }
-        else
-        {
-            // ---- 계속 시야 안 ----
-            Send_MovePlayer(pNear, movePayload);
-        }
-    }
+        std::lock_guard<std::mutex> lock(pNear->m_viewLock);
+        pNear->m_viewList.insert(pPlayer->m_nPlayerID);
+    };
 
-    for (int32_t nNearID : setOld)
+    // ---- 시야 밖으로 나감 ----
+    auto OnLeave = [&](int32_t nNearID)
     {
-        if (setNew.count(nNearID) != 0) continue;
-
         PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
-        if (!pNear) continue;
+        if (!pNear) return;
 
-        // ---- 시야 밖으로 나감 ----
-        Send_RemovePlayer(pPlayer, nNearID);           // 나에게 상대방 remove
+        Send_RemovePlayer(pPlayer, nNearID);            // 나에게 상대방 remove
         Send_RemovePlayer(pNear, pPlayer->m_nPlayerID); // 상대방에게 나 remove
 
-        {
-            std::lock_guard<std::mutex> lock(pNear->m_viewLock);
-            pNear->m_viewList.erase(pPlayer->m_nPlayerID);
-        }
+        std::lock_guard<std::mutex> lock(pNear->m_viewLock);
+        pNear->m_viewList.erase(pPlayer->m_nPlayerID);
+    };
+
+    // ---- 계속 시야 안 ----
+    auto OnStay = [&](int32_t nNearID)
+    {
+        PlayerRef pNear = CPlayer_Manager::Get_Instance()->Get_Player(nNearID);
+        if (!pNear) return;
+
+        Send_MovePlayer(pNear, movePayload);
+    };
+
+
+    // 두 목록이 모두 정렬돼 있어 진입,이탈,유지 세 가지를 한 번에 가른다
+    size_t i = 0, j = 0;
+    while (i < vOldView.size() && j < vNewView.size())
+    {
+        if      (vOldView[i] < vNewView[j]) { OnLeave(vOldView[i]); ++i; }      //이탈
+        else if (vNewView[j] < vOldView[i]) { OnEnter(vNewView[j]); ++j; }      //진입
+        else                                { OnStay (vOldView[i]); ++i; ++j; } //유지
     }
+    while (i < vOldView.size()) { OnLeave(vOldView[i]); ++i; }
+    while (j < vNewView.size()) { OnEnter(vNewView[j]); ++j; }
 }
 
 // ================================================================
@@ -770,15 +797,7 @@ void CZone::Send_MovePlayer(PlayerRef pTo, PlayerRef pMoved, uint32_t nMoveTime)
     if (!pSession) return;
 
     SC_MOVE_PLAYER_PACKET pkt = {};
-    pkt.header.size = sizeof(pkt);
-    pkt.header.id = SC_MOVE_PLAYER;
-    pkt.playerID = pMoved->m_nPlayerID;
-    pkt.fCurX = pMoved->m_fCurX;
-    pkt.fCurZ = pMoved->m_fCurZ;
-    pkt.fDestX = pMoved->m_fDestX;
-    pkt.fDestZ = pMoved->m_fDestZ;
-    pkt.fSpeed = pMoved->m_fSpeed;
-    pkt.moveTime = nMoveTime;
+    FillMovePacket(pkt, pMoved, nMoveTime);
     pSession->Send(&pkt, sizeof(pkt));
 }
 
@@ -821,7 +840,9 @@ void CZone::SpawnMonster(int32_t nID, MONSTER_TYPE eType, float fX, float fZ)
 void CZone::UpdateMonsterView(PlayerRef pPlayer)
 {
     // 현재 시야 내 몬스터 계산
-    std::vector<int32_t> vNewView;
+    // 스레드마다 재사용한다
+    static thread_local std::vector<int32_t> vNewView;
+    vNewView.clear();
     {
         std::lock_guard<std::mutex> lock(m_monsterLock);
         for (int32_t nID : m_monsterIDs)
@@ -840,7 +861,7 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
     }
 
     // 이전 시야
-    std::vector<int32_t> vOldView;
+    static thread_local std::vector<int32_t> vOldView;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_monsterViewLock);
         vOldView.assign(
@@ -848,25 +869,24 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
             pPlayer->m_monsterViewList.end());
     }
 
+    // 옛 시야는 이미 정렬돼 있다
+    // 아래에서 병합 순회로 비교
+    std::sort(vNewView.begin(), vNewView.end());
+
     // 시야 갱신
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_monsterViewLock);
         pPlayer->m_monsterViewList.clear();
         for (int32_t nID : vNewView)
-            pPlayer->m_monsterViewList.insert(nID);
+            pPlayer->m_monsterViewList.insert(nID);   // 정렬 입력이라 항상 끝에 붙는다
     }
 
-    std::unordered_set<int32_t> setOld(vOldView.begin(), vOldView.end());
-    std::unordered_set<int32_t> setNew(vNewView.begin(), vNewView.end());
-
     // 새로 시야 진입
-    for (int32_t nID : setNew)
+    auto OnEnter = [&](int32_t nID)
     {
-        if (setOld.count(nID) != 0) continue;
-
         MonsterRef pMonster = CMonster_Manager::Get_Instance()
             ->Get_Monster(nID);
-        if (!pMonster) continue;
+        if (!pMonster) return;
 
         Send_AddMonster(pPlayer, pMonster);
 
@@ -874,14 +894,18 @@ void CZone::UpdateMonsterView(PlayerRef pPlayer)
         bool expected = false;
         if (pMonster->m_bActive.compare_exchange_strong(expected, true))
             AddTimer(nID, EEventType::MonsterAI, 500);
-    }
+    };
 
-    // 시야 이탈
-    for (int32_t nID : setOld)
+    // 플레이어 시야와 같은 병합 순회
+    size_t i = 0, j = 0;
+    while (i < vOldView.size() && j < vNewView.size())
     {
-        if (setNew.count(nID) != 0) continue;
-        Send_RemoveMonster(pPlayer, nID);
+        if      (vOldView[i] < vNewView[j]) { Send_RemoveMonster(pPlayer, vOldView[i]); ++i; }
+        else if (vNewView[j] < vOldView[i]) { OnEnter(vNewView[j]); ++j; }
+        else                                { ++i; ++j; }   // 계속 시야 안 - 할 일 없음
     }
+    while (i < vOldView.size()) { Send_RemoveMonster(pPlayer, vOldView[i]); ++i; }
+    while (j < vNewView.size()) { OnEnter(vNewView[j]); ++j; }
 }
 
 // ================================================================
@@ -1287,11 +1311,11 @@ PlayerRef CZone::FindNearestPlayer(MonsterRef pMonster)
     uint32_t nNow = static_cast<uint32_t>(GetTickCount64());
 
     // 반경은 시야(5)가 아니라 어그로 범위
-    //  +1 은 부동소수 반경을 타일로 올림하면서 경계에서 놓치지 않기 위한 여유.
+    //  1 = 여유
     const int32_t nRange = static_cast<int32_t>(pMonster->m_fAggroRange) + 1;
 
-    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
-    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    // 스레드마다 버퍼를 재사용한다
+
     static thread_local std::vector<int32_t> vCandidates;
     CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ, nRange, vCandidates);
 
@@ -1327,8 +1351,7 @@ bool CZone::PlayerExistNear(MonsterRef pMonster)
     // 여긴 어그로 "해제" 판정이라 어그로보다 반경이 크다
     const int32_t nRange = static_cast<int32_t>(pMonster->m_fDeAggroRange) + 1;
 
-    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
-    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    // 스레드마다 버퍼를 재사용한다.
     static thread_local std::vector<int32_t> vCandidates;
     CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ, nRange, vCandidates);
 
@@ -1415,8 +1438,7 @@ void CZone::Broadcast_AddMonster(MonsterRef pMonster)
     pkt.fSpeed = pMonster->m_fSpeed;
     SendPayload addPayload = MAKE_SEND_PAYLOAD(pkt);
 
-    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
-    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    // 스레드마다 버퍼를 재사용한다
     static thread_local std::vector<int32_t> vCandidates;
     CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
                        MON_BROADCAST_RANGE, vCandidates);
@@ -1504,8 +1526,7 @@ void CZone::Broadcast_MonsterState(MonsterRef pMonster, int32_t nTargetID)
     SendPayload statePayload = MAKE_SEND_PAYLOAD(pkt);
 
     // 이 몬스터가 시야에 든 플레이어만 대상이므로 주변 섹터로 좁혀도 안전
-    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
-    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    // 스레드마다 버퍼를 재사용
     static thread_local std::vector<int32_t> vCandidates;
     CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
                        MON_BROADCAST_RANGE, vCandidates);
@@ -1710,8 +1731,7 @@ void CZone::OnMonsterRespawn(int32_t nMonsterID)
 
     bool bActivated = false;  // AI 중복 활성화 방지
 
-    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
-    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    // 스레드마다 버퍼를 재사용한다
     static thread_local std::vector<int32_t> vCandidates;
     CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
                        MON_BROADCAST_RANGE, vCandidates);
@@ -1889,8 +1909,7 @@ void CZone::Broadcast_MonsterHit(MonsterRef pMonster)
     pkt.dir = static_cast<uint8_t>(pMonster->m_eDir);
     SendPayload hitPayload = MAKE_SEND_PAYLOAD(pkt);
 
-    // 스레드마다 버퍼를 재사용한다. 매 호출 새로 만들면 초당 수백 번 힙을 두들겨
-    // 할당자 락 경합으로 꼬리지연(max)이 튄다. clear()는 capacity를 유지한다.
+    // 스레드마다 버퍼를 재사용한다
     static thread_local std::vector<int32_t> vCandidates;
     CollectPlayersNear(pMonster->m_nTileX, pMonster->m_nTileZ,
                        MON_BROADCAST_RANGE, vCandidates);
@@ -1926,7 +1945,7 @@ void CZone::OnPlayerRespawn(PlayerRef pPlayer)
     }
 #endif
 
-    std::unordered_set<int32_t> viewCopy;
+    FViewList viewCopy;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         viewCopy = pPlayer->m_viewList;
@@ -1966,7 +1985,9 @@ void CZone::OnPlayerRespawn(PlayerRef pPlayer)
     auto pSession = CSession_Manager::Get_Instance()->Get_Session(pPlayer->m_nSessionID);
     if (pSession) pSession->Send(&pkt, sizeof(pkt));
 
-    std::vector<int32_t> vNewView = GetNearPlayers(pPlayer);
+    // 스레드마다 버퍼를 재사용한다
+    static thread_local std::vector<int32_t> vNewView;
+    GetNearPlayers(pPlayer, vNewView);
     {
         std::lock_guard<std::mutex> vlock(pPlayer->m_viewLock);
         for (int32_t nID : vNewView)

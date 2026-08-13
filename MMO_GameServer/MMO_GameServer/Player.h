@@ -3,6 +3,9 @@
 #include "SaveData.h"
 #include <mutex>
 #include <cstring>
+#include <cstdint>
+#include <vector>
+#include <algorithm>
 
 // 아이템 사용 결과 (버프 적용 시 클라에 알리기 위함)
 struct FUseResult
@@ -15,6 +18,45 @@ struct FUseResult
 
 enum PLAYER_STATE {
     PLAYER_IDLE, PLAYER_WALK, PLAYER_HIT, PLAYER_ATTACK, PLAYER_DEAD, PLAYER_END
+};
+
+
+//  FViewList - 시야 목록 (정렬된 vector 로 집합을 대신)
+
+class FViewList
+{
+public:
+    // 시야 인원이 이 안이면 insert 가 재할당을 하지 않는다.
+    FViewList() { m_ids.reserve(64); }
+
+    void clear() { m_ids.clear(); }          // capacity 는 유지된다
+
+    void insert(int32_t nID)
+    {
+        auto it = std::lower_bound(m_ids.begin(), m_ids.end(), nID);
+        if (it == m_ids.end() || *it != nID)
+            m_ids.insert(it, nID);           // capacity 안이면 memmove 뿐, 할당 없음
+    }
+
+    void erase(int32_t nID)
+    {
+        auto it = std::lower_bound(m_ids.begin(), m_ids.end(), nID);
+        if (it != m_ids.end() && *it == nID)
+            m_ids.erase(it);
+    }
+
+    size_t count(int32_t nID) const
+    {
+        return std::binary_search(m_ids.begin(), m_ids.end(), nID) ? 1 : 0;
+    }
+
+    std::vector<int32_t>::const_iterator begin() const { return m_ids.begin(); }
+    std::vector<int32_t>::const_iterator end()   const { return m_ids.end();   }
+    size_t size()  const { return m_ids.size();  }
+    bool   empty() const { return m_ids.empty(); }
+
+private:
+    std::vector<int32_t> m_ids;   // 항상 오름차순 정렬 상태를 유지한다
 };
 
 class CPlayer
@@ -61,10 +103,10 @@ public:
     int32_t  m_nZoneID = 0;
 
     // ---- 시야 리스트 ----
-    std::unordered_set<int32_t> m_viewList;
+    FViewList                   m_viewList;
     std::mutex                  m_viewLock;
 
-    std::unordered_set<int32_t> m_monsterViewList;
+    FViewList                   m_monsterViewList;
     std::mutex                  m_monsterViewLock;
     // ---- 마지막 패킷 시간 ----
     uint32_t m_nLastMoveTime = 0;

@@ -132,11 +132,10 @@ void CSession::StartSend_Locked()
     WSABUF wsaBuf;
 
 #if USE_SEND_BUFFER
-    // 큐에서 꺼낸 참조를 m_sendingBuf 로 옮겨 둔다.
-    // 여기서 그냥 버리면 WSASend 가 아직 읽고 있는 메모리가 해제된다.
+
+    // 큐에서 꺼낸 참조를 m_sendingBuf 로 잡는다
     m_sendingBuf = m_sendQueue.front();
     m_sendQueue.pop();
-
     m_sendEvent.Reset();
 
     wsaBuf.buf = reinterpret_cast<char*>(const_cast<uint8_t*>(m_sendingBuf->Data()));
