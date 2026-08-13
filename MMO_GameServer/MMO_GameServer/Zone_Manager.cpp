@@ -236,21 +236,21 @@ CZone_Manager::CZone_Manager()
     constexpr int CFG_MON_COUNT = 0;
     // =====================================================================================
     int nMonCount = CFG_MON_COUNT;
-    if (nMonCount < 0)   nMonCount = 0;
-    if (nMonCount > 230) nMonCount = 230;
-    {   // (선택) 환경변수 STRESS_MON_COUNT 를 주면 그게 우선 — 안 쓰면 위 상수 사용
-        char szBuf[32]; size_t nLen = 0;
-        if (getenv_s(&nLen, szBuf, sizeof(szBuf), "STRESS_MON_COUNT") == 0 && nLen > 0)
-        {
-            int v = atoi(szBuf);
-            if (v >= 0 && v <= 230) nMonCount = v;
-        }
-    }
-    std::cout << "[Stress] 레이드 몬스터 " << nMonCount
-        << " 마리 (평지=Wing / 장애물=Orc, 고정시드)\n";
+    //if (nMonCount < 0)   nMonCount = 0;
+    //if (nMonCount > 230) nMonCount = 230;
+    //{  
+    //    char szBuf[32]; size_t nLen = 0;
+    //    if (getenv_s(&nLen, szBuf, sizeof(szBuf), "STRESS_MON_COUNT") == 0 && nLen > 0)
+    //    {
+    //        int v = atoi(szBuf);
+    //        if (v >= 0 && v <= 230) nMonCount = v;
+    //    }
+    //}
+    //std::cout << "[Stress] 레이드 몬스터 " << nMonCount
+    //    << " 마리 (평지=Wing / 장애물=Orc, 고정시드)\n";
 
     SpawnRandomMonsters(m_zones[ZONE_RAID_FLAT], nNextId, nMonCount,
-        MONSTER_WING, RAID_INNER_X, RAID_INNER_Z, RAID_AGGRO_RANGE, 0xC0FFEE01u);
+        MONSTER_ORC, RAID_INNER_X, RAID_INNER_Z, RAID_AGGRO_RANGE, 0xC0FFEE01u);
     SpawnRandomMonsters(m_zones[ZONE_RAID], nNextId, nMonCount,
         MONSTER_ORC, RAID_INNER_X, RAID_INNER_Z, RAID_AGGRO_RANGE, 0xC0FFEE02u);
 

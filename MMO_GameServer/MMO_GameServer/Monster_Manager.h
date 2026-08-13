@@ -4,7 +4,7 @@
 #include <mutex>
 #include <memory>
 
-constexpr int32_t MAX_MONSTER = 500;
+constexpr int32_t MAX_MONSTER = 1000;
 
 class CMonster_Manager
 {
