@@ -157,8 +157,6 @@ static void RunDetectOutlier(CAdminDB& db)
 {
     PrintTitle("1. 부정 재화 탐지 - 집계 이상치");
     std::cout << "  하루에 번 골드가 전체 중앙값의 10배를 넘는 경우를 찾는다.\n";
-    std::cout << "  평균이 아니라 중앙값을 쓰는 이유는, 악용자가 평균을 끌어올려\n";
-    std::cout << "  자기 자신을 덜 튀어 보이게 만들기 때문이다.\n\n";
 
     FTable t;
     std::string err;
@@ -174,19 +172,15 @@ static void RunDetectOutlier(CAdminDB& db)
         std::cout << "\n  이상치가 없다. 정상 범위 안에서만 움직이고 있다.\n";
     else
     {
-        std::cout << "\n  status 열 설명\n";
         std::cout << "    OPEN    : 아직 조치하지 않음\n";
         std::cout << "    HANDLED : 이미 되돌린 적이 있음\n";
-        std::cout << "  로그는 지워지지 않으므로(append-only) 조치한 사건도 계속 잡힌다.\n";
-        std::cout << "  그래서 지우는 대신 처리 여부를 표시한다.\n";
     }
 }
 
 static void RunDetectContinuity(CAdminDB& db)
 {
-    PrintTitle("2. 장부 검사 - 연속성 위반");
-    std::cout << "  '직전 잔액 + 이번 증감 = 이번 잔액' 이 안 맞는 기록을 찾는다.\n";
-    std::cout << "  어긋난 금액이 곧 '로그를 안 거치고 생겨난 금액' 이다.\n\n";
+    PrintTitle("2. DB 검사 - 연속성 위반");
+    std::cout << "  직전 잔액 + 이번 증감 = 이번 잔액 이 어긋난 기록을 찾는다\n";
 
     FTable t;
     std::string err;
@@ -200,14 +194,12 @@ static void RunDetectContinuity(CAdminDB& db)
 
     if (t.empty())
     {
-        std::cout << "\n  위반 0 건. 장부가 깨끗하다.\n";
-        std::cout << "  로그를 믿을 수 있다는 뜻이고, 사고가 나도 선별 환수가 가능하다.\n";
+        std::cout << "\n  위반 0 건 -> 통과\n";
     }
     else
     {
-        std::cout << "\n  unexplained 열이 설명되지 않는 금액이다.\n";
-        std::cout << "  복제 버그이거나, 로그를 안 거치고 골드를 바꾸는 코드가 있다는 뜻이다.\n";
-        std::cout << "  되돌리기 전에 원인부터 찾아야 한다.\n";
+        std::cout << "\n  unexplained : 설명되지 않는 금액\n";
+
     }
 }
 
@@ -233,7 +225,7 @@ static void RunAccountDetail(CAdminDB& db)
             std::cout << "\n  [지금 상태 - 게임 DB]\n";
             PrintTable(t);
         }
-        else std::cout << "  질의 실패: " << err << "\n";
+        else std::cout << "  실패: " << err << "\n";
     }
 
     // 최근 거래 (로그 DB)
@@ -242,12 +234,12 @@ static void RunAccountDetail(CAdminDB& db)
         sql << "SELECT log_id, created_at, log_type, item_code, quantity, gold, gold_balance, "
                "IFNULL(target,'-') AS target, IFNULL(detail,'-') AS detail "
                "FROM game_log WHERE actor='" << acc << "' "
-               "ORDER BY log_id DESC LIMIT 30";
+               "ORDER BY log_id DESC LIMIT 500";
 
         FTable t;
         if (db.Query(sql.str(), t, err))
         {
-            std::cout << "\n  [최근 거래 30건 - 로그 DB]\n";
+            std::cout << "\n  [최근 거래 500건 - 로그 DB]\n";
             PrintTable(t);
         }
         else std::cout << "  질의 실패: " << err << "\n";
@@ -276,12 +268,28 @@ static void RunAccountDetail(CAdminDB& db)
 static void RunSpread(CAdminDB& db)
 {
     PrintTitle("4. 전파 범위 - 이 재화가 남에게 넘어갔나");
-    std::cout << "  이 결과가 조치를 정한다.\n";
-    std::cout << "    0 건        -> 혼자 갖고 있다 -> 그 계정만 되돌리면 끝\n";
-    std::cout << "    수십~수백 건 -> 이미 퍼졌다   -> 선별 불가 -> 전면 복구 검토\n\n";
 
     std::string acc = SanitizeAccount(Prompt("  계정 이름: "));
     if (acc.empty()) { std::cout << "  이름이 비었다.\n"; return; }
+
+    // 사고 시작 시각 이후만 봐야 한다.
+    //  그 전의 거래는 정상 재화가 오간 것이라 전파가 아니다. 전 기간을 세면
+    //  평소 거래가 많은 계정일수록 전파가 부풀려지고, 선별 환수로 끝날 사건을
+    //  전면 복구로 오판하게 된다.
+    //  시각은 메뉴 3 에서 첫 이상 로그의 created_at 을 보고 그 직전으로 잡는다.
+    //  (메뉴 5 에 넣을 시각과 같은 값이다)
+    std::string when = SanitizeDateTime(Prompt("  기준 시각 (비우면 전체 기간): "));
+
+    std::string cond;
+    if (when.size() >= 10)
+    {
+        cond = " AND created_at >= '" + when + "'";
+        std::cout << "  기준: " << when << " 이후\n";
+    }
+    else
+    {
+        std::cout << "  기준: 전체 기간 (사고 이전 정상 거래도 함께 잡힌다)\n";
+    }
 
     std::string err;
 
@@ -290,7 +298,8 @@ static void RunSpread(CAdminDB& db)
         sql << "SELECT log_type, target AS counterparty, COUNT(*) AS trades, "
                "SUM(quantity) AS items, SUM(gold) AS gold "
                "FROM game_log WHERE actor='" << acc << "' AND target IS NOT NULL "
-               "GROUP BY log_type, target ORDER BY trades DESC LIMIT 30";
+            << cond
+            << " GROUP BY log_type, target ORDER BY trades DESC LIMIT 30";
 
         FTable t;
         if (db.Query(sql.str(), t, err))
@@ -304,7 +313,7 @@ static void RunSpread(CAdminDB& db)
     {
         std::ostringstream sql;
         sql << "SELECT COUNT(DISTINCT actor) AS counterparties "
-               "FROM game_log WHERE target='" << acc << "'";
+               "FROM game_log WHERE target='" << acc << "'" << cond;
 
         FTable t;
         if (db.Query(sql.str(), t, err))
@@ -316,13 +325,16 @@ static void RunSpread(CAdminDB& db)
 
     {
         std::ostringstream sql;
+        // 아직 안 팔린 매물은 "미래의 전파" 다. 다만 사고 이전에 올린 매물은
+        // 정상 재화이므로, 로그와 같은 기준 시각을 적용한다.
+        // (sp_rollback_account 도 그 시점 이후 등록분만 함께 내린다)
         sql << "SELECT listing_id, item_code, count, unit_price, created_at "
-               "FROM mmorpg.auction WHERE seller_name='" << acc << "'";
+               "FROM mmorpg.auction WHERE seller_name='" << acc << "'" << cond;
 
         FTable t;
         if (db.Query(sql.str(), t, err))
         {
-            std::cout << "\n  [경매장에 아직 남아 있는 매물 - 사가면 퍼진다]\n";
+            std::cout << "\n  [경매장에 남아 있는 매물]\n";
             PrintTable(t);
         }
     }
@@ -331,10 +343,7 @@ static void RunSpread(CAdminDB& db)
 static void RunRollback(CAdminDB& db)
 {
     PrintTitle("5. 계정 되돌리기");
-    std::cout << "  지정한 시각의 상태로 계정 하나를 되돌린다.\n";
-    std::cout << "  방식: 지금 상태에서 그 시점 이후 로그를 거꾸로 되감는다.\n";
-    std::cout << "        (되돌릴 값 = 지금 값 - 그 시점 이후 증감 합계)\n";
-    std::cout << "  백업 파일이 필요 없다.\n\n";
+    std::cout << "  지정한 시각의 상태로 계정 하나를 되감는다.\n";
 
     if (!db.HasRoot())
     {
@@ -395,8 +404,167 @@ static void RunRollback(CAdminDB& db)
     std::cout << "\n  [적용 결과]\n";
     if (!tables.empty()) PrintTable(tables[0]);
 
-    std::cout << "\n  되돌린 사실도 ADMIN_ROLLBACK 으로 로그에 남았다.\n";
-    std::cout << "  안 남기면 다음 장부 검사에서 이 조치가 복제 버그로 오해받는다.\n";
+    std::cout << "\n  되돌린 사실도 ADMIN_ROLLBACK 으로 로그에 남았다\n";
+}
+
+// ================================================================
+//  8. 부정 이득 몰수 (구간 지정)
+//
+//  5번(되돌리기)과 언제 갈리나
+//    사고 뒤에 정상 플레이가 없다  -> 5번. 그 시점 상태로 정확히 복원된다.
+//    사고 뒤에 정상 플레이가 있다  -> 8번. 5번을 쓰면 그것까지 날아간다.
+//
+//  5번은 아귀가 안 맞으면 멈추지만 8번은 멈추지 않는다.
+//  이미 써버린 재화는 못 걷고, 못 걷은 만큼은 confiscate_pending 에 쌓인다.
+// ================================================================
+static void RunConfiscate(CAdminDB& db)
+{
+    PrintTitle("8. 부정 이득 몰수 - 구간에 번 것만 걷어낸다");
+    std::cout << "  이후 정상 플레이는 건드리지 않는다.\n";
+
+    if (!db.HasRoot())
+    {
+        std::cout << "  몰수는 데이터를 바꾸므로 root 권한이 필요하다.\n";
+        std::string pw = ReadPassword("  root 비밀번호: ");
+        if (!db.ConnectAsRoot(pw)) return;
+    }
+
+    std::string acc = SanitizeAccount(Prompt("  계정 이름: "));
+    if (acc.empty()) { std::cout << "  이름이 비었다.\n"; return; }
+
+    std::string from = SanitizeDateTime(Prompt("  시작 시각 (예: 2026-08-03 20:00:00): "));
+    if (from.size() < 10) { std::cout << "  시각 형식이 잘못됐다.\n"; return; }
+
+    // 끝을 비우면 그 시점부터 지금까지 전부가 대상이다.
+    std::string to = SanitizeDateTime(Prompt("  끝 시각 (비우면 끝까지): "));
+    std::string toArg = (to.size() >= 10) ? ("'" + to + "'") : std::string("NULL");
+
+    auto call = [&](int apply)
+    {
+        std::ostringstream sql;
+        sql << "CALL mmorpg.sp_confiscate_gains('" << acc << "','" << from << "',"
+            << toArg << "," << apply << ")";
+        return sql.str();
+    };
+
+    std::vector<FTable> tables;
+    std::string err;
+
+    std::cout << "\n  [미리보기 - 아무것도 바꾸지 않는다]\n";
+    if (!db.QueryMulti(call(0), tables, err, true))
+    {
+        std::cout << "  실패: " << err << "\n";
+        return;
+    }
+
+    const char* names[] = { "요약", "아이템별 회수 계획", "미회수 누적" };
+    for (size_t i = 0; i < tables.size(); ++i)
+    {
+        std::cout << "\n  [" << (i < 3 ? names[i] : "결과") << "]\n";
+        PrintTable(tables[i]);
+    }
+
+    std::string yes = Prompt("\n  실제로 적용하려면 APPLY 라고 입력: ");
+    if (yes != "APPLY")
+    {
+        std::cout << "  취소했다. DB 는 그대로다.\n";
+        return;
+    }
+
+    tables.clear();
+    if (!db.QueryMulti(call(1), tables, err, true))
+    {
+        std::cout << "  실패: " << err << "\n";
+        return;
+    }
+
+    std::cout << "\n  [적용 결과]\n";
+    for (size_t i = 0; i < tables.size(); ++i)
+    {
+        std::cout << "\n  [" << (i < 3 ? names[i] : "결과") << "]\n";
+        PrintTable(tables[i]);
+    }
+
+    std::cout << "\n  몰수한 사실도 ADMIN_ROLLBACK 으로 로그에 남았다\n";
+    std::cout << "  못 걷은 몫은 confiscate_pending 에 쌓였다 (아직 읽는 곳은 없다)\n";
+}
+
+// ================================================================
+//  9. 백섭 후 장부 재연결 + 보상 지급
+//    로그의 마지막 잔액 != 현재 DB 골드 인 계정이 곧 백섭이 건드린 계정이다.
+//    계정 목록을 넘겨주지 않는다. 그래서 두 번 눌러도 중복 지급되지 않는다.
+// ================================================================
+static void RunCompensate(CAdminDB& db)
+{
+    PrintTitle("9. 백섭 후 장부 재연결 + 보상 지급");
+    std::cout << "  PITR 은 로그를 남기지 않는다. 끊어진 장부를 잇고 보상을 지급한다.\n";
+
+    if (!db.HasRoot())
+    {
+        std::cout << "  지급은 데이터를 바꾸므로 root 권한이 필요하다.\n";
+        std::string pw = ReadPassword("  root 비밀번호: ");
+        if (!db.ConnectAsRoot(pw)) return;
+    }
+
+    //  보상 산정 구간의 시작. 메뉴 7 에 넣었던 복구 시각과 같은 값이 아니라,
+    //  로그상의 사건 시각이다(로그는 되돌리지 않았으므로 그대로 남아 있다).
+    std::string from = SanitizeDateTime(Prompt("  보상 산정 시작 시각 (사건 시각): "));
+    if (from.size() < 10) { std::cout << "  시각 형식이 잘못됐다.\n"; return; }
+
+    //  최초 감염자는 보상 대상이 아니다. 장부 재연결은 해준다.
+    std::string zero = SanitizeAccount(Prompt("  보상에서 제외할 계정 (최초 감염자, 없으면 엔터): "));
+    std::string zeroArg = zero.empty() ? std::string("NULL") : ("'" + zero + "'");
+
+    auto call = [&](int apply)
+    {
+        std::ostringstream sql;
+        sql << "CALL mmorpg.sp_compensate_rollback('" << from << "'," << zeroArg << "," << apply << ")";
+        return sql.str();
+    };
+
+    std::vector<FTable> tables;
+    std::string err;
+
+    std::cout << "\n  [미리보기 - 아무것도 바꾸지 않는다]\n";
+    if (!db.QueryMulti(call(0), tables, err, true))
+    {
+        std::cout << "  실패: " << err << "\n";
+        return;
+    }
+
+    const char* names[] = { "요약", "계정별 (상위 15)", "장부 검사" };
+    for (size_t i = 0; i < tables.size(); ++i)
+    {
+        std::cout << "\n  [" << (i < 3 ? names[i] : "결과") << "]\n";
+        PrintTable(tables[i]);
+    }
+
+    std::cout << "\n  accounts 가 0 이면 이미 정리된 상태다. 중복 지급되지 않는다.\n";
+    std::cout << "  delta 는 백섭이 없앤 금액, comp_gold 는 돌려줄 사냥 소득이다.\n";
+
+    std::string yes = Prompt("\n  실제로 적용하려면 APPLY 라고 입력: ");
+    if (yes != "APPLY")
+    {
+        std::cout << "  취소했다. DB 는 그대로다.\n";
+        return;
+    }
+
+    tables.clear();
+    if (!db.QueryMulti(call(1), tables, err, true))
+    {
+        std::cout << "  실패: " << err << "\n";
+        return;
+    }
+
+    std::cout << "\n  [적용 결과]\n";
+    for (size_t i = 0; i < tables.size(); ++i)
+    {
+        std::cout << "\n  [" << (i < 3 ? names[i] : "결과") << "]\n";
+        PrintTable(tables[i]);
+    }
+
+    std::cout << "\n  newly_broken 이 0 이어야 한다.\n";
+    std::cout << "  사건 기록 자체는 append-only 라 위반으로 계속 남는다 - 지우면 안 된다.\n";
 }
 
 static void RunBackup(const std::string& dbDir)
@@ -420,10 +588,8 @@ static void RunBackup(const std::string& dbDir)
 static void RunPitr(const std::string& dbDir)
 {
     PrintTitle("7. 시점 복구 (PITR)");
-    std::cout << "  백업만으로는 '마지막 백업 시점' 으로밖에 못 돌아간다.\n";
-    std::cout << "  백업을 깔고 binlog(MySQL 이 자동으로 적는 변경 일지)를\n";
-    std::cout << "  원하는 시각까지만 재생하면 그 사이 아무 시점으로나 갈 수 있다.\n\n";
-    std::cout << "  계정 하나가 아니라 DB 전체가 되돌아간다는 점에 주의할 것.\n\n";
+
+    std::cout << "  백업을 깔고 binlog를 원하는 시각까지만 재생한다\n";
 
     if (dbDir.empty())
     {
@@ -433,9 +599,7 @@ static void RunPitr(const std::string& dbDir)
 
     if (!IsRunningAsAdmin())
     {
-        std::cout << "  [안내] 지금은 관리자 권한이 아니다.\n";
-        std::cout << "         binlog 폴더가 MySQL 서비스 계정 소유라 읽을 수 없다.\n";
-        std::cout << "         이 프로그램을 관리자 권한으로 다시 실행해야 한다.\n\n";
+        std::cout << "  지금은 관리자 권한이 아니다.\n";
     }
 
     std::string when = SanitizeDateTime(
@@ -449,7 +613,7 @@ static void RunPitr(const std::string& dbDir)
     if (!DoPitr(dbDir, pw, when, false))
         return;
 
-    std::string yes = Prompt("\n  실제로 적용하려면 APPLY 라고 입력: ");
+    std::string yes = Prompt("\n  실적용하려면 APPLY 라고 입력: ");
     if (yes != "APPLY")
     {
         std::cout << "  취소했다. DB 는 그대로다.\n";
@@ -477,8 +641,7 @@ int main()
     SetConsoleCP(CP_UTF8);
 
     std::cout << "==================================================================\n";
-    std::cout << "  MMORPG 운영 도구 (Admin Tool)\n";
-    std::cout << "  재화 이상 탐지 / 계정 되돌리기 / 백업 / 시점 복구\n";
+    std::cout << "  MMORPG 운영 도구\n";
     std::cout << "==================================================================\n\n";
 
     CAdminDB db;
@@ -490,8 +653,7 @@ int main()
     }
 
     std::string dbDir = FindDbDir();
-    std::cout << "[경로] db 폴더: " << (dbDir.empty() ? "(못 찾음)" : dbDir) << "\n";
-    std::cout << "[권한] 관리자: " << (IsRunningAsAdmin() ? "예" : "아니오")
+    std::cout << "\n" << "[권한] 관리자: " << (IsRunningAsAdmin() ? "예" : "아니오")
               << "   게임서버 실행중: " << (IsGameServerRunning() ? "예" : "아니오") << "\n";
 
     for (;;)
@@ -499,12 +661,14 @@ int main()
         std::cout << "\n";
         std::cout << "------------------------------------------------------------------\n";
         std::cout << "  [1] 부정 재화 탐지   집계 이상치로 악용자 찾기\n";
-        std::cout << "  [2] 장부 검사        연속성 위반으로 복제 버그 찾기\n";
+        std::cout << "  [2] 로그 검사        연속성 위반으로 복제 버그 찾기\n";
         std::cout << "  [3] 계정 조회        한 계정의 상태와 거래 내역\n";
         std::cout << "  [4] 전파 범위        재화가 남에게 넘어갔는지 확인\n";
         std::cout << "  [5] 계정 되돌리기    지정 시각으로 복구 (root 필요)\n";
         std::cout << "  [6] DB 백업          (root 필요)\n";
         std::cout << "  [7] 시점 복구 PITR   DB 전체 (root + 관리자 권한 필요)\n";
+        std::cout << "  [8] 부정 이득 몰수   구간에 번 것만 걷어냄 (root 필요)\n";
+        std::cout << "  [9] 백섭 후 보상     장부 재연결 + 보상 지급 (root 필요)\n";
         std::cout << "  [0] 종료\n";
         std::cout << "------------------------------------------------------------------\n";
 
@@ -520,11 +684,13 @@ int main()
         case '5': RunRollback(db);         break;
         case '6': RunBackup(dbDir);        break;
         case '7': RunPitr(dbDir);          break;
+        case '8': RunConfiscate(db);       break;
+        case '9': RunCompensate(db);       break;
         case '0':
             std::cout << "  종료.\n";
             return 0;
         default:
-            std::cout << "  0 ~ 7 중에서 고를 것.\n";
+            std::cout << "  0 ~ 9 중에서 고를 것.\n";
             break;
         }
     }

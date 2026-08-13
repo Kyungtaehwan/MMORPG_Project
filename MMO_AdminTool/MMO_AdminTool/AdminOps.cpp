@@ -194,26 +194,35 @@ static void ExtractBinlogPos(const std::string& dumpPath,
     std::ifstream in(U8Path(dumpPath));   // 한글 경로를 열려면 wide 경로여야 한다
     if (!in) return;
 
+    // 버전마다 문구가 다르다
+    //    8.4 에서 MASTER 라는 용어가 SOURCE 로 바뀌었다.
+    static const char* kFileKeys[] = { "SOURCE_LOG_FILE='", "MASTER_LOG_FILE='" };
+    static const char* kPosKeys[]  = { "SOURCE_LOG_POS=",   "MASTER_LOG_POS="   };
+
     std::string line;
     int guard = 0;
     while (std::getline(in, line) && guard++ < 300)
     {
-        size_t f = line.find("SOURCE_LOG_FILE='");
-        if (f == std::string::npos) continue;
+        for (int k = 0; k < 2; ++k)
+        {
+            size_t f = line.find(kFileKeys[k]);
+            if (f == std::string::npos) continue;
 
-        f += strlen("SOURCE_LOG_FILE='");
-        size_t fEnd = line.find('\'', f);
-        if (fEnd == std::string::npos) continue;
-        outFile = line.substr(f, fEnd - f);
+            f += strlen(kFileKeys[k]);
+            size_t fEnd = line.find('\'', f);
+            if (fEnd == std::string::npos) continue;
 
-        size_t p = line.find("SOURCE_LOG_POS=");
-        if (p == std::string::npos) continue;
+            size_t p = line.find(kPosKeys[k]);
+            if (p == std::string::npos) continue;
 
-        p += strlen("SOURCE_LOG_POS=");
-        size_t pEnd = line.find_first_not_of("0123456789", p);
-        outPos = (pEnd == std::string::npos) ? line.substr(p)
-                                             : line.substr(p, pEnd - p);
-        return;
+            p += strlen(kPosKeys[k]);
+            size_t pEnd = line.find_first_not_of("0123456789", p);
+
+            outFile = line.substr(f, fEnd - f);
+            outPos  = (pEnd == std::string::npos) ? line.substr(p)
+                                                  : line.substr(p, pEnd - p);
+            return;
+        }
     }
 }
 

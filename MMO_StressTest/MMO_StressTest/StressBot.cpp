@@ -43,7 +43,7 @@ enum class EZone : int { Town = 1, RaidObstacle = 5, RaidFlat = 6 };  // 5=Orc(A
 enum class EMode : int { Hold = 0, Ramp = 1 };
 
 static const char* CFG_SERVER_IP = "127.0.0.1";       // IP
-static const int   CFG_BOT_COUNT = 100000;               // Hold=목표수 / Ramp=최대상한
+static const int   CFG_BOT_COUNT = 11000;               // Hold=목표수 / Ramp=최대상한
 static const EZone CFG_ZONE      = EZone::RaidFlat;   // RaidFlat(6) / RaidObstacle(5) / Town(1)
 static const EMode CFG_MODE      = EMode::Hold;       // Hold(고정) / Ramp(자동증설)
 // =====================================================================
@@ -58,7 +58,7 @@ static char g_botPw[20]     = "6";
 static int  g_mode          = MODE_HOLD;
 
 static const int WORKER_THREADS   = 6;
-static const int CONNECT_BATCH    = 15;   // hold: 한 틱에 붙일 봇 수(빠르게 채움)
+static const int CONNECT_BATCH    = 10;   // hold: 한 틱에 붙일 봇 수(빠르게 채움)
 static const int RAMP_INTERVAL_MS = 10;  // hold: 램프 간격
 static const int CONTROL_TICK_MS  = 30;   // 봇 1개가 구동되는 주기(전송량을 정한다 - 바꾸지 말 것)
 // 구동 루프가 도는 주기. CONTROL_TICK_MS 보다 잘게 돌면서 "자기 차례인 봇"만 구동한다.

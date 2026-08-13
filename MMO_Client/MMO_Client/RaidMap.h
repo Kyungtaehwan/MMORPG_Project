@@ -3,7 +3,7 @@
 #include <cstdint>
 
 // ================================================================
-//  RaidMap.h — 대형 맵(400x400) 블록맵 생성기
+//  RaidMap.h — 대형 맵(150x150) 블록맵 생성기
 //
 //  클라/서버 양쪽에 동일 복제본을 둔다.
 //  두 가지 맵
@@ -11,14 +11,14 @@
 //    - 평지 맵   : 장애물이 0개. A* 개선(직선 시야 조기반환 등) 전후 비교
 // ================================================================
 
-constexpr int32_t RAID_INNER_X = 400;   // 내부(잔디) 가로
-constexpr int32_t RAID_INNER_Z = 400;   // 내부(잔디) 세로
+constexpr int32_t RAID_INNER_X = 150;   // 내부(잔디) 가로
+constexpr int32_t RAID_INNER_Z = 150;   // 내부(잔디) 세로
 constexpr int32_t RAID_TILE_COUNT = RAID_INNER_X * RAID_INNER_Z;
 
 // 두 대형 맵의 공통 스폰 지점(내부 좌표 기준). 존 좌표계는 테두리 2+1칸이 앞에 붙으므로
 // 실제 월드 좌표는 +3 (아래 RAID_SPAWN_WORLD_*).
-constexpr int32_t RAID_SPAWN_INNER_X = 200;
-constexpr int32_t RAID_SPAWN_INNER_Z = 200;
+constexpr int32_t RAID_SPAWN_INNER_X = 75;
+constexpr int32_t RAID_SPAWN_INNER_Z = 75;
 
 // 월드 좌표 = 내부좌표 + (OUTER 2 + BORDER 1) + 0.5(타일 중심)
 constexpr float RAID_SPAWN_WORLD_X = RAID_SPAWN_INNER_X + 3 + 0.5f;
@@ -31,7 +31,7 @@ constexpr int32_t RAID_SPAWN_CLEAR_RADIUS = 8;
 constexpr int32_t RAID_EDGE_MARGIN = 3;
 
 constexpr uint32_t RAID_MAP_SEED = 20260714u;   // 이 값이 같아야 클라,서버 같음
-constexpr int32_t  RAID_BLOB_COUNT = 6400;      // 장애물 덩어리 개수
+constexpr int32_t  RAID_BLOB_COUNT = 900 ;      // 장애물 덩어리 개수
 
 // ---- 대형 맵 몬스터 설정-
 // 레이드 몬스터 수는 서버가 정한다(Zone_Manager.cpp 의 CFG_MON_COUNT /

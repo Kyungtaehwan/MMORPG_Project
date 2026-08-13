@@ -46,8 +46,8 @@ struct FDrop
     int32_t  amount = 0;
     float    x      = 0.f;
     float    z      = 0.f;
-    bool     active = false;// 이 드롭을 떨군 몬스터 종류
-    int32_t  srcMon = -1;
+    bool     active = false;
+    int32_t  srcMon = -1; //이 드롭을 떨군 몬스터 종류
 };
 
 class CZone
@@ -180,8 +180,10 @@ private:
     // 읽기/쓰기 락
     FRWLock                     m_zoneLock;
 
-    // ---- 드롭 풀
+   
     static constexpr int32_t MAX_DROPS = 256;
-    FDrop      m_drops[MAX_DROPS];
+
+    FDrop      m_drops[MAX_DROPS]; // 드롭 풀
     std::mutex m_dropLock;
+
 };

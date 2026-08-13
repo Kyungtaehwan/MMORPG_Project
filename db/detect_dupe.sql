@@ -183,82 +183,131 @@ SELECT COUNT(DISTINCT actor)                                  AS 되돌릴계정
 --    오염 금액은 "dup001 에게 팔린 매물(AUCTION_SOLD)" 과
 --    "그 매물의 대금 수령(AUCTION_COLLECT)" 을 매물번호로 이어 붙여 구한다.
 -- ============================================================
-SELECT '[5-1] 보상 대상자별 - 백섭으로 잃게 되는 골드' AS step;
+SELECT '[5-1] 보상 대상자별 + 총액 (한 번에)' AS step;
 
-WITH tainted AS (
-    -- 최초 감염자에게 팔아서 받은 대금 = 원래 없던 돈
-    SELECT c.actor, SUM(c.gold) AS tainted_gold
-      FROM game_log c
-      JOIN game_log s
-        ON s.log_type = 'AUCTION_SOLD'
-       AND s.target   = @patient_zero
-       AND s.actor    = c.actor
-       AND s.detail   = c.detail
-     WHERE c.log_type = 'AUCTION_COLLECT'
-       AND c.created_at >= @incident_at
-     GROUP BY c.actor
-),
-earned AS (
-    SELECT actor, COUNT(*) AS trades, SUM(gold) AS total_gold
+--  ★ 왜 보상하는가 - 한 줄로
+--    백섭은 잘못한 사람의 이득만 골라 지우는 게 아니라 시간을 되감는다.
+--    그래서 그 시간에 정상적으로 플레이한 사람들의 소득도 같이 사라진다.
+--
+--  ★ 무엇을 보상하는가 - "교환" 이 아니라 "생성" 만 보상한다
+--
+--    백섭은 거래의 양쪽을 모두 되돌린다. 그래서 교환은 이미 원상복구된다.
+--      아이템을 팔았다  -> 골드가 사라지고 아이템이 인벤에 돌아온다
+--      아이템을 샀다    -> 아이템이 사라지고 골드가 돌아온다
+--    여기에 보상까지 하면 물건도 갖고 돈도 갖는 이중 지급이 된다.
+--
+--    반면 드롭은 되돌릴 반대편이 없다. 몬스터를 다시 살려낼 수는 없다.
+--    사냥한 시간과 노력이 순수하게 사라지므로, 이것만 보상 대상이다.
+--
+--    예) dup033 의 사건 이후 골드 증가를 경로별로 가르면
+--        DROP_GAIN        +325   <- 새로 생긴 것. 되돌릴 반대편이 없다   => 보상
+--        SHOP_SELL         +45   <- 아이템을 줬고, 그 아이템이 돌아왔다  => 보상 안 함
+--        SHOP_BUY          -30   <- 골드를 줬고, 그 골드가 돌아왔다      => 보상 안 함
+--        AUCTION_COLLECT +3,000  <- dup001 에게 받은 오염 대금           => 보상 안 함
+--        ----------------------
+--        보상액             325
+--
+--  ★ 덤 - 오염분을 따로 뺄 필요가 없어진다
+--    오염 대금은 AUCTION_COLLECT 로 들어온다. DROP_GAIN 만 세면
+--    애초에 집계에 안 들어오므로, 매물번호로 조인해 빼던 장치가 통째로 사라진다.
+--    (그 조인은 [5-3] 회수 확인용으로만 남겨둔다)
+--
+--  ★ WITH ROLLUP
+--    계정별 행 뒤에 합계 행 하나를 자동으로 덧붙인다.
+--    보상 명세와 총액을 따로 두 번 조회할 필요가 없다.
+
+WITH earned AS (
+    SELECT actor,
+           COUNT(*)  AS drop_cnt,
+           SUM(gold) AS drop_gold
       FROM game_log
      WHERE created_at >= @incident_at
-       AND actor <> @patient_zero
+       AND log_type   = 'DROP_GAIN'
+       AND item_code  = 9000            -- 골드 드롭만 (아이템 드롭은 [5-2])
+       AND actor LIKE 'dup%'            -- 이번 사건의 모집단만
+       AND actor <> @patient_zero       -- 최초 감염자는 보상 대상이 아니다
      GROUP BY actor
 )
-SELECT e.actor                                        AS 계정,
-       e.trades                                       AS 거래건수,
-       e.total_gold                                   AS 구간총소득,
-       IFNULL(t.tainted_gold, 0)                      AS 오염분,
-       e.total_gold - IFNULL(t.tainted_gold, 0)       AS 보상액
-  FROM earned e
-  LEFT JOIN tainted t ON t.actor = e.actor
- WHERE e.total_gold - IFNULL(t.tainted_gold, 0) > 0
- ORDER BY 보상액 DESC
- LIMIT 15;
+SELECT IFNULL(actor, '=== 합계 ===') AS 계정,
+       SUM(drop_cnt)                 AS 드롭건수,
+       SUM(drop_gold)                AS 보상액
+  FROM earned
+ GROUP BY actor WITH ROLLUP
+HAVING 보상액 > 0
+ ORDER BY (계정 = '=== 합계 ==='), 보상액 DESC;
 
-SELECT '[5-2] 보상 대상자별 - 백섭으로 잃게 되는 아이템' AS step;
 
-SELECT actor      AS 계정,
-       item_code  AS 아이템,
+SELECT '[5-2] 백섭으로 잃는 아이템 - 드롭으로 얻은 것만' AS step;
+
+--  골드와 같은 원칙이다.
+--    드롭으로 주운 아이템   -> 사라진다. 되돌릴 반대편이 없다  => 보상
+--    상점/경매에서 산 아이템 -> 골드가 돌아온다                 => 보상 안 함
+--
+--  처음에는 "구간에 늘어난 아이템" 을 전부 셌더니 161 개가 나왔는데
+--  전부 SHOP_BUY(구매)였다. 돈 주고 산 물건은 백섭이 그 돈을 돌려줬으므로
+--  손해가 아니다. 세면 같은 손실을 두 번 계산하는 셈이다.
+
+SELECT actor         AS 계정,
+       item_code     AS 아이템,
        SUM(quantity) AS 잃는수량
   FROM game_log
  WHERE created_at >= @incident_at
-   AND item_code NOT IN (0, 9000)
+   AND log_type   = 'DROP_GAIN'
+   AND item_code NOT IN (0, 9000)     -- 골드 말고 진짜 아이템만
+   AND actor LIKE 'dup%'
    AND actor <> @patient_zero
-   AND actor NOT IN (SELECT DISTINCT actor FROM game_log
-                      WHERE target = @patient_zero AND created_at >= @incident_at)
  GROUP BY actor, item_code
 HAVING SUM(quantity) > 0
  ORDER BY 잃는수량 DESC
  LIMIT 20;
 
-SELECT '[5-3] 보상 총계' AS step;
 
-WITH tainted AS (
-    SELECT c.actor, SUM(c.gold) AS tainted_gold
-      FROM game_log c
-      JOIN game_log s
-        ON s.log_type = 'AUCTION_SOLD'
-       AND s.target   = @patient_zero
-       AND s.actor    = c.actor
-       AND s.detail   = c.detail
-     WHERE c.log_type = 'AUCTION_COLLECT'
-       AND c.created_at >= @incident_at
-     GROUP BY c.actor
-),
-earned AS (
-    SELECT actor, SUM(gold) AS total_gold
-      FROM game_log
-     WHERE created_at >= @incident_at
-       AND actor <> @patient_zero
-     GROUP BY actor
-)
-SELECT COUNT(*)                                                AS 보상대상자수,
-       SUM(e.total_gold - IFNULL(t.tainted_gold, 0))           AS 보상할골드총액,
-       SUM(IFNULL(t.tainted_gold, 0))                          AS 보상에서제외한오염분
-  FROM earned e
-  LEFT JOIN tainted t ON t.actor = e.actor
- WHERE e.total_gold - IFNULL(t.tainted_gold, 0) > 0;
+SELECT '[5-3] 오염 골드가 전부 회수됐나 (보상과 별개)' AS step;
+
+--  ★ [5-1] 과 헷갈리기 쉬운데 다른 질문이다.
+--      [5-1] = 누구에게 얼마를 "돌려줄" 것인가
+--      [5-3] = 시장에 풀린 오염 골드가 전부 "걷혔나"
+--
+--    회수는 이미 백섭이 했다. 지갑에서 사라졌는지를 여기서 확인만 한다.
+--    [5-1] 은 보상액이 0 인 사람을 목록에서 빼므로 그 사람의 오염분도
+--    집계에서 빠진다. 회수 총액은 반드시 이 쿼리로 따로 봐야 한다.
+
+SELECT COUNT(DISTINCT c.actor) AS 대금받은사람,
+       SUM(c.gold)             AS 시장에풀린오염골드
+  FROM game_log c
+  JOIN game_log s
+    ON s.log_type = 'AUCTION_SOLD'
+   AND s.target   = @patient_zero
+   AND s.actor    = c.actor
+   AND s.detail   = c.detail
+ WHERE c.log_type   = 'AUCTION_COLLECT'
+   AND c.created_at >= @incident_at;
+
+
+SELECT '[5-4] 검증 - 로그로 계산한 손실이 실제와 맞나' AS step;
+
+--  ★ 백섭 직후에만 돌릴 수 있는 검증이다.
+--
+--    로그계산 = 구간의 gold 합계        (mmorpg_log 만 보고 계산)
+--    DB실측   = 로그 마지막 잔액 - 현재 골드  (실제로 얼마가 사라졌나)
+--
+--    둘이 같아야 보상액을 믿을 수 있다.
+--    단 최초 감염자만 어긋난다 - 그 500,000 은 로그를 안 거치고 생겼으므로
+--    로그를 아무리 더해도 나오지 않는다. 어긋나는 게 정상이고,
+--    그래서 그 계정만 산정에서 통째로 제외하는 것이다.
+
+SELECT COUNT(*)                        AS 계정수,
+       SUM(l.by_log =  d.by_db)        AS 일치,
+       SUM(l.by_log <> d.by_db)        AS 불일치_최초감염자만
+  FROM (SELECT actor, SUM(gold) AS by_log
+          FROM game_log WHERE created_at >= @incident_at AND actor LIKE 'dup%'
+         GROUP BY actor) l
+  JOIN (SELECT c.account_id AS actor,
+               (SELECT g.gold_balance FROM game_log g
+                 WHERE g.actor = c.account_id AND g.log_type <> 'AUCTION_SOLD'
+                 ORDER BY g.log_id DESC LIMIT 1) - c.gold AS by_db
+          FROM mmorpg.`character` c WHERE c.account_id LIKE 'dup%') d
+    ON d.actor = l.actor;
 
 
 -- ============================================================
