@@ -1017,6 +1017,289 @@ DELIMITER ;
 
 
 -- ============================================================
+--  5-5. 과실 케어 지급 (운영자가 특정 계정에 아이템/골드를 준다)
+--
+--  왜 필요한가
+--    서버 장애나 버그로 유저가 손해를 봤을 때 개별 보상을 해야 한다.
+--    메뉴 9(sp_compensate_rollback)는 "백섭으로 날아간 사냥 소득을
+--    로그에서 계산해서" 일괄 지급하는 것이라, 특정 유저 한 명에게
+--    특정 아이템을 주는 데는 쓸 수 없다.
+--
+--  ★ 오프라인 계정에만 쓸 것
+--    게임서버는 접속 중인 플레이어를 메모리에 들고 있다가 주기적으로
+--    (Player_Manager 의 라운드로빈 저장, 그리고 로그아웃 시)
+--        UPDATE character SET gold=...  +  DELETE inventory / INSERT inventory
+--    로 통째로 덮어쓴다. 접속 중에 여기서 DB 를 고치면 다음 저장 때
+--    조용히 사라진다. 그래서 이 프로시저는 접속 중 여부를 알 수 없으므로
+--    "오프라인일 때만 실행" 이 운영 규칙이다(AdminTool 이 경고한다).
+--
+--  ★ 로그를 반드시 남긴다
+--    골드를 로그 없이 넣으면 다음 연속성 검사(메뉴 2)에서
+--    "로그에 없는 골드 증가" 로 잡혀 복제 버그로 오탐된다.
+--    운영자가 준 것도 골드가 움직인 사건이므로 장부에 적어야 한다.
+--
+--  gold_balance 를 무엇으로 적는가
+--    "그 계정의 마지막 로그 잔액 + 이번 지급액" 으로 적는다.
+--    현재 character.gold 를 그대로 쓰지 않는 이유:
+--    이미 장부가 어긋나 있는 계정이라면(사고 중) DB 값으로 적는 순간
+--    그 차이가 이번 지급 때문에 생긴 것처럼 보여 새 위반이 하나 생긴다.
+--    지급은 지급대로 이어 적고, 기존 어긋남은 메뉴 2/9 로 따로 다룬다.
+--
+--  아이템 코드 = 카테고리*1000 + 세부번호 (클라 Item_define.h 기준)
+--     1000~1005  포션        2000~2001  스크롤
+--     3000~3038  장비        4000~4009  기타
+--     9000       골드 (로그 전용 코드. 인벤에 넣는 코드가 아니다)
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS sp_admin_grant;
+
+DELIMITER $$
+
+CREATE PROCEDURE sp_admin_grant(
+    IN p_account   VARCHAR(20),   -- 받을 계정
+    IN p_item_code INT,           -- 줄 아이템 코드. 0 이면 골드만 준다
+    IN p_count     INT,           -- 아이템 개수
+    IN p_gold      INT,           -- 줄 골드. 0 이면 아이템만 준다
+    IN p_gold_take INT,           -- 도로 걷을 골드. 0 이면 회수 없음
+    IN p_reason    VARCHAR(64),   -- 사유(문의번호 등). 로그 detail 에 남는다
+    IN p_apply     TINYINT        -- 0 미리보기 / 1 실제 지급
+)
+BEGIN
+    --  인벤 규격은 클라/서버와 같아야 한다
+    --    INVEN_SIZE 40 (Player.h / SaveData.h / Item_define.h)
+    --    STACK_FULL 99 (Item_define.h)
+    DECLARE c_slots     INT DEFAULT 40;
+    DECLARE c_stack     INT DEFAULT 99;
+
+    DECLARE v_exists    INT DEFAULT 0;
+    DECLARE v_gold_now  INT DEFAULT 0;
+    DECLARE v_have      INT DEFAULT 0;   -- 지금 갖고 있는 같은 코드 개수
+    DECLARE v_used      INT DEFAULT 0;   -- 사용 중인 슬롯 수
+    DECLARE v_free      INT DEFAULT 0;   -- 남은 슬롯 수
+    DECLARE v_need      INT DEFAULT 0;   -- 이번 지급에 필요한 새 슬롯 수
+    DECLARE v_room      INT DEFAULT 0;   -- 기존 스택에 더 담을 수 있는 양
+    DECLARE v_isequip   TINYINT DEFAULT 0;
+    DECLARE v_last_bal  INT DEFAULT NULL;
+    DECLARE v_net_gold  INT DEFAULT 0;   -- 지급 - 회수. 이 값이 장부에 적힌다
+    DECLARE v_left      INT DEFAULT 0;
+    DECLARE v_slot      INT DEFAULT 0;
+    DECLARE v_cnt       INT DEFAULT 0;
+    DECLARE v_put       INT DEFAULT 0;
+
+    -- --------------------------------------------------------
+    --  0. 입력 검사 - 잘못된 값으로 DB 를 건드리지 않는다
+    -- --------------------------------------------------------
+    IF p_account IS NULL OR p_account = '' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'account is required';
+    END IF;
+
+    SELECT COUNT(*) INTO v_exists FROM `character` WHERE account_id = p_account;
+    IF v_exists = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'no such account';
+    END IF;
+
+    SET p_item_code = IFNULL(p_item_code, 0);
+    SET p_count     = IFNULL(p_count, 0);
+    SET p_gold      = IFNULL(p_gold, 0);
+    SET p_gold_take = IFNULL(p_gold_take, 0);
+
+    --  회수는 음수가 아니라 '걷을 금액' 을 양수로 받는다.
+    --  부호를 사람이 직접 넣게 하면 반대로 넣어 골드를 두 배로 주는 사고가 난다.
+    IF p_count < 0 OR p_gold < 0 OR p_gold_take < 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'negative amount is not allowed';
+    END IF;
+
+    SET v_net_gold = p_gold - p_gold_take;
+
+    --  회수는 이 프로시저의 일이 아니다(메뉴 5/8 이 한다).
+    IF p_item_code = 9000 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'item_code 9000 is gold - use the gold field instead';
+    END IF;
+
+    IF p_item_code <> 0 AND NOT (
+           (p_item_code BETWEEN 1000 AND 1005)     -- 포션
+        OR (p_item_code BETWEEN 2000 AND 2001)     -- 스크롤
+        OR (p_item_code BETWEEN 3000 AND 3038)     -- 장비
+        OR (p_item_code BETWEEN 4000 AND 4009))    -- 기타
+    THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'unknown item_code';
+    END IF;
+
+    IF p_item_code <> 0 AND p_count <= 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'item count must be >= 1';
+    END IF;
+
+    IF (p_item_code = 0 OR p_count = 0) AND p_gold = 0 AND p_gold_take = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'nothing to grant';
+    END IF;
+
+    -- --------------------------------------------------------
+    --  1. 현재 상태와 들어갈 자리를 계산한다
+    -- --------------------------------------------------------
+    SELECT gold INTO v_gold_now FROM `character` WHERE account_id = p_account;
+
+    SELECT COUNT(*) INTO v_used FROM inventory WHERE account_id = p_account;
+    SET v_free = c_slots - v_used;
+
+    SET v_isequip = IF(p_item_code BETWEEN 3000 AND 3999, 1, 0);
+
+    IF p_item_code <> 0 THEN
+        SELECT IFNULL(SUM(count), 0) INTO v_have
+          FROM inventory WHERE account_id = p_account AND item_code = p_item_code;
+
+        IF v_isequip = 1 THEN
+            --  장비는 겹쳐지지 않는다. 한 칸에 하나씩.
+            SET v_room = 0;
+            SET v_need = p_count;
+        ELSE
+            --  기존 스택의 빈 자리부터 채우고, 모자라는 만큼만 새 슬롯을 쓴다.
+            SELECT IFNULL(SUM(c_stack - count), 0) INTO v_room
+              FROM inventory
+             WHERE account_id = p_account AND item_code = p_item_code AND count < c_stack;
+
+            SET v_need = CEIL(GREATEST(p_count - v_room, 0) / c_stack);
+        END IF;
+    END IF;
+
+    --  마지막 로그 잔액(연속성을 이어 적기 위해)
+    SELECT gold_balance INTO v_last_bal
+      FROM mmorpg_log.game_log
+     WHERE actor = p_account AND log_type <> 'AUCTION_SOLD'
+     ORDER BY created_at DESC, log_id DESC
+     LIMIT 1;
+
+    -- --------------------------------------------------------
+    --  2. 미리보기 (p_apply = 0)
+    -- --------------------------------------------------------
+    IF p_apply <> 1 THEN
+        SELECT p_account                       AS account,
+               v_gold_now                      AS gold_now,
+               p_gold                          AS gold_grant,
+               p_gold_take                     AS gold_take,
+               v_net_gold                      AS gold_net,
+               v_gold_now + v_net_gold         AS gold_after,
+               p_item_code                     AS item_code,
+               v_have                          AS item_now,
+               p_count                         AS item_grant,
+               v_have + p_count                AS item_after,
+               v_free                          AS free_slots,
+               v_need                          AS slots_needed,
+               IF(v_need > v_free, 'FAIL - not enough inventory slots', 'OK') AS slot_check,
+               IF(v_gold_now + v_net_gold < 0,
+                  'FAIL - not enough gold to take back', 'OK')                AS gold_check,
+               IFNULL(v_last_bal, v_gold_now)  AS log_balance_now,
+               IFNULL(v_last_bal, v_gold_now) + v_net_gold AS log_balance_after;
+    ELSE
+        -- --------------------------------------------------------
+        --  3. 실제 지급
+        -- --------------------------------------------------------
+        IF v_need > v_free THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'not enough inventory slots';
+        END IF;
+
+        --  골드를 마이너스로 만들지 않는다.
+        --  (모자란 만큼을 빚으로 적어두려면 confiscate_pending 을 쓰는 쪽이 맞다.
+        --   여기서는 운영자가 금액을 다시 판단하도록 그냥 거부한다)
+        IF v_gold_now + v_net_gold < 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'not enough gold to take back';
+        END IF;
+
+        START TRANSACTION;
+
+        IF v_net_gold <> 0 THEN
+            UPDATE `character` SET gold = gold + v_net_gold WHERE account_id = p_account;
+        END IF;
+
+        IF p_item_code <> 0 AND p_count > 0 THEN
+            SET v_left = p_count;
+
+            --  (1) 장비가 아니면 기존 스택의 빈 자리부터 채운다.
+            IF v_isequip = 0 THEN
+                stack_loop: WHILE v_left > 0 DO
+                    SET v_slot = NULL;
+                    SELECT slot, count INTO v_slot, v_cnt
+                      FROM inventory
+                     WHERE account_id = p_account
+                       AND item_code = p_item_code AND count < c_stack
+                     ORDER BY slot LIMIT 1;
+
+                    IF v_slot IS NULL THEN
+                        LEAVE stack_loop;
+                    END IF;
+
+                    SET v_put = LEAST(v_left, c_stack - v_cnt);
+                    UPDATE inventory SET count = count + v_put
+                     WHERE account_id = p_account AND slot = v_slot;
+                    SET v_left = v_left - v_put;
+                END WHILE;
+            END IF;
+
+            --  (2) 남은 만큼은 빈 슬롯에 새로 넣는다.
+            --      장비는 한 칸에 1개, 나머지는 한 칸에 99 까지.
+            new_slot_loop: WHILE v_left > 0 DO
+                SELECT MIN(s.n) INTO v_slot
+                  FROM (SELECT (a.n + b.n * 10) AS n
+                          FROM (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2
+                                UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
+                                UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8
+                                UNION ALL SELECT 9) a,
+                               (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2
+                                UNION ALL SELECT 3) b) s
+                 WHERE s.n < c_slots
+                   AND NOT EXISTS (SELECT 1 FROM inventory
+                                    WHERE account_id = p_account AND slot = s.n);
+
+                IF v_slot IS NULL THEN
+                    ROLLBACK;
+                    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'inventory full';
+                END IF;
+
+                SET v_put = IF(v_isequip = 1, 1, LEAST(v_left, c_stack));
+
+                INSERT INTO inventory (account_id, slot, item_code, count)
+                VALUES (p_account, v_slot, p_item_code, v_put);
+
+                SET v_left = v_left - v_put;
+            END WHILE;
+        END IF;
+
+        --  ★ 로그. 골드든 아이템이든 한 줄로 남긴다.
+        --    gold_balance 는 "마지막 로그 잔액 + 이번 골드" 로 이어 적는다.
+        --  한 번의 조치는 로그도 한 줄이다.
+        --  gold 에는 순증감(지급 - 회수)을 적는다. 그래야
+        --  '직전 잔액 + 이번 증감 = 이번 잔액' 이 그대로 성립한다.
+        --  얼마를 주고 얼마를 걷었는지는 detail 에 남겨 나중에 볼 수 있게 한다.
+        INSERT INTO mmorpg_log.game_log
+            (log_type, actor, target, item_code, quantity, gold, gold_balance, detail)
+        VALUES ('ADMIN_GRANT', p_account, NULL,
+                p_item_code, p_count, v_net_gold,
+                IFNULL(v_last_bal, v_gold_now) + v_net_gold,
+                CONCAT('admin grant: ',
+                       IFNULL(NULLIF(p_reason, ''), 'no reason given'),
+                       IF(p_gold_take > 0,
+                          CONCAT(' (give ', p_gold, ' / take ', p_gold_take, ')'), '')));
+
+        COMMIT;
+
+        SELECT p_account                   AS account,
+               p_item_code                 AS item_code,
+               p_count                     AS item_granted,
+               p_gold                      AS gold_granted,
+               p_gold_take                 AS gold_taken,
+               v_net_gold                  AS gold_net,
+               (SELECT gold FROM `character` WHERE account_id = p_account) AS gold_after,
+               (SELECT IFNULL(SUM(count), 0) FROM inventory
+                 WHERE account_id = p_account AND item_code = p_item_code) AS item_after,
+               (SELECT COUNT(*) FROM inventory WHERE account_id = p_account) AS slots_used,
+               'granted and logged (ADMIN_GRANT)' AS result;
+    END IF;
+END$$
+
+DELIMITER ;
+
+
+-- ============================================================
 --  6. 시드 데이터
 --
 --  재실행 안전: 아래에서 지우고 다시 넣는 대상은
@@ -1154,6 +1437,12 @@ CREATE TABLE IF NOT EXISTS mmorpg_log.game_log (
 --                      다음 연속성 검사에서 복제 버그로 오탐된다.
 --                      전면 복구(PITR) 뒤 장부를 현실과 다시 잇는 데도 쓴다.
 --                      PITR 은 게임 서버를 안 거치므로 스스로 로그를 못 남긴다.
+--     ADMIN_GRANT      과실 케어 - 운영자가 특정 계정에 아이템/골드 지급 (sp_admin_grant)
+--                      detail 에 사유(문의번호 등)가 들어간다.
+--                      ADMIN_COMPENSATE 와 나눈 이유: 저건 백섭이 날린 소득을
+--                      로그에서 계산해 되돌려주는 것이고, 이건 운영자 판단으로
+--                      새로 주는 것이라 성격이 다르다. 경제 집계에서도
+--                      "새로 유입된 재화" 로 따로 세야 한다.
 --     ADMIN_COMPENSATE 백섭으로 잃은 정상 소득을 돌려줌 (sp_compensate_rollback)
 --                      ADMIN_ROLLBACK 과 타입을 나눈 이유: 탐지 쿼리가
 --                      ADMIN_ROLLBACK 존재 여부로 '조치 완료(HANDLED)' 를 판정하는데,

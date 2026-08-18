@@ -39,6 +39,14 @@ namespace StressMetrics
     constexpr int SUB_COUNT   = 1 << SUB_BITS;   // 8
     constexpr int BUCKET_COUNT = 256;            // uint32 전 범위(최대 인덱스 239)
 
+    // GQCS 가 이 시간 안에 반환했다 = 기다리지 않았다 = 완료가 이미 큐에 쌓여 있었다.
+    constexpr uint32_t GQCS_BUSY_US = 50;
+    // 세션 송신 큐가 이 깊이를 넘으면 "상대가 못 빨아들이는 중"으로 센다.
+    constexpr uint32_t SENDQ_WARN   = 64;
+    // 이보다 오래 기다렸으면 "큐가 비어서 논 것"이다. 타이머 완료(수 초 간격)가
+    // 여기 걸린다. 평균 대기에 넣으면 유휴 시간이 지표를 통째로 삼킨다.
+    constexpr uint32_t GQCS_IDLE_US = 100000;
+
     struct State
     {
         std::atomic<uint32_t> buckets[BUCKET_COUNT];
@@ -57,9 +65,26 @@ namespace StressMetrics
         std::atomic<uint64_t> aoiLockUs;
         std::atomic<uint32_t> aoiLockMaxUs;
 
+        // ---- 워커 큐 포화도 ----
+        //  핸들러 처리 시간만 보면 "서버가 빠르다"와 "서버가 밀려 있는데 그게 안 보인다"를
+        //  구분할 수 없다. 완료가 큐에서 기다린 시간은 핸들러 밖에서 흐르기 때문이다.
+        //  GQCS 가 대기 없이 곧바로 반환한 비율이 그 대용값이다 - 높으면 밀리는 중이다.
+        std::atomic<uint64_t> gqcsCalls;
+        std::atomic<uint64_t> gqcsBusy;
+        std::atomic<uint64_t> gqcsWaitSumUs;
+        std::atomic<uint64_t> gqcsWaitCount;   // 위 합계에 들어간 표본 수(유휴 제외)
+
+        // ---- 송신 큐 적체 ----
+        //  상대(부하 봇)가 못 빨아들이면 여기가 쌓인다.
+        //  "부하 생성기가 먼저 포화됐다"를 봇 로그가 아니라 서버 쪽 숫자로 보이는 지표.
+        std::atomic<uint32_t> sendQMaxDepth;
+        std::atomic<uint64_t> sendQOver;
+
         State() : sumUs(0), maxUs(0),
                   aoiCalls(0), aoiSumUs(0), aoiSumScanned(0), aoiMaxUs(0),
-                  aoiLockUs(0), aoiLockMaxUs(0)
+                  aoiLockUs(0), aoiLockMaxUs(0),
+                  gqcsCalls(0), gqcsBusy(0), gqcsWaitSumUs(0), gqcsWaitCount(0),
+                  sendQMaxDepth(0), sendQOver(0)
         {
             for (int i = 0; i < BUCKET_COUNT; ++i) buckets[i].store(0);
         }
@@ -151,6 +176,32 @@ namespace StressMetrics
                !st.aoiLockMaxUs.compare_exchange_weak(cur, us, std::memory_order_relaxed)) {}
     }
 
+    // GQCS 1회 기록. waitUs = GQCS 호출부터 반환까지 걸린 시간.
+    inline void RecordGqcs(uint32_t waitUs)
+    {
+        State& st = S();
+        st.gqcsCalls.fetch_add(1, std::memory_order_relaxed);
+        if (waitUs <= GQCS_BUSY_US)
+            st.gqcsBusy.fetch_add(1, std::memory_order_relaxed);
+        if (waitUs < GQCS_IDLE_US)
+        {
+            st.gqcsWaitSumUs.fetch_add(waitUs, std::memory_order_relaxed);
+            st.gqcsWaitCount.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    // 세션 송신 큐에 무언가 얹은 직후의 깊이를 기록한다.
+    inline void RecordSendQueue(size_t depth)
+    {
+        State& st = S();
+        const uint32_t d = static_cast<uint32_t>(depth);
+        if (d > SENDQ_WARN)
+            st.sendQOver.fetch_add(1, std::memory_order_relaxed);
+        uint32_t cur = st.sendQMaxDepth.load(std::memory_order_relaxed);
+        while (d > cur &&
+               !st.sendQMaxDepth.compare_exchange_weak(cur, d, std::memory_order_relaxed)) {}
+    }
+
     struct AoiSnapshot
     {
         uint64_t calls = 0;       // 직전 구간 호출 횟수
@@ -170,6 +221,28 @@ namespace StressMetrics
         s.maxUs      = st.aoiMaxUs.exchange(0, std::memory_order_relaxed);
         s.lockUs     = st.aoiLockUs.exchange(0, std::memory_order_relaxed);
         s.lockMaxUs  = st.aoiLockMaxUs.exchange(0, std::memory_order_relaxed);
+        return s;
+    }
+
+    struct WorkerSnapshot
+    {
+        uint64_t gqcsCalls   = 0;   // 직전 구간 완료 처리 횟수
+        uint64_t gqcsBusy    = 0;   // 그중 대기 없이 반환한 횟수(= 큐가 안 비어 있었다)
+        uint64_t gqcsWaitUs  = 0;   // 총 대기 시간(유휴 제외)
+        uint64_t gqcsWaitN   = 0;   // 그 합계의 표본 수
+        uint32_t sendQMax    = 0;   // 세션 송신 큐 최대 깊이
+        uint64_t sendQOver   = 0;   // 깊이가 SENDQ_WARN 을 넘은 횟수
+    };
+    inline WorkerSnapshot SnapshotWorkerAndReset()
+    {
+        State& st = S();
+        WorkerSnapshot s;
+        s.gqcsCalls  = st.gqcsCalls.exchange(0, std::memory_order_relaxed);
+        s.gqcsBusy   = st.gqcsBusy.exchange(0, std::memory_order_relaxed);
+        s.gqcsWaitUs = st.gqcsWaitSumUs.exchange(0, std::memory_order_relaxed);
+        s.gqcsWaitN  = st.gqcsWaitCount.exchange(0, std::memory_order_relaxed);
+        s.sendQMax   = st.sendQMaxDepth.exchange(0, std::memory_order_relaxed);
+        s.sendQOver  = st.sendQOver.exchange(0, std::memory_order_relaxed);
         return s;
     }
 
