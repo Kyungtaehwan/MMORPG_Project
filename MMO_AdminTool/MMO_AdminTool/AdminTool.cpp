@@ -16,6 +16,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <cstdlib>
 
 // ================================================================
 //  입력 다듬기
@@ -708,6 +709,26 @@ static void RunPitr(const std::string& dbDir)
 //  main
 // ================================================================
 
+// ================================================================
+//  화면 정리
+//
+//   메뉴와 기능 출력이 한 화면에 섞이면 어디까지가 이번 결과인지 알 수 없다.
+//   기능에 들어갈 때와 메뉴로 돌아올 때 한 번씩 지운다.
+//   결과를 읽을 시간이 필요하므로 지우기 전에 키 입력을 기다린다.
+// ================================================================
+
+static void ClearScreen()
+{
+    std::system("cls");
+}
+
+static void WaitAnyKey()
+{
+    std::cout << "\n------------------------------------------------------------------\n";
+    std::cout << "  아무 키나 누르면 메뉴로 돌아갑니다.\n";
+    (void)_getwch();
+}
+
 int main()
 {
     SetConsoleOutputCP(CP_UTF8);
@@ -726,12 +747,16 @@ int main()
     }
 
     std::string dbDir = FindDbDir();
-    std::cout << "\n" << "[권한] 관리자: " << (IsRunningAsAdmin() ? "예" : "아니오")
-              << "   게임서버 실행중: " << (IsGameServerRunning() ? "예" : "아니오") << "\n";
 
     for (;;)
     {
-        std::cout << "\n";
+        ClearScreen();
+
+        std::cout << "==================================================================\n";
+        std::cout << "  MMORPG 운영 도구\n";
+        std::cout << "==================================================================\n";
+        std::cout << "[권한] 관리자: " << (IsRunningAsAdmin() ? "예" : "아니오")
+                  << "   게임서버 실행중: " << (IsGameServerRunning() ? "예" : "아니오") << "\n";
         std::cout << "------------------------------------------------------------------\n";
         std::cout << "  [1] 부정 재화 탐지   집계 이상치로 악용자 찾기\n";
         std::cout << "  [2] 로그 검사        연속성 위반으로 복제 버그 찾기\n";
@@ -749,27 +774,40 @@ int main()
         std::string sel = Prompt("  선택: ");
         if (sel.empty()) continue;
 
-        //  메뉴가 10 번까지 늘어서 첫 글자만 봐서는 1 과 10 을 구분할 수 없다.
-        //  두 글자짜리는 여기서 먼저 걸러낸다.
-        if (sel == "10") { RunGrant(db); continue; }
-
-        switch (sel[0])
+        if (sel == "0")
         {
-        case '1': RunDetectOutlier(db);    break;
-        case '2': RunDetectContinuity(db); break;
-        case '3': RunAccountDetail(db);    break;
-        case '4': RunSpread(db);           break;
-        case '5': RunRollback(db);         break;
-        case '6': RunBackup(dbDir);        break;
-        case '7': RunPitr(dbDir);          break;
-        case '8': RunConfiscate(db);       break;
-        case '9': RunCompensate(db);       break;
-        case '0':
+            ClearScreen();
             std::cout << "  종료.\n";
             return 0;
-        default:
-            std::cout << "  0 ~ 10 중에서 고를 것.\n";
-            break;
         }
+
+        ClearScreen();
+
+        //  메뉴가 10 번까지 늘어서 첫 글자만 봐서는 1 과 10 을 구분할 수 없다.
+        //  두 글자짜리는 여기서 먼저 걸러낸다.
+        if (sel == "10")
+        {
+            RunGrant(db);
+        }
+        else
+        {
+            switch (sel[0])
+            {
+            case '1': RunDetectOutlier(db);    break;
+            case '2': RunDetectContinuity(db); break;
+            case '3': RunAccountDetail(db);    break;
+            case '4': RunSpread(db);           break;
+            case '5': RunRollback(db);         break;
+            case '6': RunBackup(dbDir);        break;
+            case '7': RunPitr(dbDir);          break;
+            case '8': RunConfiscate(db);       break;
+            case '9': RunCompensate(db);       break;
+            default:
+                std::cout << "  0 ~ 10 중에서 고를 것.\n";
+                break;
+            }
+        }
+
+        WaitAnyKey();
     }
 }
