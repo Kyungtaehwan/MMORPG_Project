@@ -8,6 +8,7 @@
 #include "Protocol.h"
 #include <iostream>
 #include <cstring>
+#include "StressMetrics.h"
 
 CSession::CSession() {
 
@@ -83,6 +84,7 @@ void CSession::Send(void* pPacket, int32_t nSize)
     m_sendQueue.emplace(
         reinterpret_cast<uint8_t*>(pPacket),
         reinterpret_cast<uint8_t*>(pPacket) + nSize);
+    StressMetrics::RecordSendQueue(m_sendQueue.size());
 
     if (!m_sending)
     {
@@ -104,6 +106,7 @@ void CSession::Send(const SendPayload& payload)
 
     // 바이트열을 복사하지 않는다. 참조 하나만 큐에 얹는다.
     m_sendQueue.push(payload);
+    StressMetrics::RecordSendQueue(m_sendQueue.size());
 
     if (!m_sending)
     {

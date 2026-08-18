@@ -61,25 +61,13 @@ static const int WORKER_THREADS   = 6;
 static const int CONNECT_BATCH    = 10;   // hold: 한 틱에 붙일 봇 수(빠르게 채움)
 static const int RAMP_INTERVAL_MS = 10;  // hold: 램프 간격
 static const int CONTROL_TICK_MS  = 30;   // 봇 1개가 구동되는 주기(전송량을 정한다 - 바꾸지 말 것)
-// 구동 루프가 도는 주기. CONTROL_TICK_MS 보다 잘게 돌면서 "자기 차례인 봇"만 구동한다.
-//  예전에는 이 둘이 같아서 30ms 마다 봇 전원을 한 바퀴 돌며 한꺼번에 보냈다.
-//  그러면 서버에 패킷이 뭉텅이로 도착해(3000봇 기준 틱당 94개) 워커 16개가 동시에
-//  같은 락에 몰린다. 측정된 "락 대기 92%"의 상당 부분이 실제로는 이 부하 생성기의
-//  위상 동기화 때문이었다. 실제 유저 N명은 하나의 시계에 맞춰 보내지 않는다.
+
 static const int CONTROL_SLICE_MS = 1;
+static int g_ctrlThreads = 1;               // 실제 값은 main 에서 정한다
 static const int DEST_IDLE_MS     = 150;  // 목적지 도착 후 다음 목적지까지 대기
 static const float MOVE_SPEED     = 1.0f; // 타일/초 (서버와 동일해야 함)
 
 // ramp 모드:
-//   제어 신호는 왕복 p50 을 쓴다. p99 는 표본이 적으면 크게 흔들려 제어기가 진동한다
-//   (p50 은 수십 표본으로도 수렴). 대신 "p50 은 멀쩡한데 꼬리만 터지는" 경우를
-//   놓치지 않으려고 p99 에도 넉넉한 상한을 따로 건다.
-//   후퇴(접속 끊기)는 넣지 않는다 - 램프는 위치 탐색용이고 정원 확정은 hold 로 한다.
-//   (교수님 코드는 후퇴까지 하지만, 우리는 대량 disconnect 시 서버가 죽는 버그가
-//    아직 있어 램프 중에 끊는 건 측정 자체를 날린다.)
-//   램프가 내놓는 숫자는 보고용이 아니다. "대략 어디쯤"만 알면 되고,
-//   정원 확정은 그 근처에서 hold 로 3분씩 재서 한다. 그러니 램프를 정밀하게
-//   만들 이유가 없다 - 빠르게 밀어 임계를 찾고 거기서 멈추면 끝이다.
 static const int RAMP_ADD_BATCH   = 50;     // 결정마다 붙일 봇 수
 static const int RAMP_ADD_SLOW    = 5;      // p50 이 SLOW 임계를 넘은 뒤의 증설 폭
 static const int RAMP_DECISION_MS = 1000;   // 결정 주기
@@ -88,7 +76,6 @@ static const int RAMP_P50_STOP_MS = 150;    // 왕복 p50 이 넘으면 포화�
 static const int RAMP_P99_STOP_MS = 300;    // 왕복 p99 가 넘으면 중단(꼬리 보호)
 
 // 봇 이동: 스폰(홈) 위치를 중심으로 WANDER 반경 안에서 배회.
-//   맵이 150x150 이어도 봇이 스폰 근처에 흩어져 머물게 해 밀도 유지.
 static const float WANDER    = 15.0f;  // 배회 반경(타일)
 static const float STEP_MAX  = 4.0f;   // 한 번에 정하는 목적지 오프셋 최대(타일)
 
@@ -100,10 +87,6 @@ static const int   DEST_RESEEK_MS  = 250;    // 몬스터 재조준 CS_MOVE_DEST
 
 static const int MAX_BOTS      = 20000;  // 봇 배열 크기(= 최대 접속 상한). 서버 MAX_SESSION 과 맞춤.
 static const int RECV_BUF_SIZE = 1024;  // 한 번 recv 버퍼
-// 재조립 버퍼는 반드시 RECV_BUF_SIZE + 미완성 tail 보다 커야 한다.
-// (한 번 recv 로 최대 RECV_BUF_SIZE 바이트가 오고, 앞의 미완성 조각이 더해지므로)
-// 봇이 받는 패킷은 SC_ADD_PLAYER(이름 20B 포함) 급 70바이트 미만이다.
-// 인벤/장비/퀵슬롯/경매 같은 큰 패킷은 봇 로그인 경로가 아예 건너뛰므로 오지 않는다.
 static const int ASM_SIZE      = 2048;  // 패킷 재조립 버퍼
 
 // ---------------- 전역 ----------------
@@ -230,6 +213,47 @@ static inline uint32_t NowMs()
     return static_cast<uint32_t>((li.QuadPart - s_base) * 1000 / QpcFreq());
 }
 
+//  us 해상도 시계. 구동 루프 한 바퀴는 보통 1ms 미만이라 ms 로는 못 잰다.
+static inline uint64_t NowUs()
+{
+    static const int64_t s_base = [] {
+        LARGE_INTEGER li; QueryPerformanceCounter(&li); return li.QuadPart;
+    }();
+    LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+    return static_cast<uint64_t>((li.QuadPart - s_base) * 1000000 / QpcFreq());
+}
+
+// ---- 구동 루프 건강도 -------------------------------------------------
+//  ControlThread 는 스레드 하나로 봇 전부를 훑는다. 이 한 바퀴가 길어지면
+//  그만큼 이동 송신이 늦어지는데, 그 지연은 서버가 아니라 봇의 것이다.
+//  왕복 지연이 뛸 때 이 값이 같이 뛰면 범인은 봇이다.
+static std::atomic<uint32_t> g_passMaxUs{ 0 };
+static std::atomic<uint64_t> g_passSumUs{ 0 };
+static std::atomic<uint64_t> g_passCount{ 0 };
+//  소켓이 블로킹이라 send 가 막히면 그 뒤 봇 전부가 같이 멈춘다.
+static std::atomic<uint32_t> g_sendBlockMaxUs{ 0 };
+static std::atomic<uint64_t> g_sendBlockSumUs{ 0 };
+static std::atomic<uint64_t> g_sendBlockCount{ 0 };
+
+static void RecordPass(uint32_t us)
+{
+    g_passSumUs.fetch_add(us, std::memory_order_relaxed);
+    g_passCount.fetch_add(1, std::memory_order_relaxed);
+    uint32_t cur = g_passMaxUs.load(std::memory_order_relaxed);
+    while (us > cur &&
+           !g_passMaxUs.compare_exchange_weak(cur, us, std::memory_order_relaxed)) {}
+}
+
+static void RecordSendBlock(uint32_t us)
+{
+    g_sendBlockSumUs.fetch_add(us, std::memory_order_relaxed);
+    g_sendBlockCount.fetch_add(1, std::memory_order_relaxed);
+    uint32_t cur = g_sendBlockMaxUs.load(std::memory_order_relaxed);
+    while (us > cur &&
+           !g_sendBlockMaxUs.compare_exchange_weak(cur, us, std::memory_order_relaxed)) {}
+}
+
 static float RandRange(float lo, float hi)
 {
     return lo + (hi - lo) * (static_cast<float>(rand()) / static_cast<float>(RAND_MAX));
@@ -249,12 +273,14 @@ static void SendPacket(Bot& b, T& pkt)
     int len = pkt.header.size;
     int off = 0;
     const char* p = reinterpret_cast<const char*>(&pkt);
+    const uint64_t blockStart = NowUs();
     while (off < len)
     {
         int n = send(b.sock, p + off, len - off, 0);
         if (n == SOCKET_ERROR) return;   // 끊긴 소켓 -> 조용히 무시
         off += n;
     }
+    RecordSendBlock(static_cast<uint32_t>(NowUs() - blockStart));
     g_sentPkts.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -606,7 +632,10 @@ static void SendMoveDest(Bot& b, float dx, float dz, uint32_t now)
     pkt.header.id = CS_MOVE_DEST;
     pkt.fDestX = dx;
     pkt.fDestZ = dz;
-    pkt.moveTime = now;
+    //  도장은 패스 시작 시각(now)이 아니라 송신 직전 시각이어야 한다.
+    //  now 는 ControlThread 가 한 바퀴 앞에서 한 번 찍어 전 봇에 돌려쓰는 값이라,
+    //  루프가 밀리면 그 지연이 그대로 "왕복 지연"으로 둔갑한다(측정 오염).
+    pkt.moveTime = NowMs();
     SendPacket(b, pkt);
 }
 
@@ -621,7 +650,7 @@ static void SendMovePos(Bot& b, uint32_t now)
     pkt.header.id = CS_MOVE_POS;
     pkt.fCurX = b.fx;
     pkt.fCurZ = b.fz;
-    pkt.moveTime = now;
+    pkt.moveTime = NowMs();   // 위와 같은 이유로 송신 직전 시각
     SendPacket(b, pkt);
 }
 
@@ -823,16 +852,21 @@ static void ConnectorThread()
 }
 
 // 이동/전투 구동 스레드 (접속과 분리 — 접속이 막혀도 이동은 계속 돈다)
-static void ControlThread()
+//  nSlot 번 스레드는 인덱스 nSlot, nSlot+nSlots, nSlot+2*nSlots ... 만 맡는다.
+//  블록으로 자르지 않고 건너뛰는 이유: 봇 인덱스는 앞에서부터 차므로 블록으로 자르면
+//  접속 초반에 뒤쪽 스레드가 통째로 논다. 건너뛰면 몇 명이 붙어 있든 고르게 나뉜다.
+//  한 봇은 언제나 한 스레드만 맡으므로 "소켓당 동시 send 없음" 전제는 그대로다.
+static void ControlThread(int nSlot, int nSlots)
 {
     while (true)
     {
+        const uint64_t passStart = NowUs();
         uint32_t now = NowMs();
         int n = g_numSockets.load();
         if (n > MAX_BOTS) n = MAX_BOTS;
-        // 이 루프는 매 틱 봇 전체를 훑는다. 여기서 g_bots 를 건드리지 않는 것이 핵심 -
+        // 이 루프는 매 틱 자기 몫의 봇을 훑는다. 여기서 g_bots 를 건드리지 않는 것이 핵심 -
         // 시간이 된 봇(약 1/CONTROL_TICK_MS)만 DriveBot 으로 넘어가 무거운 구조체를 만진다.
-        for (int i = 0; i < n; ++i)
+        for (int i = nSlot; i < n; i += nSlots)
         {
             uint32_t& next = g_nextDrive[i];
 
@@ -851,6 +885,8 @@ static void ControlThread()
 
             DriveBot(g_bots[i], now);
         }
+
+        RecordPass(static_cast<uint32_t>(NowUs() - passStart));
 
         std::this_thread::sleep_for(std::chrono::milliseconds(CONTROL_SLICE_MS));
     }
@@ -957,6 +993,27 @@ static void PrintStats(double dtSec)
     _snprintf_s(buf, sizeof(buf), _TRUNCATE,
         " 전투  몬 %.0f /s   공격 %.0f /s", mon / dtSec, atk / dtSec);
     Line(buf);
+
+    //  아래 두 값이 왕복 지연과 같이 뛰면 병목은 서버가 아니라 이 프로그램이다.
+    //   패스   = 봇 전체를 한 바퀴 훑는 데 걸린 시간(구동 스레드는 하나뿐이다)
+    //   send블록 = 블로킹 send 가 실제로 막혀 있던 시간
+    {
+        const uint64_t pn  = g_passCount.exchange(0, std::memory_order_relaxed);
+        const uint64_t ps  = g_passSumUs.exchange(0, std::memory_order_relaxed);
+        const uint32_t pm  = g_passMaxUs.exchange(0, std::memory_order_relaxed);
+        const uint64_t bn  = g_sendBlockCount.exchange(0, std::memory_order_relaxed);
+        const uint64_t bs  = g_sendBlockSumUs.exchange(0, std::memory_order_relaxed);
+        const uint32_t bm  = g_sendBlockMaxUs.exchange(0, std::memory_order_relaxed);
+
+        _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+            " 구동  스레드 %d   패스 n %llu  avg %.2f  max %.2f ms"
+            "   send블록 avg %.3f  max %.2f ms",
+            g_ctrlThreads,
+            static_cast<unsigned long long>(pn),
+            pn ? (double)ps / pn / 1000.0 : 0.0, pm / 1000.0,
+            bn ? (double)bs / bn / 1000.0 : 0.0, bm / 1000.0);
+        Line(buf);
+    }
     Line(barSingle);
 
     _snprintf_s(buf, sizeof(buf), _TRUNCATE,
@@ -1008,8 +1065,6 @@ int main(int argc, char** argv)
     if (g_targetBots > MAX_BOTS) g_targetBots = MAX_BOTS;
 
     // sleep 해상도를 1ms 로. 기본값은 약 15.6ms 라서 CONTROL_SLICE_MS(1ms)를 걸어도
-    // 실제로는 15.6ms 를 자고, 그러면 위상이 두 칸으로 뭉쳐 분산이 무의미해진다.
-    // (같은 함정으로 예전에 봇 왕복 p99 가 31ms 로 고정돼 나온 적이 있다.)
     timeBeginPeriod(1);
 
     WSADATA wsa;
@@ -1039,7 +1094,27 @@ int main(int argc, char** argv)
     for (int i = 0; i < nWorkers; ++i)
         workers.emplace_back(WorkerThread);
 
-    std::thread control(ControlThread);
+    // 구동 스레드 수
+    g_ctrlThreads = (hc > 0) ? static_cast<int>(hc) : 4;
+    {
+        char*  pEnv = nullptr;
+        size_t nEnvLen = 0;
+        if (_dupenv_s(&pEnv, &nEnvLen, "STRESS_CTRL_THREADS") == 0 && pEnv)
+        {
+            int v = atoi(pEnv);
+            if (v > 0) g_ctrlThreads = v;
+            free(pEnv);
+        }
+    }
+    if (g_ctrlThreads < 1)  g_ctrlThreads = 1;
+    if (g_ctrlThreads > 64) g_ctrlThreads = 64;
+    printf("구동 스레드: %d  (STRESS_CTRL_THREADS 로 조절)\n", g_ctrlThreads);
+    fflush(stdout);
+
+    std::vector<std::thread> controls;
+    for (int i = 0; i < g_ctrlThreads; ++i)
+        controls.emplace_back(ControlThread, i, g_ctrlThreads);
+
     std::thread connector(ConnectorThread);   // 접속 전담(이동 구동과 분리)
 
     // 메인: 1초마다 통계 출력
@@ -1055,7 +1130,7 @@ int main(int argc, char** argv)
     }
 
     // (도달하지 않음) 정리
-    control.join();
+    for (auto& c : controls) c.join();
     connector.join();
     for (auto& w : workers) w.join();
     WSACleanup();

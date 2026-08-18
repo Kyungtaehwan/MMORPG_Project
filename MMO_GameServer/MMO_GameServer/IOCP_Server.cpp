@@ -210,8 +210,14 @@ void CIOCP_Server::WorkerThread()
         ULONG_PTR   ulKey = 0;
         OVERLAPPED* pOver = nullptr;
 
+        // 이 호출이 얼마나 기다렸는지 잰다. 곧바로 돌아왔다면 완료가 이미 큐에
+        // 쌓여 있었다는 뜻이고, 그건 핸들러 시간에는 절대 나타나지 않는 적체다.
+        const int64_t nGqcsStart = StressMetrics::Now();
+
         BOOL bResult = GetQueuedCompletionStatus(
             m_hIOCP, &dwNumOfBytes, &ulKey, &pOver, INFINITE);
+
+        StressMetrics::RecordGqcs(StressMetrics::ElapsedUs(nGqcsStart));
 
         CIOEvent* pIOEvent = reinterpret_cast<CIOEvent*>(pOver);
 
@@ -515,6 +521,9 @@ void CIOCP_Server::DebugConsoleThread()
 
         // ---- AOI(GetNearPlayers) 계측 : 섹터 AOI 개선 전/후 비교 핵심 지표 ----
         StressMetrics::AoiSnapshot aoi = StressMetrics::SnapshotAoiAndReset();
+
+        // ---- 워커 큐 포화도 + 송신 큐 적체 : "서버가 여유롭다"를 검증하는 지표 ----
+        StressMetrics::WorkerSnapshot wk = StressMetrics::SnapshotWorkerAndReset();
         double aoiCps   = aoi.calls / dtSec;                                   // 초당 호출
         double aoiAvgUs = aoi.calls ? (double)aoi.sumUs / aoi.calls : 0.0;     // 1회당 us
         double aoiScan  = aoi.calls ? (double)aoi.sumScanned / aoi.calls : 0.0;// 1회당 순회 N
@@ -648,6 +657,22 @@ void CIOCP_Server::DebugConsoleThread()
         Line("       락대기 " + Num(lockMsPs / 10.0, 1) + "%코어"
              + "  (AOI 시간의 " + Num(aoi.sumUs ? (100.0 * aoi.lockUs / aoi.sumUs) : 0.0, 1) + "%)"
              + "   1회 " + Num(aoi.calls ? (double)aoi.lockUs / aoi.calls : 0.0, 1) + "us");
+        Line(barSingle);
+        //  큐적체 = 워커가 완료를 꺼낼 때 이미 큐에 쌓여 있던 비율.
+        //           낮으면 서버는 놀고 있다(= 병목이 서버 밖). 높으면 서버가 밀리는 중.
+        //  송신큐 = 상대가 못 받아 서버 쪽에 쌓인 깊이. 부하 생성기 포화의 직접 증거.
+        {
+            const double busyPct = wk.gqcsCalls
+                ? (100.0 * wk.gqcsBusy / wk.gqcsCalls) : 0.0;
+            const double waitAvg = wk.gqcsWaitN
+                ? ((double)wk.gqcsWaitUs / wk.gqcsWaitN / 1000.0) : 0.0;
+            Line(" 큐적체 " + Num(busyPct, 1) + "%"
+                 + "   (완료 " + std::to_string(wk.gqcsCalls) + " 건, 평균 대기 "
+                 + Num(waitAvg, 2) + "ms)");
+            Line(" 송신큐 최대 " + std::to_string(wk.sendQMax) + " 건"
+                 + "   적체(>" + std::to_string(StressMetrics::SENDQ_WARN) + ") "
+                 + std::to_string(wk.sendQOver) + " 회");
+        }
         Line(barSingle);
 
 

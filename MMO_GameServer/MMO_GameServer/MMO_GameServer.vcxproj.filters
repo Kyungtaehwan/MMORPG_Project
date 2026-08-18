@@ -67,6 +67,12 @@
     <Filter Include="Network_Level\03.DB_Manager\Log">
       <UniqueIdentifier>{e02e57d4-ce34-41e2-9d9b-79ba4793590e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Network_Level\05.AllocCounter">
+      <UniqueIdentifier>{717d44d2-edfc-4806-98f5-0278d10676d0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Network_Level\06.SendBuffer">
+      <UniqueIdentifier>{d0c54f44-f35e-47a7-a0e8-80317dcd5b0f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MainServer.cpp">
@@ -116,6 +122,9 @@
     </ClCompile>
     <ClCompile Include="nanodbc.cpp">
       <Filter>99.Etc\nanodbc</Filter>
+    </ClCompile>
+    <ClCompile Include="AllocCounter.cpp">
+      <Filter>Network_Level\05.AllocCounter</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -184,6 +193,12 @@
     </ClInclude>
     <ClInclude Include="GameLog.h">
       <Filter>Network_Level\03.DB_Manager\Log</Filter>
+    </ClInclude>
+    <ClInclude Include="AllocCounter.h">
+      <Filter>Network_Level\05.AllocCounter</Filter>
+    </ClInclude>
+    <ClInclude Include="SendBuffer.h">
+      <Filter>Network_Level\06.SendBuffer</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
