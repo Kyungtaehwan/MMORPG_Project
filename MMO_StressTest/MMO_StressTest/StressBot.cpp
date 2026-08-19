@@ -1,28 +1,9 @@
-﻿
-//=================================================================
-//   - 우리 헤더는 PacketHeader{uint16 size; uint16 id}
-//   - 로그인은 id="bot_<n>" 로 보내면 서버가 STRESS_TEST 빌드에서 DB 없이 입장시킴
-//   - 좌표는 float 아이소, 플레이어 속도 1타일/초(서버 해킹검증 허용오차 2타일)
-//   - moveTime = QPC 기반 uint32 ms 스탬프. 서버는 해석하지 않고 브로드캐스트에
-//     그대로 복사해 돌려주므로(Zone.cpp) 이 값이 곧 왕복 측정용 도장이다.
-//
-//  측정(콘솔, 1초 주기):
-//   - 접속 봇 수, 초당 송신/수신 패킷(pps), 수신 KB/s
-//   - 지연은 SC_MOVE_PLAYER 의 moveTime 으로 재되, 반드시 두 가지를 갈라서 낸다.
-//       왕복(self)  : 내가 보낸 이동이 서버를 돌아 나에게 온 시간.
-//                     SLO(왕복 p99 <= 100ms) 판정과 램프 제어는 이것만 쓴다.
-//       전파(bcast) : 남이 움직인 걸 내가 보기까지 걸린 시간. 참고 지표.
-//     예전엔 둘을 섞어 한 통에 넣었는데, SC_MOVE_PLAYER 의 대부분이 브로드캐스트라
-//     통계가 사실상 전파시간이었다(= 교수님 기준과 다른 값을 비교하고 있었다).
-//
-//  서버측 순수 처리지연(p50/p99)·워커별 건수는 서버 콘솔에서 따로 본다.
-// ================================================================
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
-#include <timeapi.h>        // timeBeginPeriod - sleep 해상도 (아래 main 참고)
+#include <timeapi.h>     
 #pragma comment(lib, "winmm.lib")
 #include <cstdio>
 #include <cstdint>
@@ -321,10 +302,6 @@ static void RecordLatencyBroadcast(uint32_t moveTime)
 }
 
 // ---- 지연 통계 스냅샷 + 리셋 ----
-//  버킷을 exchange(0) 하므로 "직전 구간"의 통계가 된다.
-//  주의: 백분위수는 여기서 구간마다 새로 계산된다. 여러 구간의 p99 를 평균내는 건
-//        통계적으로 의미가 없다 - 측정창 전체 p99 가 필요하면 버킷을 창 내내
-//        누적한 뒤 마지막에 한 번만 계산해야 한다.
 struct LatSnap
 {
     uint64_t n;
