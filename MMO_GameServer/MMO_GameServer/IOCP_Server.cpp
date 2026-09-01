@@ -79,7 +79,7 @@ bool CIOCP_Server::Start(uint16_t nPort)
 
 void CIOCP_Server::Run()
 {
-
+    
     for (auto& t : m_workerThreads)
         t.join();
 }
@@ -87,7 +87,7 @@ void CIOCP_Server::Run()
 bool CIOCP_Server::InitIOCP()
 {
     m_hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
-    if (m_hIOCP == INVALID_HANDLE_VALUE)
+    if (m_hIOCP == NULL)
     {
         std::cout << "[CIOCPServer] IOCP 생성 실패" << std::endl;
         return false;
@@ -107,6 +107,7 @@ bool CIOCP_Server::InitSocket(uint16_t nPort)
 
     // 개발 단계에서 서버 재시작시 OS가 포트를 붙잡아 bind 거부되는 상황을 막기위해 붙잡는 상태에서도 Bind 허용 옵션 설정
     BOOL bReuseAddr = TRUE;
+
     setsockopt(m_listenSocket, SOL_SOCKET, SO_REUSEADDR,
         reinterpret_cast<const char*>(&bReuseAddr), sizeof(bReuseAddr));
 

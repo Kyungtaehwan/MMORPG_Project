@@ -165,7 +165,7 @@ bool CDB_Manager::Init()
 // ----------------------------------------------------------------
 //  Login : sp_login(id, pw) 호출 - 결과셋 3개 파싱
 //   결과셋1 character  : 성공 시 1행(없으면 인증 실패)
-//   결과셋2 inventory  : 아이템 행들 - out.inven[]
+//   결과셋2 inventory  : 아이템 행들 - DB slot 그대로 out.inven[slot]
 //   결과셋3 equipment  : 장착 행들   - out.equip[]
 // ----------------------------------------------------------------
 bool CDB_Manager::Login(const char* id, const char* pw, FAccountData& out)
@@ -198,15 +198,19 @@ bool CDB_Manager::Login(const char* id, const char* pw, FAccountData& out)
         // ---- 결과셋2: inventory (slot, item_code, count) ----
         if (r.next_result())
         {
-            int idx = 0;
-            while (r.next() && idx < 15)   // inven[16] 중 마지막 칸은 종료표식용
+            while (r.next())
             {
-                out.inven[idx].code  = r.get<int>(1);   // item_code
-                out.inven[idx].count = r.get<int>(2);   // count
-                ++idx;
+                const int slot  = r.get<int>(0);
+                const int code  = r.get<int>(1);
+                const int count = r.get<int>(2);
+
+                // 잘못된 DB 행은 플레이어 메모리를 오염시키지 않고 무시한다.
+                if (slot < 0 || slot >= ACCOUNT_INVEN_SIZE) continue;
+                if (code <= 0 || count <= 0) continue;
+
+                out.inven[slot].code  = code;
+                out.inven[slot].count = count;
             }
-            out.inven[idx].code  = 0;   // code==0 - 목록 끝
-            out.inven[idx].count = 0;
         }
 
         // ---- 결과셋3: equipment (slot, item_code) ----

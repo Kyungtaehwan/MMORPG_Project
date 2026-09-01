@@ -113,9 +113,11 @@ void CUI_QuickSlot::Render_Slots(ID2D1RenderTarget* pRT)
                 CItemData* pIt = m_pPlayer->Get_Inventory()->Get_Item(j);
                 if (pIt && pIt->Get_ItemCode() == m_aSlotCode[i])
                 {
-                    pItem = pIt;
-                    iCount = m_pPlayer->Get_Inventory()->Get_StackCount(j);
-                    break;
+                    // 아이콘은 첫 번째 스택의 아이템을 사용하고,
+                    // 표시 수량은 같은 코드의 모든 인벤 슬롯을 합산한다.
+                    if (!pItem)
+                        pItem = pIt;
+                    iCount += m_pPlayer->Get_Inventory()->Get_StackCount(j);
                 }
             }
 

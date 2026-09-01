@@ -113,10 +113,17 @@ void CPacket_Handler::Handle_CS_LOGIN(std::shared_ptr<CSession> pSession,
     // 풀피 상태로 입장한다(SetLevelExp 내부에서 ApplyLevelStats + 회복).
     pPlayer->SetLevelExp(pAcc->level, pAcc->exp);
     pPlayer->m_gold = pAcc->gold;
-    for (const FSaveItem& it : pAcc->inven)
+    static_assert(CPlayer::INVEN_SIZE == ACCOUNT_INVEN_SIZE,
+        "Account login inventory size must match CPlayer inventory size");
+    for (int i = 0; i < CPlayer::INVEN_SIZE; ++i)
     {
-        if (it.code == 0) break;
-        pPlayer->AddItem(it.code, it.count);
+        const FSaveItem& it = pAcc->inven[i];
+        if (it.code <= 0 || it.count <= 0) continue;
+
+        // AddItem()은 빈 슬롯을 앞에서부터 찾으므로 DB 슬롯을 보존할 수 없다.
+        // 로그인 직후의 새 플레이어에 실제 슬롯과 수량을 그대로 복원한다.
+        pPlayer->m_invenCode[i]  = it.code;
+        pPlayer->m_invenCount[i] = it.count;
     }
     for (int i = 0; i < CPlayer::EQUIP_SLOTS; ++i)
         pPlayer->m_equipCode[i] = pAcc->equip[i];

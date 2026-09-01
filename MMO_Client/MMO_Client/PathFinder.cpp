@@ -388,7 +388,7 @@ std::pair<float, float> CPathFinder::FindCornerPoint(
     float fNX = fDX / fDist;
     float fNZ = fDZ / fDist;
 
-    float fStep = 0.1f;
+    float fStep = 0.1f; 
     float fT = 0.f;
     int32_t lastBlockX = -1, lastBlockZ = -1;
 

@@ -51,29 +51,55 @@ bool CPlayer::AddItem(int32_t nCode, int32_t nAmount)
     int category = nCode / 1000;
     bool bStackable = (category == 1 || category == 2 || category == 4);
 
-    if (bStackable)
+    // 일부만 넣고 나머지가 사라지는 일을 막기 위해 전체 공간을 먼저 확인한다.
+    // m_saveLock은 recursive_mutex이므로 같은 락을 사용하는 CanAddItem 호출이 가능하다.
+    if (!CanAddItem(nCode, nAmount)) return false;
+
+    // 요청 수량을 하나씩 배치한다. 스택 아이템은 99 미만인 기존 슬롯을
+    // 먼저 채우고, 모두 찼으면 다음 빈 슬롯에서 새 스택을 시작한다.
+    for (int32_t n = 0; n < nAmount; ++n)
     {
-        for (int i = 0; i < INVEN_SIZE; ++i)
+        int32_t nTargetSlot = -1;
+
+        if (bStackable)
         {
-            if (m_invenCode[i] == nCode && m_invenCount[i] < 99)
+            for (int i = 0; i < INVEN_SIZE; ++i)
             {
-                m_invenCount[i] += nAmount;
-                if (m_invenCount[i] > 99) m_invenCount[i] = 99;
-                return true;
+                if (m_invenCode[i] == nCode && m_invenCount[i] < 99)
+                {
+                    nTargetSlot = i;
+                    break;
+                }
             }
+        }
+
+        if (nTargetSlot < 0)
+        {
+            for (int i = 0; i < INVEN_SIZE; ++i)
+            {
+                if (m_invenCode[i] == 0)
+                {
+                    nTargetSlot = i;
+                    break;
+                }
+            }
+        }
+
+        // 위의 CanAddItem 검사를 통과했으므로 정상적으로는 발생하지 않는다.
+        if (nTargetSlot < 0) return false;
+
+        if (m_invenCode[nTargetSlot] == 0)
+        {
+            m_invenCode[nTargetSlot] = nCode;
+            m_invenCount[nTargetSlot] = 1;
+        }
+        else
+        {
+            ++m_invenCount[nTargetSlot];
         }
     }
 
-    for (int i = 0; i < INVEN_SIZE; ++i)
-    {
-        if (m_invenCode[i] == 0)
-        {
-            m_invenCode[i]  = nCode;
-            m_invenCount[i] = nAmount;
-            return true;
-        }
-    }
-    return false;  // 인벤 가득 참
+    return true;
 }
 
 bool CPlayer::CanAddItem(int32_t nCode, int32_t nAmount) const
@@ -83,14 +109,32 @@ bool CPlayer::CanAddItem(int32_t nCode, int32_t nAmount) const
 
     int category = nCode / 1000;
     bool bStackable = (category == 1 || category == 2 || category == 4);
+
+    int64_t nCapacity = 0;
     if (bStackable)
+    {
         for (int i = 0; i < INVEN_SIZE; ++i)
-            if (m_invenCode[i] == nCode && m_invenCount[i] < 99)
-                return true;                      // 기존 스택에 더 담을 수 있음
-    for (int i = 0; i < INVEN_SIZE; ++i)
-        if (m_invenCode[i] == 0)
-            return true;                          // 빈 슬롯 있음
-    return false;
+        {
+            if (m_invenCode[i] == nCode)
+            {
+                if (m_invenCount[i] < 99)
+                    nCapacity += 99 - m_invenCount[i];
+            }
+            else if (m_invenCode[i] == 0)
+            {
+                nCapacity += 99;
+            }
+        }
+    }
+    else
+    {
+        // 장비 등 비스택 아이템은 하나당 빈 슬롯 하나가 필요하다.
+        for (int i = 0; i < INVEN_SIZE; ++i)
+            if (m_invenCode[i] == 0)
+                ++nCapacity;
+    }
+
+    return nCapacity >= nAmount;
 }
 
 bool CPlayer::SetQuickSlot(int32_t nSlot, int32_t nCode)
@@ -326,7 +370,9 @@ void CPlayer::GetCurrentPos(uint32_t nCurrentTime, float& fOutX, float& fOutZ) c
 
     float fDX = m_fDestX - m_fMoveStartX;
     float fDZ = m_fDestZ - m_fMoveStartZ;
+    //목적지까지의 직선거리.
     float fDist = sqrtf(fDX * fDX + fDZ * fDZ);
+
 
     if (fDist < 0.001f)
     {
@@ -347,7 +393,7 @@ void CPlayer::GetCurrentPos(uint32_t nCurrentTime, float& fOutX, float& fOutZ) c
         return;
     }
 
-    // 시작위치 + 방향 * 이동거리
+    // 시작위치 + 방향(단위 벡터의 각 성분) * 이동거리
     fOutX = m_fMoveStartX + (fDX / fDist) * fMoved;
     fOutZ = m_fMoveStartZ + (fDZ / fDist) * fMoved;
 }

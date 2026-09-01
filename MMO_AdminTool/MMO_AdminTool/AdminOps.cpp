@@ -491,6 +491,56 @@ bool DoPitr(const std::string& dbDir, const std::string& rootPassword,
         return false;
     }
 
+    // 백업 기준 파일부터 현재 보관 중인 마지막 파일까지 모두 모은다.
+    // binlog 파일명은 같은 접두사 뒤에 고정 길이 번호가 붙으므로
+    // 파일명 오름차순이 곧 재생 순서다. (.index 같은 파일은 길이로 제외한다.)
+    std::vector<fs::path> binPaths;
+    const size_t dot = chosen->binlogFile.rfind('.');
+    const std::string binPrefix = (dot == std::string::npos)
+        ? chosen->binlogFile
+        : chosen->binlogFile.substr(0, dot + 1);
+
+    for (const auto& entry : fs::directory_iterator(binDir, ec))
+    {
+        if (!entry.is_regular_file(ec)) continue;
+
+        const std::string name = PathU8(entry.path().filename());
+        if (name.size() != chosen->binlogFile.size()) continue;
+        if (name.rfind(binPrefix, 0) != 0) continue;
+        if (!std::all_of(name.begin() + binPrefix.size(), name.end(),
+                         [](char c) { return c >= '0' && c <= '9'; })) continue;
+        if (name < chosen->binlogFile) continue;
+
+        binPaths.push_back(entry.path());
+    }
+
+    std::sort(binPaths.begin(), binPaths.end(),
+              [](const fs::path& a, const fs::path& b)
+              {
+                  return a.filename().wstring() < b.filename().wstring();
+              });
+
+    if (binPaths.empty() || PathU8(binPaths.front().filename()) != chosen->binlogFile)
+    {
+        std::cout << "  백업 기준 binlog부터 이어지는 파일 목록을 만들 수 없다.\n";
+        ClearMysqlPassword();
+        return false;
+    }
+
+    for (size_t i = 1; i < binPaths.size(); ++i)
+    {
+        const std::string prev = PathU8(binPaths[i - 1].filename()).substr(binPrefix.size());
+        const std::string curr = PathU8(binPaths[i].filename()).substr(binPrefix.size());
+        if (std::atoll(curr.c_str()) != std::atoll(prev.c_str()) + 1)
+        {
+            std::cout << "  binlog 파일이 중간에 빠져 있어 안전하게 복구할 수 없다.\n";
+            ClearMysqlPassword();
+            return false;
+        }
+    }
+
+    std::cout << "  [binlog] " << binPaths.size() << "개 파일을 순서대로 확인한다.\n";
+
     // ---- 재생할 SQL 뽑아내기 ----
     //
     //  ★ --database=mmorpg 가 여기서 가장 중요한 옵션이다.
@@ -506,8 +556,9 @@ bool DoPitr(const std::string& dbDir, const std::string& rootPassword,
         << " --database=mmorpg"
         << " --start-position=" << chosen->binlogPos
         << " --stop-datetime=\"" << stopDateTime << "\""
-        << " --result-file=\"" << PathU8(replay) << "\""
-        << " \"" << PathU8(binPath) << "\"";
+        << " --result-file=\"" << PathU8(replay) << "\"";
+    for (const auto& path : binPaths)
+        gen << " \"" << PathU8(path) << "\"";
 
     std::cout << "  [재생파일] " << PathU8(replay) << "\n";
     if (RunCommand(gen.str()) != 0)
@@ -530,8 +581,9 @@ bool DoPitr(const std::string& dbDir, const std::string& rootPassword,
             << " --stop-datetime=\"" << stopDateTime << "\""
             << " --base64-output=DECODE-ROWS"
             << " --verbose"
-            << " --result-file=\"" << PathU8(human) << "\""
-            << " \"" << PathU8(binPath) << "\"";
+            << " --result-file=\"" << PathU8(human) << "\"";
+        for (const auto& path : binPaths)
+            dec << " \"" << PathU8(path) << "\"";
         RunCommand(dec.str());
     }
 

@@ -122,32 +122,46 @@ int32_t CZone::SectorIndexOf(int32_t nTileX, int32_t nTileZ) const
 // 현재 타일에 맞는 섹터로 이동. 섹터가 안 바뀌면 락 X
 void CZone::UpdatePlayerSector(PlayerRef pPlayer)
 {
+    //현재 위치한 타일로 색터 재계산
     const int32_t nNew = SectorIndexOf(pPlayer->m_nTileX, pPlayer->m_nTileZ);
     const int32_t nOld = pPlayer->m_nSectorIdx;
+    //기존 섹터 그대로면 리턴
     if (nNew == nOld) return;
 
+    //섹터가 달라진경우니까 락
     WRITE_LOCK(m_zoneLock);
 
     // 이 존 소속일 때만 섹터에 넣는다.
     if (m_playerIDs.find(pPlayer->m_nPlayerID) == m_playerIDs.end())
         return;
 
+    //nOld 섹터가 섹터내에 있는 섹터인지 계산하고 플레이어를 섹터에서 지움
     if (nOld >= 0 && nOld < static_cast<int32_t>(m_sectors.size()))
         m_sectors[nOld].erase(pPlayer->m_nPlayerID);
+    //뉴 섹터에 플레이어 넣음
     if (nNew >= 0)
         m_sectors[nNew].insert(pPlayer->m_nPlayerID);
+    //플레이어 섹터를 갱신
     pPlayer->m_nSectorIdx = nNew;
 }
 
 void CZone::CollectPlayersNear(int32_t nTileX, int32_t nTileZ, int32_t nRange,
                                std::vector<int32_t>& outIDs)
 {
+    //후보자 벡터 비워줌
     outIDs.clear();
 
     // 반경이 걸치는 섹터 범위를 좌표에서 직접 구함
+
+    //시야가 걸치는 가장 왼쪽 섹터
     int32_t sxMin = (nTileX - nRange) / SECTOR_SIZE;
+    //시야가 걸치는 가장 오른쪽 섹터
     int32_t sxMax = (nTileX + nRange) / SECTOR_SIZE;
+
+    //시야가 걸치는 가장 위쪽 섹터
     int32_t szMin = (nTileZ - nRange) / SECTOR_SIZE;
+
+    //시야가 걸치는 가장 아래쪽 섹터
     int32_t szMax = (nTileZ + nRange) / SECTOR_SIZE;
 
     // C++ 정수 나눗셈은 음수를 0 방향으로 자르지만(floor 아님),
@@ -167,6 +181,7 @@ void CZone::CollectPlayersNear(int32_t nTileX, int32_t nTileZ, int32_t nRange,
     {
         for (int32_t sx = sxMin; sx <= sxMax; ++sx)
         {
+            //인접 섹터를 돌면서 현재 섹터의 플레이어들을 후보에 넣음
             const auto& sector = m_sectors[sz * m_nSectorCountX + sx];
             outIDs.insert(outIDs.end(), sector.begin(), sector.end());
         }
@@ -559,9 +574,11 @@ void CZone::OnMovePos(PlayerRef pPlayer,
     static thread_local std::vector<int32_t> vOldView;
     {
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
+        //기존 시야 리스트를 백업한다.(pPlayer->m_viewList에는 지금까지 이 플레이어가 보고 있던 다른 플레이어 ID들이 들어 있다.)
         vOldView.assign(pPlayer->m_viewList.begin(), pPlayer->m_viewList.end());
     }
 
+    //쓰레드마다 재사용하는 새로운 시야리스트를 확인
     static thread_local std::vector<int32_t> vNewView;
     GetNearPlayers(pPlayer, vNewView);
 
@@ -570,12 +587,16 @@ void CZone::OnMovePos(PlayerRef pPlayer,
     std::sort(vNewView.begin(), vNewView.end());
 
     {
+
+        //이제 락을 잡고 플레이어의 view리스트를 쓸거다.
+        //현재 newview리스트는 정렬되어있다.
         std::lock_guard<std::mutex> lock(pPlayer->m_viewLock);
         pPlayer->m_viewList.clear();
         for (int32_t nID : vNewView)
             pPlayer->m_viewList.insert(nID);   // 정렬 입력이라 항상 끝에 붙는다
     }
 
+    //old뷰 -> 플레이어 이전 시야, new뷰 -> 플레이어 지금 시야
     UpdateViewAndBroadcast(pPlayer, vOldView, vNewView, nMoveTime);
     UpdateMonsterView(pPlayer);
 }
@@ -681,6 +702,7 @@ void CZone::GetNearPlayers(PlayerRef pPlayer, std::vector<int32_t>& vResult)
 
 bool CZone::CanSee(PlayerRef pA, PlayerRef pB)
 {
+    //타일별 뷰레인지 계산 후 조회
     int32_t nDX = abs(pA->m_nTileX - pB->m_nTileX);
     int32_t nDZ = abs(pA->m_nTileZ - pB->m_nTileZ);
     return nDX <= VIEW_RANGE && nDZ <= VIEW_RANGE;
@@ -748,12 +770,14 @@ void CZone::UpdateViewAndBroadcast(PlayerRef pPlayer,
     size_t i = 0, j = 0;
     while (i < vOldView.size() && j < vNewView.size())
     {
-        if      (vOldView[i] < vNewView[j]) { OnLeave(vOldView[i]); ++i; }      //이탈
-        else if (vNewView[j] < vOldView[i]) { OnEnter(vNewView[j]); ++j; }      //진입
-        else                                { OnStay (vOldView[i]); ++i; ++j; } //유지
+        if      (vOldView[i] < vNewView[j]) { OnLeave(vOldView[i]); ++i; }      //작은 ID가 old에는 있고 new에는 없다 -> 이탈
+        else if (vNewView[j] < vOldView[i]) { OnEnter(vNewView[j]); ++j; }      //작은 ID가 New에는 있고 Old에는 없다 -> 진입 
+        else                                { OnStay (vOldView[i]); ++i; ++j; } //둘 다 그대로 있다. -> 유지
     }
-    while (i < vOldView.size()) { OnLeave(vOldView[i]); ++i; }
-    while (j < vNewView.size()) { OnEnter(vNewView[j]); ++j; }
+    //이후 둘 중 하나의 리스트가 끝까지 도달.
+
+    while (i < vOldView.size()) { OnLeave(vOldView[i]); ++i; }                  //i가 남았다 -> 이는 모두 이탈한 플레이어
+    while (j < vNewView.size()) { OnEnter(vNewView[j]); ++j; }                  //j가 남았다 -> 이는 모두 추가된 플레이어
 }
 
 // ================================================================
@@ -1620,15 +1644,29 @@ void CZone::OnPlayerAttackMonster(PlayerRef pPlayer,
     // 공격자 모션 브로드캐스트
     Broadcast_PlayerState(pPlayer, PLAYER_ATTACK);
 
-    // HP 감소
-    pMonster->m_nHp -= pPlayer->Get_Atk();
+    // HP 감소 + 막타 선점.
+    // fetch_sub은 차감 직전 값을 반환하므로, 동시에 여러 공격이 들어와도
+    // 양수 HP를 0 이하로 만든 단 한 스레드만 사망 처리를 수행한다.
+    const int32_t nDamage = pPlayer->Get_Atk();
+    const int32_t nOldHp = pMonster->m_nHp.fetch_sub(
+        nDamage, std::memory_order_acq_rel);
+
+    // 이미 다른 공격이 먼저 몬스터를 죽였다. fetch_sub로 내려간 값은
+    // 외부에 음수 HP가 노출되지 않도록 0으로 정리한다.
+    if (nOldHp <= 0)
+    {
+        pMonster->m_nHp.store(0, std::memory_order_relaxed);
+        return;
+    }
+
+    const int32_t nNewHp = nOldHp - nDamage;
 
     SLOG << "[Zone] 몬스터 피격. ID=" << nMonsterID
-        << " HP=" << pMonster->m_nHp
+        << " HP=" << ((nNewHp > 0) ? nNewHp : 0)
         << "/" << pMonster->m_nMaxHp << std::endl;
 
     // 사망 처리 
-    if (pMonster->m_nHp <= 0)
+    if (nNewHp <= 0)
     {
         pMonster->m_nHp = 0;
         pMonster->m_eState = MON_DEAD;

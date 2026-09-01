@@ -13,7 +13,10 @@
 //  DB가 없으므로 매 로그인마다 아래 값 그대로(같은 인벤/골드/위치) 시작한다.
 // ================================================================
 
-struct FSaveItem { int32_t code; int32_t count; };   // code==0 이면 목록 끝
+constexpr int32_t ACCOUNT_INVEN_SIZE = 40;
+
+// 배열 인덱스가 실제 인벤토리 슬롯이다. 빈 슬롯은 {0, 0}으로 둔다.
+struct FSaveItem { int32_t code; int32_t count; };
 
 struct FAccountData
 {
@@ -25,7 +28,7 @@ struct FAccountData
     int32_t     gold;
     int32_t     level;       // 레벨 (1 시작)
     int32_t     exp;         // 현재 레벨에서 쌓은 경험치
-    FSaveItem   inven[16];   // 인벤 아이템 (code==0에서 종료)
+    FSaveItem   inven[ACCOUNT_INVEN_SIZE]; // 슬롯 0~39를 그대로 보존
     int32_t     equip[6];    // 슬롯별 장착 코드 (0=없음), 클라 EQUIP_SLOT 순서
     int32_t     quick[8];    // 퀵슬롯 등록 코드 (0=빈칸), 클라 CUI_QuickSlot 순서
 };

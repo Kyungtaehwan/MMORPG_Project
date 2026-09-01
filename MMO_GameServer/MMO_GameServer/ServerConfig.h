@@ -16,7 +16,7 @@
 
 // 아직 구현 전. 만들 때 이 플래그로 갈라 넣는다.
 #define USE_MEMORY_POOL     DISABLE
-#define USE_SECTOR_AOI      DISABLE
+#define USE_SECTOR_AOI      ENABLE
 
 // 브로드캐스트 시 같은 패킷을 수신자 수만큼 만들지 않고
 // 한 번만 직렬화해 shared_ptr 로 참조만 넘긴다. (SendBuffer.h)프리텐다드 Regular
