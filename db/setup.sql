@@ -1075,24 +1075,25 @@ BEGIN
             --  (2) 남은 만큼은 빈 슬롯에 새로 넣는다.
             --      장비는 한 칸에 1개, 나머지는 한 칸에 99 까지.
             new_slot_loop: WHILE v_left > 0 DO
-                SELECT MIN(s.n) INTO v_slot
-                  FROM (SELECT (a.n + b.n * 10) AS n
-                          FROM (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2
-                                UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
-                                UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8
-                                UNION ALL SELECT 9) a,
-                               (SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2
-                                UNION ALL SELECT 3) b) s
-                 WHERE s.n < c_slots
-                   AND NOT EXISTS (SELECT 1 FROM inventory
-                                    WHERE account_id = p_account AND slot = s.n);
+                --  0번부터 차례대로 확인해서 가장 앞의 빈 슬롯을 찾는다.
+                SET v_slot = 0;
+                find_slot_loop: WHILE v_slot < c_slots DO
+                    IF NOT EXISTS (SELECT 1
+                                     FROM inventory
+                                    WHERE account_id = p_account
+                                      AND slot = v_slot) THEN
+                        LEAVE find_slot_loop;
+                    END IF;
 
-                IF v_slot IS NULL THEN
-                    ROLLBACK;
+                    SET v_slot = v_slot + 1;
+                END WHILE;
+
+                IF v_slot >= c_slots THEN
+                    ROLLBACK; --트랜잭션 전체 롤백(빈 공간이 없음)
                     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'inventory full';
                 END IF;
 
-                SET v_put = IF(v_isequip = 1, 1, LEAST(v_left, c_stack));
+                SET v_put = IF(v_isequip = 1, 1, LEAST(v_left, c_stack)); -- 만약 장비면 한칸 아니면 스택
 
                 INSERT INTO inventory (account_id, slot, item_code, count)
                 VALUES (p_account, v_slot, p_item_code, v_put);

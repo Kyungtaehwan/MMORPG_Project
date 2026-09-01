@@ -580,7 +580,7 @@ void CPlayer::Key_Input(float dt)
 			nEndX, nEndZ,
 			m_tIsoInfo.fWorldX, m_tIsoInfo.fWorldZ,
 			fnIsMovable,
-			EPathMode::CornerBased);
+			EPathMode::AStar);
 
 		// 마지막 웨이포인트를 클릭한 정확한 위치로 교체
 		if (!m_waypoints.empty())

@@ -67,7 +67,9 @@ public:
     int32_t  m_nTileZ = 0;
 
     // ---- 스탯 ----
-    int32_t             m_nHp = 100;
+    // 여러 IOCP 워커가 동시에 공격해도 HP 차감과 막타 판정을 한 연산으로 처리한다.
+    // fetch_sub의 반환값(차감 직전 HP)이 양수이면서, 이번 대미지 이하인 공격만 막타다.
+    std::atomic<int32_t> m_nHp{ 100 };
     int32_t             m_nMaxHp = 100;
     int32_t             m_nAtk = 10;
     int32_t             m_nExpReward = 20;    // 처치 시 주는 경험치 (타입별, Monster_Manager에서 설정)
