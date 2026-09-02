@@ -11,6 +11,19 @@
 #include <cstring>
 #include <cstdlib>
 
+namespace
+{
+    // 드롭으로 재화가 바뀐 직후의 최신 상태를 비동기 저장 큐에 넣는다.
+    void EnqueuePlayerSave(const PlayerRef& pPlayer)
+    {
+        if (!pPlayer) return;
+
+        FSaveSnapshot snap;
+        pPlayer->TakeSnapshot(snap);
+        CDB_Manager::Get_Instance()->EnqueueSave(snap);
+    }
+}
+
 // 부하 테스트 빌드에선 전투/AI 이벤트 로그를 무음
 #ifdef STRESS_TEST
 struct NullSink {
@@ -2134,6 +2147,8 @@ void CZone::OnPlayerPickup(PlayerRef pPlayer, uint32_t nDropId)
         nBalance,
         nullptr,        // target 없음
         szDetail));
+
+    EnqueuePlayerSave(pPlayer);
 
     Broadcast_RemoveDrop(static_cast<int32_t>(nDropId));
     Send_InvenUpdate(pPlayer);
