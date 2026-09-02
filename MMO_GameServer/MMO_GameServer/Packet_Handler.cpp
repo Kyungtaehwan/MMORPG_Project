@@ -10,6 +10,19 @@
 #include "ServerItem.h"
 #include "StressMetrics.h"
 
+namespace
+{
+    // 경제 상태가 바뀐 직후의 최신 상태를 비동기 저장 큐에 넣는다.
+    void EnqueuePlayerSave(const PlayerRef& pPlayer)
+    {
+        if (!pPlayer) return;
+
+        FSaveSnapshot snap;
+        pPlayer->TakeSnapshot(snap);
+        CDB_Manager::Get_Instance()->EnqueueSave(snap);
+    }
+}
+
 void CPacket_Handler::Handle(std::shared_ptr<CSession> pSession,
     uint8_t* pBuffer, int32_t nSize)
 {
@@ -404,6 +417,8 @@ void CPacket_Handler::Handle_CS_USE_ITEM(
             LogType::ITEM_USE, pPlayer->m_szName,
             result.itemCode, -1, 0, pPlayer->GetGold()));
 
+        EnqueuePlayerSave(pPlayer);
+
         pZone->Send_InvenUpdate(pPlayer);  // 수량 차감 반영
         pZone->Send_PlayerHp(pPlayer);     // HP/MP 회복 반영
 
@@ -472,6 +487,8 @@ void CPacket_Handler::Handle_CS_BUY(
         LogType::SHOP_BUY, pPlayer->m_szName,
         pPkt->itemCode, nCount, -nTotal, nBalance));
 
+    EnqueuePlayerSave(pPlayer);
+
     pZone->Send_InvenUpdate(pPlayer);
 }
 
@@ -511,6 +528,8 @@ void CPacket_Handler::Handle_CS_SELL(
     CDB_Manager::Get_Instance()->EnqueueLog(MakeGameLog(
         LogType::SHOP_SELL, pPlayer->m_szName,
         nCode, -nCount, nTotal, nBalance));
+
+    EnqueuePlayerSave(pPlayer);
 
     pZone->Send_InvenUpdate(pPlayer);
 }
@@ -589,6 +608,8 @@ void CPacket_Handler::Handle_CS_AUCTION_REGISTER(
             nullptr, szDetail));
     }
 
+    EnqueuePlayerSave(pPlayer);
+
     pZone->Send_InvenUpdate(pPlayer);
     // 등록 후 목록 갱신은 클라가 재요청(보통 0페이지로 이동해 새 매물 확인).
 }
@@ -656,6 +677,8 @@ void CPacket_Handler::Handle_CS_AUCTION_BUY(
             pPlayer->m_szName, szSold));
     }
 
+    EnqueuePlayerSave(pPlayer);
+
     pZone->Send_InvenUpdate(pPlayer);
     // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
 }
@@ -687,6 +710,8 @@ void CPacket_Handler::Handle_CS_AUCTION_COLLECT(
             0, 0, nGold, nBalance,
             nullptr, szDetail));
     }
+
+    EnqueuePlayerSave(pPlayer);
 
     pZone->Send_InvenUpdate(pPlayer);
     // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
@@ -733,6 +758,8 @@ void CPacket_Handler::Handle_CS_AUCTION_CANCEL(
             aCode, aCount, aGold, nBalance,
             nullptr, szDetail));
     }
+
+    EnqueuePlayerSave(pPlayer);
 
     pZone->Send_InvenUpdate(pPlayer);
     // 경매 목록 갱신은 클라가 현재 탭/페이지/검색으로 재요청(CS_AUCTION_LIST)한다.
